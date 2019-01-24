@@ -17,3 +17,5 @@ B2_dict = load_object(os.path.join(casefiles_folder,'B2_dict.pkl'))
 global_to_local_dict_1 = load_object(os.path.join(casefiles_folder,'global2local_1.pkl'))
 global_to_local_dict_2 = load_object(os.path.join(casefiles_folder,'global2local_2.pkl'))
 dofs_dict = load_object(os.path.join(casefiles_folder,'dofs_dict.pkl'))
+map_dofs = load_object(os.path.join(casefiles_folder,'map_dofs.pkl'))
+K_global = load_object(os.path.join(casefiles_folder,'K_global.pkl'))[0]

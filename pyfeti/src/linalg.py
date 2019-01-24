@@ -20,6 +20,10 @@ import logging
 import numpy as np
 from scipy.sparse import csc_matrix, issparse, linalg as sla
 from scipy import linalg
+import sys
+sys.path.append('../..')
+from pyfeti.src.utils import OrderedSet, Get_dofs, save_object
+
 
 def cholsps(A, tol=1.0e-8):    
     ''' This method return the upper traingular matrix of cholesky decomposition of A.
@@ -300,7 +304,7 @@ def is_null_space(K,v, tol=1.0E-3):
     else:
         return False
 
-class P_inverse():
+class Pesudoinverse():
     ''' This class intend to solve singular systems
     build the null space of matrix operator and also 
     build the inverse matrix operator
@@ -321,10 +325,13 @@ class P_inverse():
         K_pinv : object
         object containg the null space and the inverse operator
     '''
-    def __init__(self):
+    def __init__(self,method='splusps',tolerance=1.0E-8):
         
-        self.solver_opt = 'splusps'
         self.list_of_solvers = ['cholsps','splusps','svd']
+        if method not in self.list_of_solvers:
+            raise('Selection method not avalible, please selection one in the following list :' %(self.list_of_solvers))
+
+        self.solver_opt = method
         self.pinv = None
         self.null_space = np.array([])
         self.free_index = []
@@ -510,32 +517,168 @@ class P_inverse():
 class Matrix():
     '''  Basic matrix class 
     '''
-    def init(self,K,key_dict={}):
-        self.matrix = K
+    counter = 0
+
+    def __init__(self,K,key_dict={},name=None,pseudoinverse_kargs={'method':'svd','tolerance':1.0E-8}):
+        '''
+        pseudoinverse_key_args=(method='splusps',tolerance=1.0E-8)
+        '''
+        Matrix.counter+=1
+        self.id = Matrix.counter
+        self.data = K
         self.key_dict = key_dict
         self.type = None
         self.issingular = None
-        self.kernel = None
-        name = None
-        pass
+        self.prefix = 'K'
+        self.eliminated_id = set()
+        self.psudeoinverve = Pesudoinverse(**pseudoinverse_kargs)
+        self.inverse_computed = False
+        if name is None:
+            self.update_name()
+        else:
+            self.name = name
+    
+    def set_psudeoinverve_alg(self,name):
+        ''' Parameters
+                name : str
+                    name of the pseudoinverse method
+        '''
+        pseudoinverse_key_args = {'method':name}
+        self.psudeoinverve = Pesudoinverse(**pseudoinverse_key_args)
+        self.issingular = None
+
+    def update_name(self):
+        self.name =  self.prefix  + str(self.id)
+
+    @property
+    def shape(self):
+        return self.data.shape
+    
+    @property 
+    def trace(self):
+        return np.trace(self.data)
+    
+    @property 
+    def det(self):
+        return np.linalg.det(self.data)
+    
+    @property
+    def eigenvalues(self):
+        w, v = np.linalg.eig(self.data)
+        return np.sort(w)[::-1]
+
+    def dot(self,x):
+        return K.dot(x)
         
-    def dot(self,x)
-        pass
-        
-    def determinant(self):
-        pass
-     
     def inverse(self):
         pass
         
-    def apply_inverse(self,b, method = 'splusps'):
-        pass
+    @property
+    def kernel(self):
+        ''' compute the kernel of the matrix
+        based on the pseudoinverse algorithm
+        '''
+        if not self.inverse_computed:
+            self.psudeoinverve.compute(self.data)
+            self.inverse_computed = True
+            
+        return self.psudeoinverve.null_space
+
+
+    def apply_inverse(self, b, method = 'splusps'):
+        
+        if not self.inverse_computed:
+            self.psudeoinverve.compute(self.data)
+            self.inverse_computed = True
+    
+        return self.psudeoinverve.pinv(b)
         
     def get_block(self,row_key,column_key):
         pass
      
-    def save_to_file(self,name=None):
-        pass
-    
-    
+    def eliminate_by_identity(self,dof_ids):
+        ''' This function eliminates matrix rows and columns
+        by replacing rows and columns by identity matrix
         
+        [[k11, k12, k13                 [[k11, 0, k13
+          k21, k22, k23]    ->            0, 1,    0]
+          k21, k22, k23]                  k21, 0, k23]]
+
+        Parameters:
+            dof_ids : OrderedSet or a Str
+                if OrderedSet a set of dofs to be eliminated by identity
+                if string a key of self.key_dict which maps to the set of dof 
+                to be eliminated
+
+        return eliminated K matrix
+
+        '''
+        
+        if isinstance(dof_ids,str):
+            dofs = list(self.key_dict[dof_ids])
+        else:
+            dofs = list(dof_ids)
+        
+        if list(dofs)[0] is None:
+            return 
+ 
+        dirichlet_stiffness = self.trace/self.shape[0]       
+        self.data[dofs,:] = 0.0
+        self.data[:,dofs] = 0.0
+        self.data[dofs,dofs] = dirichlet_stiffness
+        self.eliminated_id.update(dofs)
+        return self.data
+        
+        
+    def save_to_file(self,filename=None):
+        if filename is None:
+            filename = self.name + '.pkl'
+            print('Filename is = %s' %filename)
+         
+        save_object(self,filename)
+
+    
+class SparseMatrix(Matrix):
+    '''  Basic matrix class 
+    '''
+    def __init__(self,K,key_dict={}):
+        super().__init__(K,key_dict={})
+
+
+class Vector():
+    counter = 0
+
+    def __init__(self,v,key_dict={},name=None):
+        self.id = Vector.counter
+        self.data = np.array(v)
+        self.key_dict = key_dict
+        self.prefix = 'v'
+        
+        if name is None:
+            self.update_name()
+        else:
+            self.name = name
+    
+    def update_name(self):
+        self.name =  self.prefix  + str(self.id)
+
+    def replace_elements(self,dof_ids,value):
+        '''
+         Parameters:
+            dof_ids : OrderedSet or a Str
+                if OrderedSet a set of dofs will be replace by the value
+                if string a key of self.key_dict which maps to the set of dof 
+                will be replace by the value
+            value : float
+                float to replace the values in the initial array 
+        
+        return a new vnumpy.array
+        '''
+        if isinstance(dof_ids,str):
+            dofs = list(self.key_dict[dof_ids])
+        else:
+            dofs = list(dof_ids)
+
+        self.data[dofs] = value
+        return self.data
+

@@ -3,6 +3,7 @@ import numpy as np
 sys.path.append('../..')
 from pyfeti.src.utils import OrderedSet, Get_dofs, save_object
 from pyfeti.src.linalg import Matrix, Vector
+from pyfeti.src import solvers
 import logging
 
 class FETIsolver():
@@ -37,12 +38,12 @@ class SerialFETIsolver(FETIsolver):
        GGT = manager.assemble_GGT()
        G = manager.assemble_G()
        e = manager.assemble_e()
-       lambda_im = manager.compute_lambda_im()
-       gap_error = manager.apply_F(lambda_im, external_force=True)
+       #lambda_im = manager.compute_lambda_im()
+       #gap_error = manager.apply_F(lambda_im, external_force=True)
 
        lambda_sol,alpha_sol, rk, proj_r_hist, lambda_hist = manager.solve_dual_interface_problem()
-       manager.assemble_solution_dict(lambda_sol,alpha_sol)
-
+       u_dict, lambda_dict, alpha_dict = manager.assemble_solution_dict(lambda_sol,alpha_sol)
+       return Solution(u_dict, lambda_dict, alpha_dict,rk, proj_r_hist, lambda_hist)
         
 class SerialSolverManager():
     def __init__(self):
@@ -84,7 +85,7 @@ class SerialSolverManager():
                 GGT_local_dict = {}
                 for key, B_local in local_problem.B_local.items():
                     local_id, nei_id = key
-                    G = (-B_local.dot(R)).T
+                    G = (nei_id - local_id)*(-B_local.dot(R)).T
                     G_local_dict[key] = G
                     GGT_local_dict[local_id,local_id] = G.dot(G.T)
                     self.course_probrem.update_G_dict(G_local_dict)
@@ -145,51 +146,55 @@ class SerialSolverManager():
         for interface_id in u_dict:
             local_id, nei_id = interface_id
             if nei_id>local_id:
-                gap = u_dict[local_id,nei_id]
+                gap = u_dict[local_id,nei_id] - u_dict[nei_id,local_id]
                 gap_dict[local_id, nei_id] = gap
                 gap_dict[nei_id, local_id] = -gap
         return gap_dict
 
-    def compute_inital_residual(self):
-        pass
-
     def compute_local_GGT_inv(self):
         self.course_probrem.compute_local_GGT_inv()
 
-    def solve_dual_interface_problem(self):
+    def solve_dual_interface_problem(self,algorithm='PCPG'):
         
         lambda_im = self.compute_lambda_im()
         G = self.G
-        GGT_inv = self.GGT
+        GGT_inv = self.GGT_inv
         I = np.eye(self.lambda_size)
-        Projection_action = lambda r :I - self.G.T.dot(self.GGT_inv.dot(self.G.dot(r)))
+        Projection_action = lambda r : (I - G.T.dot(GGT_inv.dot(G))).dot(r)
         F_action = lambda lambda_ker : self.apply_F(lambda_ker)
-        residual = self.apply_F(lambda_im, external_force=True)
-        lampda_ker, rk, proj_r_hist, lambda_hist = PCPG(F_action,residual,Projection_action=None,
+        residual = -self.apply_F(lambda_im, external_force=True)
+
+        method_to_call = getattr(solvers, algorithm)
+
+        lambda_ker, rk, proj_r_hist, lambda_hist = method_to_call(F_action,residual,Projection_action=Projection_action,
                                                          lambda_init=None,
                                                          Precondicioner_action=None,
                                                          tolerance=1.e-10,max_int=500)
 
-        lambda_sol = lambda_im + lampda_ker
+        lambda_sol = lambda_im + lambda_ker
 
-        alpha_sol = GGT_inv.dot(G.dot(self.apply_F(lambda_sol,external_force=True)))
+        alpha_sol = GGT_inv.dot(G.dot(residual - self.apply_F(lambda_ker)))
 
         return lambda_sol,alpha_sol, rk, proj_r_hist, lambda_hist
 
-
-    def apply_F(self, v,  external_force=False):
+    def vector2localdict(self,v,map_dict):
         v_dict = {}
-        for global_index, local_info in self.global2local_lambda_dofs.items():
+        for global_index, local_info in map_dict.items():
             for interface_id in local_info:
                 v_dict[interface_id] = v[np.ix_(global_index)]
-        
+
+        return v_dict
+
+    def apply_F(self, v,  external_force=False):
+       
+        v_dict = self.vector2localdict(v, self.global2local_lambda_dofs)
         gap_dict = self.solve_interface_gap(v_dict,external_force)
         
         d = np.zeros(self.lambda_size)
         for interface_id,global_index in self.local2global_lambda_dofs.items():
-            d[global_index] = gap_dict[interface_id]
+            d[global_index] += gap_dict[interface_id]
 
-        return d
+        return -d
 
     def build_local_to_global_mapping(self):
 
@@ -242,9 +247,23 @@ class SerialSolverManager():
         f_dict = [f1,f2,...,fn]
 
         '''
-        pass
-            
 
+        alpha_dict = {}
+        lambda_dict = {}
+        u_dict = {}
+        for problem_id, local_problem in self.local_problem_dict.items():
+
+            lambda_dict[problem_id] = self.vector2localdict(lambda_sol, self.global2local_lambda_dofs)
+            u_local = local_problem.solve(lambda_dict[problem_id],external_force_bool=True)
+
+            if local_problem.kernel.shape[0]>0:
+                alpha_dict.update(self.vector2localdict(alpha_sol, self.global2local_alpha_dofs))
+                delta_u = local_problem.rigid_body_correction(alpha_dict[problem_id])
+                u_local +=delta_u
+
+            u_dict[problem_id] = u_local
+
+        return u_dict, lambda_dict, alpha_dict 
 
 class ParallelFETIsolver(FETIsolver):
     def __init__(self):
@@ -282,9 +301,11 @@ class LocalProblem():
         self.neighbors_id.sort()
 
     def solve(self, lambda_dict,external_force_bool=False):
-        f = self.f_local.data[:]
+       
         if not external_force_bool:
-            f = 0*f
+            f = np.zeros(self.f_local.data.shape)
+        else:
+            f = np.copy(self.f_local.data)
 
         if lambda_dict is not None:
             # assemble interface and external forces
@@ -292,23 +313,28 @@ class LocalProblem():
                 (local_id,nei_id) = interface_id
                 if local_id!=self.id:
                     interface_id = (nei_id,local_id) 
-                f += (nei_id-local_id)*self.B_local[interface_id].T.dot(f_interface)
+                f -= self.B_local[interface_id].T.dot(f_interface)
         return self.K_local.apply_inverse(f)
 
     def get_interface_dict(self,x):
         interface_dict = {}
         for interface_id, Bij in self.B_local.items():
             (local_id,nei_id) = interface_id
+            #interface_dict[interface_id] = (nei_id-local_id)*Bij.dot(x)
             interface_dict[interface_id] = (nei_id-local_id)*Bij.dot(x)
 
         return interface_dict
 
     def rigid_body_correction(self,alpha):
-        pass
+        return self.get_kernel().dot(alpha)
         
     def primal_interface_solution(self):
         pass
         
+    @property
+    def kernel(self):
+        return self.get_kernel()
+
     def get_kernel(self):
         ''' get the rigid body bases (kernel) of locals
         problem.
@@ -389,110 +415,14 @@ class CourseProblem():
 
     def assemble_e(self,map_dict,length):
         return self.assemble_block_vector(self.e_dict,map_dict,length)
+
+class Solution():
+    def __init__(self,u_dict, lambda_dict, alpha_dict,rk=None, proj_r_hist=None, lambda_hist=None):
+        self.u_dict = u_dict 
+        self.lambda_dict=lambda_dict 
+        self.alpha_dict=alpha_dict
+        self.rk=rk 
+        self.proj_r_hist=proj_r_hist, 
+        self.lambda_hist=lambda_hist
+
         
-def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
-        Precondicioner_action=None,tolerance=1.e-10,max_int=500):
-        ''' This function is a general interface for PCGP algorithms
-
-        argument:
-        F_action: callable function
-        callable function that acts in lambda
-
-        residual: np.array
-        array with initial interface gap
-
-        lambda_init : np.array
-        intial lambda array
-
-        Projection_action: callable function
-        callable function to project the residual
-
-        Precondicioner_action : callable function
-        callable function to atcs as a preconditioner operator
-        in the array w
-
-        tolerance: float
-        convergence tolerance
-
-        max_int = int
-        maximum number of iterations
-
-        return 
-        lampda_pcgp : np.array
-            last lambda
-        rk : np.array
-            last projected residual
-        proj_r_hist : list
-            list of the history of the norm of the projected  residuals
-        lambda_hist : list
-            list of the 
-
-        '''
-         
-        interface_size = len(residual)
-         
-        if lambda_init is None:
-            lampda_pcpg = np.zeros(interface_size)
-        else:
-            lampda_pcpg = lambda_init
-         
-        if Precondicioner_action is None:
-            Precond = np.eye(interface_size,interface_size).dot
-        else:
-            Precond = Precondicioner_action
-
-        if Projection_action is None:
-            P = np.eye(interface_size,interface_size).dot
-        else:
-            P = Projection_action
-            
-        F = F_action
-
-        # initialize variables
-        beta = 0.0
-        yk1 = np.zeros(interface_size)
-        wk1 = np.zeros(interface_size)
-        proj_r_hist = []
-        lambda_hist = []
-        rk = residual
-        for k in range(max_int):
-            wk = P(rk)  # projection action
-            
-            norm_wk = np.linalg.norm(wk)
-            proj_r_hist.append(norm_wk)
-            if norm_wk<tolerance:
-                logging.info('PCG has converged after %i' %(k+1))
-                break
-
-            zk = Precond(wk)
-            yk = P(zk)
-
-            if k>1:
-                beta = yk.T.dot(wk)/yk1.T.dot(wk1)
-            else:
-                pk1 = yk
-
-            pk = yk + beta*pk1
-            Fpk = F(pk)
-            alpha_k = alpha_calc(yk,wk,pk,Fpk)
-            
-            lampda_pcpg = lampda_pcpg + alpha_k*pk
-            lambda_hist.append(lampda_pcpg)
-
-            rk = rk - alpha_k*Fpk
-            
-            # set n - 1 data
-            yk1 = yk[:]
-            pk1 = pk[:]
-            wk1 = wk[:]
-
-        return lampda_pcpg, rk, proj_r_hist, lambda_hist
-
-
-def alpha_calc(yk,wk,pk,Fpk):
-    aux1 = yk.T.dot(wk)
-    aux2 = pk.T.dot(Fpk)
-    
-    alpha = float(aux1/aux2)
-    
-    return alpha

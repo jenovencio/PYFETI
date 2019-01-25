@@ -5,8 +5,8 @@ from unittest import TestCase, main
 from collections import OrderedDict
 from scipy import sparse
 sys.path.append('../..')
-from pyfeti.src.utils import OrderedSet, Get_dofs, save_object
-from pyfeti.src.linalg import Matrix, Vector
+from pyfeti.src.utils import OrderedSet, Get_dofs, save_object, MapDofs
+from pyfeti.src.linalg import Matrix, Vector,  elimination_matrix_from_map_dofs, expansion_matrix_from_map_dofs
 
 
 
@@ -18,27 +18,18 @@ class  Test_FETIsolver(TestCase):
         # mapping global dict to local dict:
         dofs_dict_1 = OrderedDict()
         dofs_dict_2 = OrderedDict()
+        map_obj = MapDofs(map_dofs)
         for key in dofs_dict:
             global_dofs = dofs_dict[key]
-
-            get_global_dof_row_index = lambda global_dof : list(map_dofs[map_dofs['Global_dof_id']==global_dof].index.values.astype(int))
-            row2local_dof = lambda row_id : map_dofs['Local_dof_id'].ix[row_id]
-            row2domain_id = lambda row_id : map_dofs['Domain_id'].ix[row_id]
-            global2local_dof = lambda global_dof : (list(map(row2local_dof,get_global_dof_row_index(global_dof))), list(map(row2domain_id,get_global_dof_row_index(global_dof))))
-
-            def get_local_dof(global_dof, domain_id):
-                local_dofs_list, domain_id_list = global2local_dof(global_dof)
-                try:
-                    return local_dofs_list[domain_id_list.index(domain_id)]
-                except:
-                    return 
-
-            get_dirichlet_local_dofs_1 = OrderedSet(list(map(lambda global_dof : get_local_dof(global_dof,1) , global_dofs)))
-            get_dirichlet_local_dofs_2 = OrderedSet(list(map(lambda global_dof : get_local_dof(global_dof,2) , global_dofs)))
+            get_dirichlet_local_dofs_1 = OrderedSet(list(map(lambda global_dof : map_obj.get_local_dof(global_dof,1) , global_dofs)))
+            get_dirichlet_local_dofs_2 = OrderedSet(list(map(lambda global_dof : map_obj.get_local_dof(global_dof,2) , global_dofs)))
 
             dofs_dict_1[key] = get_dirichlet_local_dofs_1
             dofs_dict_2[key] = get_dirichlet_local_dofs_2
 
+
+        L = elimination_matrix_from_map_dofs(map_dofs)
+        Lexp = expansion_matrix_from_map_dofs(map_dofs)
 
         K1obj = Matrix(K1,dofs_dict_1)
         K1obj.eliminate_by_identity('dirichlet')
@@ -54,10 +45,18 @@ class  Test_FETIsolver(TestCase):
         f_global = Vector(K_global_obj.shape[0]*[0.0],dofs_dict,name='f_global')
 
         f1.replace_elements('neu_x',1E6)
-        f1.replace_elements('neu_y',1E3)
-        f_global.replace_elements('neu_x',1E6)
-        f_global.replace_elements('neu_y',1E3)
+        f1.data[12] = 249999.99999935
+        f1.data[16] = 250000.00000065
+        f1.data[14] = 500000
+        #f1.replace_elements('neu_y',1E3)
+        #f_global.replace_elements('neu_x',1E6)
+        f_global.data[2] = 249999.99999935
+        f_global.data[4] = 250000.00000065
+        f_global.data[14] = 500000
 
+        #f_global.replace_elements('neu_y',1E3)
+
+        u_global = np.linalg.solve(K_global_obj.data,f_global.data)
 
         K_dict = {}
         K_dict[1] = K1obj.data
@@ -72,8 +71,23 @@ class  Test_FETIsolver(TestCase):
         f_dict[2] = f2
 
         solver_obj  = SerialFETIsolver(K_dict,B_dict,f_dict)
-        solver_obj.solve()
-        
+        sol_obj = solver_obj.solve()
+
+        u_dual = np.array([])
+        u_dict  = sol_obj.u_dict
+        lambda_dict = sol_obj.lambda_dict
+        alpha_dict = sol_obj.alpha_dict
+        domain_list = list(K_dict.keys())
+        domain_list.sort()
+        for domain_id in domain_list:
+            u_dual = np.append(u_dual,u_dict[domain_id])
+
+        u_primal = L.dot(u_dual)
+        u_dual_calc = Lexp.dot(u_global)
+
+        interface_gap = B_dict[1][1,2]*u_dict[1] + B_dict[2][2,1]*u_dict[2]
+
+        x = 1
 
 if __name__=='__main__':
 

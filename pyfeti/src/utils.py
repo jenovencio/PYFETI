@@ -252,6 +252,72 @@ class SelectionOperator():
         B[np.arange(len(local_id)), local_id ] = 1
         return B
 
+class MapDofs():
+    def __init__(self,map_dofs):
+        '''
+        map_dofs as pandas dataframe
+        '''
+        self.map_dofs = map_dofs
+   
+    def get_global_dof_row_index(self,global_dof):
+        return list(self.map_dofs[self.map_dofs['Global_dof_id']==global_dof].index.values.astype(int))
+    
+    def row2local_dof(self,row_id):
+        return self.map_dofs['Local_dof_id'].ix[row_id]
+        
+    def row2domain_id(self,row_id):
+        return self.map_dofs['Domain_id'].ix[row_id]
+    
+    def global_dofs_length(self):
+        return max(self.map_dofs['Global_dof_id']) + 1
+    
+    def local_dofs_length(self,domain_id=None):
+        if domain_id is None:
+            return len(self.map_dofs['Local_dof_id'])
+        else:
+            return len(self.map_dofs[self.map_dofs['Domain_id']==domain_id]['Domain_id'])
+          
+    def global2local_dof(self,global_dof):
+        return (list(map(self.row2local_dof,self.get_global_dof_row_index(global_dof))), 
+                list(map(self.row2domain_id,self.get_global_dof_row_index(global_dof))))
+                
+    def get_local_dof(self, global_dof, domain_id):
+        local_dofs_list, domain_id_list = self.global2local_dof(global_dof)
+        if domain_id in  domain_id_list:
+            local_dofs = local_dofs_list[domain_id_list.index(domain_id)]
+            return local_dofs
+        else:
+            return None
+    
+    def get_domain_rows(self,domain_id):
+        return list(self.map_dofs[self.map_dofs['Domain_id']==domain_id].index.values.astype(int))
+    
+    def local_dof(self,domain_id=None):
+        if domain_id is None:
+            return list(self.map_dofs['Local_dof_id'])
+        else:
+            return self.map_dofs[self.map_dofs['Domain_id']==domain_id]['Local_dof_id']
+         
+    def global_dofs(self,domain_id=None):
+        if domain_id is None:
+            return list(self.map_dofs['Global_dof_id'])
+        else:
+            return list(self.map_dofs[self.map_dofs['Domain_id']==domain_id]['Global_dof_id'])
+        
+    @property
+    def domain_ids(self):
+        return list(self.map_dofs['Domain_id'])
+    
+    @property
+    def get_local_map_dict(self):
+        domain_ids = set(self.domain_ids)
+        local_map_dict = {}
+        for domain_id in domain_ids:
+            local_map_dict[domain_id] = self.local_dof(domain_id)
+        
+        return local_map_dict
+        
+        
 def save_object(obj, filename):
     with open(filename, 'wb') as output:
         pickle.dump(obj, output, pickle.HIGHEST_PROTOCOL)
@@ -267,3 +333,5 @@ if __name__ == '__main__':
     print(s | t)
     print(s & t)
     print(s - t)
+    
+    

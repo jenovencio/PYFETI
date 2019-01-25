@@ -18,11 +18,11 @@ methods:
 
 import logging 
 import numpy as np
-from scipy.sparse import csc_matrix, issparse, linalg as sla
+from scipy.sparse import csc_matrix, issparse, lil_matrix, linalg as sla
 from scipy import linalg
 import sys
 sys.path.append('../..')
-from pyfeti.src.utils import OrderedSet, Get_dofs, save_object
+from pyfeti.src.utils import OrderedSet, Get_dofs, save_object, MapDofs
 
 
 def cholsps(A, tol=1.0e-8):    
@@ -303,6 +303,50 @@ def is_null_space(K,v, tol=1.0E-3):
         return True
     else:
         return False
+
+
+def create_permutation_matrix(row_indexes,col_indexes,shape):
+    ''' create a Permutation matrix based on local id
+    
+    '''
+    P = lil_matrix(shape, dtype=np.int8)
+    P[row_indexes, col_indexes] = 1
+    return P.toarray()
+
+
+
+def map_matrix(map_dofs):
+    map_obj = MapDofs(map_dofs)
+    total_dof_length = map_obj.local_dofs_length()
+    global_dof_lenth = map_obj.global_dofs_length()
+    dof_list = np.arange(total_dof_length)
+    
+    L = np.zeros((global_dof_lenth,total_dof_length)) 
+    domain_list = list(map_obj.get_local_map_dict)
+    for domain_id in domain_list:
+        local_rows = map_obj.get_domain_rows(domain_id)
+        global_rows = map_obj.global_dofs(domain_id)
+        L += create_permutation_matrix(global_rows, local_rows, (global_dof_lenth,total_dof_length))
+
+    return L
+
+def elimination_matrix_from_map_dofs(map_dofs):
+
+    L = map_matrix(map_dofs)
+
+    for i,row in enumerate(L):
+        scale = sum(row)
+        if scale>1.0:
+            L[i,:] = scale*L[i,:]
+    return L
+
+def expansion_matrix_from_map_dofs(map_dofs):
+
+    L = map_matrix(map_dofs)
+ 
+    return L.T
+
+    
 
 class Pesudoinverse():
     ''' This class intend to solve singular systems

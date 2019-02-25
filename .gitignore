@@ -27,4 +27,4 @@ private/
 .spyproject/
 .vs/
 __pycache__/
-
+.egg-info

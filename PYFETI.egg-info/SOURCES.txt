@@ -1,0 +1,7 @@
+README.md
+setup.py
+PYFETI.egg-info/PKG-INFO
+PYFETI.egg-info/SOURCES.txt
+PYFETI.egg-info/dependency_links.txt
+PYFETI.egg-info/requires.txt
+PYFETI.egg-info/top_level.txt

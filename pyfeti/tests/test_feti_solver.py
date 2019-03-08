@@ -18,6 +18,7 @@ class  Test_FETIsolver(TestCase):
         # mapping global dict to local dict:
         dofs_dict_1 = OrderedDict()
         dofs_dict_2 = OrderedDict()
+        self.map_dofs = map_dofs
         map_obj = MapDofs(map_dofs)
         for key in dofs_dict:
             global_dofs = dofs_dict[key]
@@ -28,8 +29,8 @@ class  Test_FETIsolver(TestCase):
             dofs_dict_2[key] = get_dirichlet_local_dofs_2
 
 
-        L = elimination_matrix_from_map_dofs(map_dofs)
-        Lexp = expansion_matrix_from_map_dofs(map_dofs)
+        self.L = L = elimination_matrix_from_map_dofs(map_dofs)
+        self.Lexp = Lexp = expansion_matrix_from_map_dofs(map_dofs)
 
         K1obj = Matrix(K1,dofs_dict_1)
         K1obj.eliminate_by_identity('dirichlet')
@@ -56,7 +57,7 @@ class  Test_FETIsolver(TestCase):
 
         #f_global.replace_elements('neu_y',1E3)
 
-        u_global = np.linalg.solve(K_global_obj.data,f_global.data)
+        self.u_global = u_global = np.linalg.solve(K_global_obj.data,f_global.data)
 
         K_dict = {}
         K_dict[1] = K1obj.data
@@ -70,27 +71,45 @@ class  Test_FETIsolver(TestCase):
         f_dict[1] = f1
         f_dict[2] = f2
 
-        solver_obj  = SerialFETIsolver(K_dict,B_dict,f_dict)
-        sol_obj = solver_obj.solve()
+        self.solver_obj  = solver_obj = SerialFETIsolver(K_dict,B_dict,f_dict)
 
+
+    def test_serial_solver(self):
+
+        solver_obj = self.solver_obj
+        L = self.L
+        Lexp = self.Lexp
+        sol_obj = solver_obj.solve()
         u_dual = np.array([])
         u_dict  = sol_obj.u_dict
         lambda_dict = sol_obj.lambda_dict
         alpha_dict = sol_obj.alpha_dict
-        domain_list = list(K_dict.keys())
+        domain_list = list(solver_obj.K_dict.keys())
         domain_list.sort()
         for domain_id in domain_list:
             u_dual = np.append(u_dual,u_dict[domain_id])
 
+        u_global = self.u_global
         u_primal = L.dot(u_dual)
         u_dual_calc = Lexp.dot(u_global)
 
-        interface_gap = B_dict[1][1,2]*u_dict[1] + B_dict[2][2,1]*u_dict[2]
+        interface_gap = solver_obj.B_dict[1][1,2]*u_dict[1] + solver_obj.B_dict[2][2,1]*u_dict[2]
 
-        x = 1
+        np.testing.assert_almost_equal(interface_gap,0*interface_gap,decimal=7)
+        np.testing.assert_almost_equal(u_global,u_primal,decimal=7)
+        np.testing.assert_almost_equal(u_dual,u_dual_calc,decimal=7)
+
+    def test_elimination_matrix(self):
+        solver_obj = self.solver_obj
+        manager = solver_obj.manager
+        manager.create_local_problems(solver_obj.K_dict,solver_obj.B_dict,solver_obj.f_dict)
+        #B = manager.assemble_global_B_and_L()
+        #L = manager.assemble_global_L()
+        #K_global, f_global = manager.assemble_global_K_and_f()
 
 if __name__=='__main__':
 
-    #main()
-    test_obj = Test_FETIsolver()
-    test_obj.setUp()
+    main()
+    #test_obj = Test_FETIsolver()
+    #test_obj.setUp()
+    #test_obj.test_elimination_matrix()

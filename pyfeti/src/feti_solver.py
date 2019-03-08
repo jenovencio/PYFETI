@@ -1,10 +1,13 @@
 import sys
 import numpy as np
+import scipy
+import pandas as pd
 sys.path.append('../..')
 from pyfeti.src.utils import OrderedSet, Get_dofs, save_object
-from pyfeti.src.linalg import Matrix, Vector
+from pyfeti.src.linalg import Matrix, Vector, elimination_matrix_from_map_dofs, ProjLinearSys, ProjPrecondLinearSys
 from pyfeti.src import solvers
 import logging
+import timeit
 
 class FETIsolver():
     def __init__(self,K_dict,B_dict,f_dict):
@@ -27,10 +30,10 @@ class FETIsolver():
 class SerialFETIsolver(FETIsolver):
     def __init__(self,K_dict,B_dict,f_dict):
         super().__init__(K_dict,B_dict,f_dict)
-
+        self.manager = SerialSolverManager(self.K_dict,self.B_dict,self.f_dict) 
+        
     def solve(self):
-       manager = SerialSolverManager() 
-       manager.create_local_problems(self.K_dict,self.B_dict,self.f_dict)
+       manager = self.manager
        manager.assemble_local_G_GGT_and_e()
        manager.assemble_cross_GGT()
        manager.build_local_to_global_mapping()
@@ -46,25 +49,30 @@ class SerialFETIsolver(FETIsolver):
        return Solution(u_dict, lambda_dict, alpha_dict,rk, proj_r_hist, lambda_hist)
         
 class SerialSolverManager():
-    def __init__(self):
+    def __init__(self,K_dict,B_dict,f_dict):
         self.local_problem_dict = {}
         self.course_probrem = CourseProblem()
         self.local2global_lambda_dofs = {}
         self.global2local_lambda_dofs = {}
         self.local2global_alpha_dofs = {}
         self.global2local_alpha_dofs = {}
+        self.local2global_primal_dofs = {}
+        self.global2local_primal_dofs = {}
         self.local_lambda_length_dict = {}
         self.local_alpha_length_dict = {}
+        self.unique_map = {}
         self.local_problem_id_list = []
         self.lambda_size = None
         self.alpha_size = None
+        self.primal_size = None
         self.e_dict = {}
         self.G = None
         self.e = None
         self.GGT = None
         self.GGT_inv = None
+        self._create_local_problems(K_dict,B_dict,f_dict)
 
-    def create_local_problems(self,K_dict,B_dict,f_dict):
+    def _create_local_problems(self,K_dict,B_dict,f_dict):
         for key, obj in K_dict.items():
             B_local_dict = B_dict[key]
             self.local_problem_id_list.append(key)
@@ -197,10 +205,32 @@ class SerialSolverManager():
         return -d
 
     def build_local_to_global_mapping(self):
+        ''' This method create maps between local domain and the global
+        domain, where the Global is NOT composed by the unique set of a variables.
+     
+        The mapping dictionaries are create for the primal variable (displacement)
+        lambdas, and alphas, where :
 
+        Ku = f + B*lambda + R*alpha
+
+        u -> set of NOT unique primal variables
+        lambda -> set of interface compatibilite multipliers
+        alpha -> a set correction multipliers based on kernel space (R)
+
+        u = u_dual = [u1, u2] -> global set of variables
+        
+        '''
+        dof_primal_init = 0
         dof_lambda_init = 0
         dof_alpha_init = 0
         for local_id in self.local_problem_id_list:
+            local_problem = self.local_problem_dict[local_id]
+            local_primal_dofs = np.arange(local_problem.length) 
+            global_primal_index = dof_primal_init + local_primal_dofs
+            dof_primal_init+= local_problem.length
+            self.local2global_primal_dofs[local_id] = global_primal_index
+            self.global2local_primal_dofs[tuple(global_primal_index)] = {local_id:local_primal_dofs}
+
             if local_id in self.local_alpha_length_dict:
                 local_alpha_length = self.local_alpha_length_dict[local_id]
                 local_alpha_dofs = np.arange(local_alpha_length) 
@@ -208,13 +238,8 @@ class SerialSolverManager():
                 dof_alpha_init+=local_alpha_length
                 self.local2global_alpha_dofs[local_id] = global_alpha_index
                 self.global2local_alpha_dofs[tuple(global_alpha_index)] = {local_id:local_alpha_dofs}
-                #for dof in local_alpha_dofs:
-                    #tuple_key = local_id,dof
-                    #global_key = global_alpha_index[dof]
-                    #self.global2local_alpha_dofs[global_key] = tuple_key
-                    #self.local2global_alpha_dofs[tuple_key] = global_key
                     
-            for nei_id in self.local_problem_dict[local_id].neighbors_id:
+            for nei_id in local_problem.neighbors_id:
                 if nei_id>local_id:
                     try:
                         local_lambda_length = self.local_lambda_length_dict[local_id,nei_id]
@@ -223,15 +248,19 @@ class SerialSolverManager():
                         dof_lambda_init+=local_lambda_length
                         self.local2global_lambda_dofs[local_id,nei_id] = global_index 
                         self.global2local_lambda_dofs[tuple(global_index)] = {(local_id,nei_id):local_dofs}
-                        #for dof in local_dofs:
-                        #    tuple_key = local_id,nei_id,dof
-                        #    global_key = global_index[dof]
-                        #    #self.local2global_lambda_dofs[tuple_key] = global_key
-                        #    self.global2local_lambda_dofs[global_key] = tuple_key
+                        B_indices = local_problem.B_local[local_id,nei_id].nonzero()
+                          
                     except:
                         continue
+                else:
+                    B_indices = local_problem.B_local[local_id,nei_id].nonzero()
+
+                 
+                self.unique_map[local_id,nei_id] = self.local2global_primal_dofs[local_id][B_indices[1]]
+
         self.lambda_size = dof_lambda_init
         self.alpha_size = dof_alpha_init
+        self.primal_size = dof_primal_init
 
     def assemble_solution_dict(self,lambda_sol,alpha_sol):
         ''' This function creates a solution dict for interface
@@ -265,6 +294,83 @@ class SerialSolverManager():
 
         return u_dict, lambda_dict, alpha_dict 
 
+    def assemble_global_B(self):
+        ''' This method assembles the global B matrix, based on local 
+        B matrices.
+
+        B_global = [B_local(1,2)  - B_local(2,1) ]
+
+        '''
+        try:
+            B = scipy.sparse.lil_matrix((self.lambda_size,self.primal_size))
+        except:
+            self.build_local_to_global_mapping()
+            B = scipy.sparse.lil_matrix((self.lambda_size,self.primal_size))
+
+        for local_id in self.local_problem_id_list:
+            local_problem = self.local_problem_dict[local_id]
+            Bi_dict = local_problem.B_local
+            idx = self.local2global_primal_dofs[local_id]
+            for nei_id in local_problem.neighbors_id:
+                if local_id < nei_id:
+                    idy =  self.local2global_lambda_dofs[local_id, nei_id]
+                else:
+                    idy =  self.local2global_lambda_dofs[nei_id,local_id]
+
+                Bij = Bi_dict[local_id, nei_id]
+                B[np.ix_(idy,idx)] = np.sign(nei_id - local_id)*Bij
+
+        return B.tocsr()
+
+    def assemble_global_L(self):
+        map_dofs = self.build_global_map_dataframe()
+        for local_id,nei_id in self.unique_map:
+            if (nei_id,local_id) in self.unique_map and nei_id>local_id:
+                for unique_dof,duplicated_dof in zip(self.unique_map[local_id,nei_id],self.unique_map[nei_id,local_id]):
+                    map_dofs = map_dofs.replace({'Global_dof_id' : duplicated_dof}, unique_dof)
+
+        return elimination_matrix_from_map_dofs(map_dofs)
+
+    def build_global_map_dataframe(self):
+        list_domain = []
+        list_local_dof = []
+        list_global_dof = []
+        for domain_id in self.local2global_primal_dofs:   
+            global_dof_id = list(self.local2global_primal_dofs[domain_id])
+            local_dof_id = list(self.global2local_primal_dofs[tuple(global_dof_id)][domain_id])
+            list_domain.extend([domain_id]*len(local_dof_id))
+            list_local_dof.extend(local_dof_id)
+            list_global_dof.extend(global_dof_id)
+
+
+        map_dict = {}
+        map_dict['Domain_id'] = list_domain
+        map_dict['Local_dof_id'] = list_local_dof
+        map_dict['Global_dof_id'] = list_global_dof
+        
+        return pd.DataFrame.from_dict(map_dict)
+
+    def assemble_global_K_and_f(self):
+
+        K_list = []
+        fext_list = []
+        for local_id in self.local_problem_id_list:
+            K_list.append(self.local_problem_dict[local_id].K_local.data)
+            fext_list.append(self.local_problem_dict[local_id].f_local.data)
+
+        Kd = scipy.sparse.block_diag(K_list)
+        fd = np.hstack(fext_list)
+        
+        self.block_stiffness = Kd
+        self.block_force = fd
+
+        return Kd.tocsr(), fd 
+
+
+
+
+
+
 class ParallelFETIsolver(FETIsolver):
     def __init__(self):
         super().__init__(K_dict,B_dict,f_dict)
@@ -282,6 +388,7 @@ class LocalProblem():
         else:
             self.K_local = Matrix(K_local)
 
+        self.length = self.K_local.shape[0]
         if isinstance(f_local,Vector):
             self.f_local = f_local
         else:
@@ -426,3 +533,74 @@ class Solution():
         self.lambda_hist=lambda_hist
 
         
+
+#Alias variables for backward and future compatibilite
+FETIManager = SerialSolverManager
+
+def cyclic_eig(K_dict,M_dict,B_dict,f_dict,num_of_modes=20,use_precond=True):
+    ''' This method compute the cyclic eigenvalues and eigenvector of
+    the block Hybrid eigenvalue problem.
+
+    Parameters:
+        K_dict : dict
+            dictionary with block stiffeness matrix connected to the sector index (dict key)
+        M_dict : dict
+            dictionary with block mass matrix connected to the sector index (dict key)
+        B_dict : dict
+            dictionary with block Boolean matrix connected to the sector index (dict key)
+        f_dict : dict
+            dictionaty with block forces which are 0. The dict is not used for the eigen computation
+
+    returns:
+        frequency : list
+            frequency in Hertz
+        
+        modes_dict: dict
+            dictionary with the eingenvectors
+        info_dict : dict
+            dictionary with solve info
+
+    '''
+    info_dict = {}
+    info_dict['Start'] = timeit.timeit()
+
+
+    feticase = FETIManager(K_dict,B_dict,f_dict)
+    feticase2 = FETIManager(M_dict,B_dict,f_dict)
+    K_global, f_global = feticase.assemble_global_K_and_f()
+    M_global, f_global = feticase2.assemble_global_K_and_f()
+    B = feticase.assemble_global_B()
+    ndofs = K_global.shape[0]
+    I = scipy.sparse.eye(ndofs)
+    # creating projection
+    BBT = B.dot(B.T)
+    P = scipy.sparse.eye(K_global.shape[0]) - 0.5*B.T.dot(B)
+    if use_precond:
+        pre_obj = ProjPrecondLinearSys(K_global.tocsc(), I, incomplete=False )
+        Precond = pre_obj.getLinearOperator()
+        lo_obj = ProjLinearSys(K_global,M_global,P,Precond)
+    else:
+        lo_obj = ProjLinearSys(K_global,M_global,P)
+
+    Dp_new = lo_obj.getLinearOperator()
+    w2new, v2new = scipy.sparse.linalg.eigs(Dp_new, k=num_of_modes)
+    new_id = np.argsort(w2new)[::-1]
+    w2new = w2new[new_id]
+    v2new = v2new[:,new_id]
+    eigenvalues = 1.0/(w2new.real)
+    omega = np.sqrt(eigenvalues)
+    frequency = omega/(2.0*np.pi)
+
+    local_dofs = K_dict[0].shape[0]
+    modes_dict = {}
+    
+    for key in f_dict:
+        modes_dict[key] = v2new[key*local_dofs:(key+1)*local_dofs,:]
+
+    info_dict['TotalLienarOpCall'] = lo_obj.num_iters
+    info_dict['AvgLienarOpCall'] = lo_obj.num_iters/lo_obj.solver_counter
+    info_dict['SolverCalls'] = lo_obj.solver_counter
+    info_dict['End'] = timeit.timeit()
+    info_dict['Time'] = info_dict['End'] - info_dict['Start'] 
+
+    return frequency, modes_dict, info_dict

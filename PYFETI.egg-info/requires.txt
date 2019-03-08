@@ -1,0 +1,5 @@
+numpy>=1.10
+scipy>=0.17
+pandas
+matplotlib
+numdifftools

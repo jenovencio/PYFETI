@@ -18,8 +18,11 @@ methods:
 
 import logging 
 import numpy as np
+from scipy import sparse
 from scipy.sparse import csc_matrix, issparse, lil_matrix, linalg as sla
 from scipy import linalg
+from scipy.sparse.linalg import LinearOperator
+
 import sys
 sys.path.append('../..')
 from pyfeti.src.utils import OrderedSet, Get_dofs, save_object, MapDofs
@@ -305,6 +308,194 @@ def is_null_space(K,v, tol=1.0E-3):
         return False
 
 
+class LinearSys():
+    def __init__(self,A,M,alg='splu'):
+        self.A = A
+        self.M = M
+        self.ndof = self.A.shape[0]
+        self.alg =alg
+        self.lu = None
+        if self.alg=='splu':
+            self.lu = sparse.linalg.splu(A)
+        
+    def solve(self,b):
+        A = self.A
+        M = self.M
+        b = np.array(b)
+        b_prime = np.array(M.dot(b)).flatten()
+        if self.alg=='splu':
+            x = self.lu.solve(b_prime)
+        elif self.alg=='cg':
+            x = sparse.linalg.cg(A,b_prime)[0]
+        else:
+            raise('Algorithm &s not supported' %self.alg)
+            
+        return x
+        
+    def normM(self,b):
+        M = self.M
+        b_prime = np.array(M.dot(b)).flatten()
+        return b.dot(b_prime)    
+        
+    def getLinearOperator(self):
+        return LinearOperator((self.ndof,self.ndof), matvec=self.solve)  
+        
+class ProjLinearSys():      
+    def __init__(self,A,M,P,precond=None,linear_solver=None,solver_tol=1.0E-10):
+        self.A = A
+        self.M = M
+        self.P = P
+        self.precond = precond
+        self.solver_counter = 0
+        self.num_iters=0
+        self.linear_solver = linear_solver
+        self.solver_tol = solver_tol
+        
+    def solve(self,b):
+        A = self.A
+        M = self.M
+        P = self.P
+        b = np.array(b)
+        self.solver_counter += 1
+        #b = b/np.linalg.norm(b)
+        b_prime = np.array(P.conj().T.dot(M.dot(P.dot(b)))).flatten()
+        #b_prime = b_prime/np.linalg.norm(b_prime)
+        #return np.array(P.T.dot(sparse.linalg.spsolve(A,b_prime)))
+        #return sparse.linalg.bicg(P.conj().T.dot(A.dot(P)),b_prime,M = self.precond)[0]
+        #return P.dot(P.dot(sparse.linalg.bicg(A,b_prime,M = self.precond)[0]))
+        
+        if self.linear_solver==None:
+            return sparse.linalg.cg(P.conj().T.dot(A.dot(P)),b_prime,M = self.precond, callback=self.counter, tol=self.solver_tol)[0]
+        else:
+            return self.linear_solver(P.conj().T.dot(A.dot(P)),b_prime,M = self.precond, callback=self.counter)[0]
+        
+    
+    def counter(self,xk):
+        ''' count number of iterations
+        '''
+        self.num_iters+=1
+        #print(self.num_iters)
+        
+    
+    def normM(self,b):
+        M = self.M
+        b_prime = np.array(M.dot(b)).flatten()
+        return b.dot(b_prime)    
+        
+    def getLinearOperator(self):
+        ndof = self.A.shape[0]
+        return LinearOperator((ndof,ndof), matvec=self.solve , dtype=np.complex)  
+    
+    
+class DualLinearSys():      
+    def __init__(self,A,B,nc,sigma=0.0,precond=None, projection=None):
+        ''' Creates a linear operator such as
+        
+        A = [K C*^T]
+            [C   0 ]
+            
+        B = [M  0]
+            [0  0]
+            
+        [xk, lambda]^T = A^-1 M
+        
+        where lambda has size nc
+        '''
+        self.A = A
+        self.B = B
+        self.nc = nc
+        self.precond = precond
+        self.num_iters=0
+        self.ndofs = A.shape[0]
+        self.u_dofs = self.ndofs - nc
+        self.sigma = sigma
+        
+        
+        
+
+        
+        if projection is None:
+            self.P = sparse.eye(self.u_dofs )
+           
+        else:
+            self.P = projection
+           
+        self.M = self.P.conj().T.dot(B[:self.u_dofs,:self.u_dofs]).dot(self.P)
+        self.K = self.P.conj().T.dot(A[:self.u_dofs,:self.u_dofs]).dot(self.P)
+        self.lu = sparse.linalg.splu(self.K - self.sigma*self.M)
+        #lu = sparse.linalg.splu(self.K - sigma*self.M)
+        #self.K_inv = lu.solve
+        self.K_inv = LinearOperator((self.u_dofs,self.u_dofs), matvec = self.lu.solve)
+        self.C = A[self.u_dofs:,:self.u_dofs]
+        #self.F = lambda b : self.C.dot(self.K_inv(self.C.conj().T.dot(b)))
+        #self.F LinearOperator((ndof,ndof), matvec = lambda b : self.C.dot(self.K_inv(self.C.conj().T.dot(b)))) 
+        self.F = LinearOperator((nc,nc), matvec = self.F_operator)
+            
+    def F_operator(self,b):
+    
+        return self.C.dot(self.K_inv(self.C.conj().T.dot(b))) 
+    
+    
+    def solve(self,b):
+        A = self.A
+        B = self.B
+        
+        M = self.M 
+        u = self.P.dot(b[:self.u_dofs])
+        u_prime = self.K_inv.dot((M.dot(u)))
+        lambda_n1 = sparse.linalg.cg(self.F,self.C.dot(u_prime), M = self.precond, callback=self.counter, tol=1e-16)[0]
+        
+        u_n1 = self.P.dot(u_prime - self.K_inv(self.C.conj().T.dot(lambda_n1)))
+        return np.concatenate((u_n1,lambda_n1))
+    
+    def counter(self,xk):
+        ''' count number of iterations
+        '''
+        self.num_iters+=1
+        #print(self.num_iters)
+        
+    def normM(self,b):
+        B = self.B
+        b_prime = np.array(B.dot(b)).flatten()
+        return b.dot(b_prime)    
+        
+    def getLinearOperator(self):
+        ndof = self.A.shape[0]
+        return LinearOperator((ndof,ndof), matvec=self.solve) 
+  
+class ProjPrecondLinearSys():      
+    def __init__(self,A,P, incomplete=False,drop_tol=None, fill_factor=None):
+        
+        self.A = A
+        self.P = P
+        ndof = A.shape[0]
+        self.solver_counter = 0
+        if incomplete:
+            lu = sparse.linalg.spilu(A, drop_tol=drop_tol, fill_factor=fill_factor)
+        else:
+            lu = sparse.linalg.splu(A)
+            
+        self.lu = lu
+        self.A_inv = LinearOperator((ndof,ndof), matvec=lu.solve, dtype=np.complex) 
+        
+    def solve(self,b):
+        
+        P = self.P
+        A_inv = self.A_inv
+        u_real = A_inv.dot( (P.dot(b)).real)
+        u_imag = A_inv.dot( (P.dot(b)).imag)
+        self.solver_counter += 1
+        u = np.zeros(u_real.shape, dtype=np.complex)
+        u.real = u_real
+        u.astype(np.complex)
+        u.imag = u_imag
+        
+        return P.dot(u)
+        
+    def getLinearOperator(self):
+        ndof = self.A.shape[0]
+        return LinearOperator((ndof,ndof), matvec=self.solve, dtype=np.complex)  
+
 def create_permutation_matrix(row_indexes,col_indexes,shape):
     ''' create a Permutation matrix based on local id
     
@@ -312,8 +503,6 @@ def create_permutation_matrix(row_indexes,col_indexes,shape):
     P = lil_matrix(shape, dtype=np.int8)
     P[row_indexes, col_indexes] = 1
     return P.toarray()
-
-
 
 def map_matrix(map_dofs):
     map_obj = MapDofs(map_dofs)
@@ -346,7 +535,115 @@ def expansion_matrix_from_map_dofs(map_dofs):
  
     return L.T
 
+
+def get_unit_rotation_matrix(alpha_rad,dim=3,axis='z'):  
+    ''' Create a unitary rotation matrix based on a angle alpha 
+    and an axis of rotation
+
+    Parameters:
+        alpha_rad : float
+            angle in rad 
+        dim : int
+            2 or 2D rotatuon 3 for 3D rotation matrix
+        axis : str
+            'x', 'y' or 'z'
+
+    '''
     
+
+    
+    if dim==3 and (axis is not 'xyz'):
+        raise('Axis %s is not supperted. Please select x,y or z.' %axis)
+
+    #defining anti-clock wise rotation
+    alpha_rad = -alpha_rad
+
+    cos_a = np.cos(alpha_rad)
+    sin_a = np.sin(alpha_rad)
+
+    if dim==3 and axis=='z':
+        R_i = np.array([[cos_a,-sin_a,0.0],
+                        [sin_a, cos_a,0],
+                        [0.0, 0.0, 1.0]])
+    
+    elif dim==3 and axis=='x':    
+        R_i = np.array([[0.0,cos_a,-sin_a],
+                        [0.0, sin_a, cos_a],
+                        [1.0, 0.0, 0.0]])
+
+    elif dim==3 and axis=='y':    
+        R_i = np.array([[cos_a,0.0,-sin_a],
+                        [sin_a, 0.0, cos_a],
+                        [0.0, 1.0, 0.0]])
+
+    elif dim==2:
+        R_i = np.array([[cos_a, -sin_a],
+                       [sin_a, cos_a]])    
+    else:
+        raise('Dimension not supported')      
+        
+    return R_i
+
+
+def find_cyclic_node_pairs(node_set_left,node_set_right,angle,node_coord,dim=2,tol_dist=1.0E-8 ):
+    
+    R = get_unit_rotation_matrix(angle,dim=dim)
+    node_pair_dict = {}
+    node_set_right_copy = node_set_right[:]
+    for node_id_1 in node_set_left:
+        min_dist = 1.0E8
+        coord_1 = node_coord[node_id_1]
+        for node_id_2 in node_set_right_copy:
+            coord_2 = node_coord[node_id_2]
+            dist = np.linalg.norm(coord_1 - R.T.dot(coord_2))
+            if dist<min_dist:
+                min_dist = dist
+                node_pair = node_id_2
+                
+        
+        if  min_dist>=tol_dist:
+            raise('Could not find node pairs given the tolerance = %e' %tol_dist)
+        else:
+            # update dict
+            node_pair_dict[node_id_1] = node_pair
+
+        try:
+
+            # remove nodes to speed-up search
+            node_set_right_copy.remove(node_pair_dict[node_id_1])
+        except:
+            pass
+
+    new_node_set_right = []
+    for key in node_set_left:
+        new_node_set_right.append(node_pair_dict[key])
+        
+    return new_node_set_right
+
+def create_voigt_rotation_matrix(n_dofs,alpha_rad, dim=2, axis='z',unit='rad', sparse_matrix = True):
+    ''' This function creates voigt rotation matrix, which is a block
+    rotation which can be applied to a voigt displacement vector
+    ''' 
+    
+    if n_dofs<=0:
+        raise('Error!!! None dof was select to apply rotation.')
+    
+    if unit[0:3]=='deg':
+        rotation = np.deg2rad(rotation)
+        unit = 'rad'
+        
+    R_i = get_unit_rotation_matrix(alpha_rad,dim,axis)  
+    
+    n_blocks = int(n_dofs/dim)
+    
+    
+    if n_blocks*dim != n_dofs:
+        raise('Error!!! Rotation matrix is not matching with dimension and dofs.')
+    if sparse_matrix:
+        R = sparse.block_diag([R_i]*n_blocks)
+    else:
+        R = linalg.block_diag(*[R_i]*n_blocks)
+    return R
 
 class Pesudoinverse():
     ''' This class intend to solve singular systems
@@ -672,7 +969,6 @@ class Matrix():
         self.data[dofs,dofs] = dirichlet_stiffness
         self.eliminated_id.update(dofs)
         return self.data
-        
         
     def save_to_file(self,filename=None):
         if filename is None:

@@ -73,6 +73,7 @@ class CyclicPerturbation():
         self.perturbation_order = perturbation_order
         self.symmetric = symmetric
         self.diagonal = diagonal
+        self.V = None
         
         if callable(sigma):
             self.sigma = sigma
@@ -109,10 +110,14 @@ class CyclicPerturbation():
         if diagonal is None:
             diagonal = self.diagonal
             
-        # creating eigenbases for perturbation
-        Op = LinearSys(self.Krd,self.Mrd)
-        D = Op.getLinearOperator()
-        eigval, V = sparse.linalg.eigs(D,k=perturbation_order)
+        if self.V is None:
+            # creating eigenbases for perturbation
+            Op = LinearSys(self.Krd,self.Mrd)
+            D = Op.getLinearOperator()
+            eigval, V = sparse.linalg.eigs(D,k=perturbation_order)
+            self.V = V
+        else:
+            V = self.V
 
         # creating pertubation list based on sector index
         delta_list = []

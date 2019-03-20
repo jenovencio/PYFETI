@@ -350,24 +350,20 @@ class ProjLinearSys():
         self.num_iters=0
         self.linear_solver = linear_solver
         self.solver_tol = solver_tol
+        self.Ap = P.conj().T.dot(A.dot(P))
         
+
     def solve(self,b):
-        A = self.A
         M = self.M
         P = self.P
         b = np.array(b)
         self.solver_counter += 1
-        #b = b/np.linalg.norm(b)
-        b_prime = np.array(P.conj().T.dot(M.dot(P.dot(b)))).flatten()
-        #b_prime = b_prime/np.linalg.norm(b_prime)
-        #return np.array(P.T.dot(sparse.linalg.spsolve(A,b_prime)))
-        #return sparse.linalg.bicg(P.conj().T.dot(A.dot(P)),b_prime,M = self.precond)[0]
-        #return P.dot(P.dot(sparse.linalg.bicg(A,b_prime,M = self.precond)[0]))
-        
+        b_prime =  np.array(P.conj().T.dot(M.dot(P.dot(b)))).flatten()
+        Ap = self.Ap
         if self.linear_solver==None:
-            return sparse.linalg.cg(P.conj().T.dot(A.dot(P)),b_prime,M = self.precond, callback=self.counter, tol=self.solver_tol)[0]
+            return sparse.linalg.cg(Ap,b_prime,M = self.precond, callback=self.counter, tol=self.solver_tol)[0]
         else:
-            return self.linear_solver(P.conj().T.dot(A.dot(P)),b_prime,M = self.precond, callback=self.counter)[0]
+            return self.linear_solver(Ap,b_prime,M = self.precond, callback=self.counter)[0]
         
     
     def counter(self,xk):
@@ -476,25 +472,30 @@ class ProjPrecondLinearSys():
             lu = sparse.linalg.splu(A)
             
         self.lu = lu
-        self.A_inv = LinearOperator((ndof,ndof), matvec=lu.solve, dtype=np.complex) 
+        self.A_inv = LinearOperator((ndof,ndof), matvec=lu.solve, dtype = P.dtype) 
         
     def solve(self,b):
         
         P = self.P
-        A_inv = self.A_inv
-        u_real = A_inv.dot( (P.dot(b)).real)
-        u_imag = A_inv.dot( (P.dot(b)).imag)
+        if b.dtype=='complex':
+            A_inv = self.A_inv
+            u_real = A_inv.dot( (P.dot(b)).real)
+            u_imag = A_inv.dot( (P.dot(b)).imag)
+            u = np.zeros(u_real.shape, dtype=np.complex)
+            u.real = u_real
+            u.astype(np.complex)
+            u.imag = u_imag
+            
+        else:    
+            A_inv = self.A_inv
+            u = A_inv.dot( (P.dot(b)))
+
         self.solver_counter += 1
-        u = np.zeros(u_real.shape, dtype=np.complex)
-        u.real = u_real
-        u.astype(np.complex)
-        u.imag = u_imag
-        
         return P.dot(u)
         
     def getLinearOperator(self):
         ndof = self.A.shape[0]
-        return LinearOperator((ndof,ndof), matvec=self.solve, dtype=np.complex)  
+        return LinearOperator((ndof,ndof), matvec=self.solve, dtype=self.P.dtype)  
 
 def create_permutation_matrix(row_indexes,col_indexes,shape):
     ''' create a Permutation matrix based on local id
@@ -552,7 +553,7 @@ def get_unit_rotation_matrix(alpha_rad,dim=3,axis='z'):
     
 
     
-    if dim==3 and (axis is not 'xyz'):
+    if dim==3 and not (axis in 'xyz'):
         raise('Axis %s is not supperted. Please select x,y or z.' %axis)
 
     #defining anti-clock wise rotation
@@ -585,7 +586,7 @@ def get_unit_rotation_matrix(alpha_rad,dim=3,axis='z'):
     return R_i
 
 
-def find_cyclic_node_pairs(node_set_left,node_set_right,angle,node_coord,dim=2,tol_dist=1.0E-8 ):
+def find_cyclic_node_pairs(node_set_left,node_set_right,angle,node_coord,dim=2,tol_dist=1.0E-6 ):
     
     R = get_unit_rotation_matrix(angle,dim=dim)
     node_pair_dict = {}

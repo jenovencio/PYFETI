@@ -7,7 +7,7 @@ from pyfeti.src.utils import OrderedSet, Get_dofs, save_object
 from pyfeti.src.linalg import Matrix, Vector, elimination_matrix_from_map_dofs, ProjLinearSys, ProjPrecondLinearSys
 from pyfeti.src import solvers
 import logging
-import timeit
+import time
 
 class FETIsolver():
     def __init__(self,K_dict,B_dict,f_dict):
@@ -320,7 +320,7 @@ class SerialSolverManager():
                 Bij = Bi_dict[local_id, nei_id]
                 B[np.ix_(idy,idx)] = np.sign(nei_id - local_id)*Bij
 
-        return B.tocsr()
+        return B.tocsc()
 
     def assemble_global_L(self):
         map_dofs = self.build_global_map_dataframe()
@@ -364,7 +364,7 @@ class SerialSolverManager():
         self.block_stiffness = Kd
         self.block_force = fd
 
-        return Kd.tocsr(), fd 
+        return Kd.tocsc(), fd 
 
 
 
@@ -562,7 +562,7 @@ def cyclic_eig(K_dict,M_dict,B_dict,f_dict,num_of_modes=20,use_precond=True):
 
     '''
     info_dict = {}
-    info_dict['Start'] = timeit.timeit()
+    info_dict['Start'] = time.time()
 
 
     feticase = FETIManager(K_dict,B_dict,f_dict)
@@ -573,12 +573,11 @@ def cyclic_eig(K_dict,M_dict,B_dict,f_dict,num_of_modes=20,use_precond=True):
     ndofs = K_global.shape[0]
     I = scipy.sparse.eye(ndofs)
     # creating projection
-    BBT = B.dot(B.T)
     P = scipy.sparse.eye(K_global.shape[0]) - 0.5*B.T.dot(B)
     if use_precond:
-        pre_obj = ProjPrecondLinearSys(K_global.tocsc(), I, incomplete=False )
+        pre_obj = ProjPrecondLinearSys(K_global, P, incomplete=False )
         Precond = pre_obj.getLinearOperator()
-        lo_obj = ProjLinearSys(K_global,M_global,P,Precond)
+        lo_obj = ProjLinearSys(K_global,M_global,P,Precond, linear_solver=None)
     else:
         lo_obj = ProjLinearSys(K_global,M_global,P)
 
@@ -600,7 +599,7 @@ def cyclic_eig(K_dict,M_dict,B_dict,f_dict,num_of_modes=20,use_precond=True):
     info_dict['TotalLienarOpCall'] = lo_obj.num_iters
     info_dict['AvgLienarOpCall'] = lo_obj.num_iters/lo_obj.solver_counter
     info_dict['SolverCalls'] = lo_obj.solver_counter
-    info_dict['End'] = timeit.timeit()
+    info_dict['End'] = time.time()
     info_dict['Time'] = info_dict['End'] - info_dict['Start'] 
 
     return frequency, modes_dict, info_dict

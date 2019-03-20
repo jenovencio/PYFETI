@@ -282,9 +282,9 @@ class SelectionOperator():
         '''
         
         local_id = list(self.selection_dict[label])
-        B = sparse.csc_matrix((len(local_id), self.ndof), dtype=np.int8)
+        B = sparse.lil_matrix((len(local_id), self.ndof), dtype=np.int8)
         B[np.arange(len(local_id)), local_id ] = 1
-        return B
+        return B.tocsr()
 
 class MapDofs():
     def __init__(self,map_dofs):

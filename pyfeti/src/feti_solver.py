@@ -2,12 +2,33 @@ import sys
 import numpy as np
 import scipy
 import pandas as pd
+import os
 sys.path.append('../..')
-from pyfeti.src.utils import OrderedSet, Get_dofs, save_object
+from pyfeti.src.utils import OrderedSet, Get_dofs, save_object, load_object, pyfeti_dir
 from pyfeti.src.linalg import Matrix, Vector, elimination_matrix_from_map_dofs, ProjLinearSys, ProjPrecondLinearSys
 from pyfeti.src import solvers
 import logging
 import time
+import subprocess
+import shutil
+
+# geting path of MPI executable
+mpi_exec = 'mpiexec'
+try:
+    mpi_path = os.environ['MPIDIR']
+    mpi_exec = os.path.join(mpi_path, mpi_exec).replace('"','')
+except:
+    print("Warning! Using mpiexec in global path")
+    mpi_path = None
+    
+
+try:
+    python_path = os.environ['PYTHON_ENV']
+    python_exec = os.path.join(python_path,'python').replace('"','')
+except:
+    print("Warning! Using python in global path")
+    python_path = None
+    python_exec = 'python'
 
 class FETIsolver():
     def __init__(self,K_dict,B_dict,f_dict):
@@ -48,10 +69,10 @@ class SerialFETIsolver(FETIsolver):
        u_dict, lambda_dict, alpha_dict = manager.assemble_solution_dict(lambda_sol,alpha_sol)
        return Solution(u_dict, lambda_dict, alpha_dict,rk, proj_r_hist, lambda_hist)
         
-class SerialSolverManager():
+class SolverManager():
     def __init__(self,K_dict,B_dict,f_dict):
         self.local_problem_dict = {}
-        self.course_probrem = CourseProblem()
+        self.course_problem = CourseProblem()
         self.local2global_lambda_dofs = {}
         self.global2local_lambda_dofs = {}
         self.local2global_alpha_dofs = {}
@@ -70,9 +91,12 @@ class SerialSolverManager():
         self.e = None
         self.GGT = None
         self.GGT_inv = None
+        self.num_partitions =  len(K_dict.keys())
         self._create_local_problems(K_dict,B_dict,f_dict)
+        
 
     def _create_local_problems(self,K_dict,B_dict,f_dict):
+        
         for key, obj in K_dict.items():
             B_local_dict = B_dict[key]
             self.local_problem_id_list.append(key)
@@ -87,7 +111,7 @@ class SerialSolverManager():
             R = local_problem.get_kernel()
             if R.shape[0]>0:
                 self.e_dict[problem_id] = -R.T.dot(local_problem.f_local.data)
-                self.course_probrem.update_e_dict(self.e_dict)
+                self.course_problem.update_e_dict(self.e_dict)
                 self.local_alpha_length_dict[problem_id] = R.shape[1]
                 G_local_dict = {}
                 GGT_local_dict = {}
@@ -96,40 +120,40 @@ class SerialSolverManager():
                     G = (nei_id - local_id)*(-B_local.dot(R)).T
                     G_local_dict[key] = G
                     GGT_local_dict[local_id,local_id] = G.dot(G.T)
-                    self.course_probrem.update_G_dict(G_local_dict)
-                    self.course_probrem.update_GGT_dict(GGT_local_dict)
+                    self.course_problem.update_G_dict(G_local_dict)
+                    self.course_problem.update_GGT_dict(GGT_local_dict)
         
     def assemble_cross_GGT(self):
         for problem_id, local_problem in self.local_problem_dict.items():
             GGT_local_dict = {}
-            for key, Gi in self.course_probrem.G_dict.items():
+            for key, Gi in self.course_problem.G_dict.items():
                 local_id, nei_id = key
                 for nei_id in local_problem.neighbors_id:
                     try:
-                        Gj = self.course_probrem.G_dict[nei_id,local_id]
+                        Gj = self.course_problem.G_dict[nei_id,local_id]
                         if Gi.shape[0]>0 and Gj.shape[0]>0:
                             GGT_local_dict[local_id,nei_id_id] = Gi.dot(Gj.T)
-                            self.course_probrem.update_GGT_dict(GGT_local_dict)
+                            self.course_problem.update_GGT_dict(GGT_local_dict)
                     except:
                         pass
              
     def assemble_e(self):
         try:
-            self.e = self.course_probrem.assemble_e(self.local2global_alpha_dofs,self.alpha_size)
-            return  
+            self.e = self.course_problem.assemble_e(self.local2global_alpha_dofs,self.alpha_size)
+            return  self.e
         except:
             raise('Build local to global mapping before calling this function')
 
     def assemble_GGT(self):
         try:
-            self.GGT = self.course_probrem.assemble_GGT(self.local2global_alpha_dofs,(self.alpha_size ,self.alpha_size))
+            self.GGT = self.course_problem.assemble_GGT(self.local2global_alpha_dofs,(self.alpha_size ,self.alpha_size))
             return self.GGT
         except:
             raise('Build local to global mapping before calling this function')
     
     def assemble_G(self):
         try:
-            self.G = self.course_probrem.assemble_G(self.local2global_alpha_dofs,self.local2global_lambda_dofs,(self.alpha_size ,self.lambda_size))
+            self.G = self.course_problem.assemble_G(self.local2global_alpha_dofs,self.local2global_lambda_dofs,(self.alpha_size ,self.lambda_size))
             return self.G
         except:
             raise('Build local to global mapping before calling this function')
@@ -160,7 +184,7 @@ class SerialSolverManager():
         return gap_dict
 
     def compute_local_GGT_inv(self):
-        self.course_probrem.compute_local_GGT_inv()
+        self.course_problem.compute_local_GGT_inv()
 
     def solve_dual_interface_problem(self,algorithm='PCPG'):
         
@@ -367,18 +391,105 @@ class SerialSolverManager():
         return Kd.tocsc(), fd 
 
 
-
-
-
-
-class ParallelFETIsolver(FETIsolver):
-    def __init__(self):
+class ParallelSolverManager(SolverManager):
+    def __init__(self,K_dict,B_dict,f_dict,temp_folder='temp'):
+        self.temp_folder = temp_folder
+        self.local_problem_path = {}
+        self.prefix = 'local_problem_'
+        self.ext = '.pkl'
+        self.log = True
         super().__init__(K_dict,B_dict,f_dict)
         
-    def solve(self):
-        self.serialize()
-        pass
         
+    def _create_local_problems(self,K_dict,B_dict,f_dict,temp_folder=None):
+        if temp_folder is None:
+            temp_folder = self.temp_folder
+        else:
+            self.temp_folder = temp_folder
+
+        try:
+            os.mkdir(temp_folder)
+        except:
+            pass
+
+        for key, obj in K_dict.items():
+            B_local_dict = B_dict[key]
+            self.local_problem_id_list.append(key)
+            self.local_problem_dict[key] = LocalProblem(obj,B_local_dict,f_dict[key],id=key)
+            for interface_id, B in B_local_dict.items():
+                self.local_lambda_length_dict[interface_id] = B.shape[0]
+                local_path =  os.path.join(temp_folder, self.prefix + str(key) + self.ext)
+                self.local_problem_path[key] = local_path
+                save_object(self.local_problem_dict[key] , local_path)
+
+    def launch_mpi_process(self):
+        python_solver_file = pyfeti_dir(r'src\MPIsolver.py')
+        run_file_path = 'run_mpi_solver.bat'
+
+        logging.info('######################################################################')
+        logging.info('###################### SOLVER INFO ###################################')
+        logging.info('MPI exec path = %s' %mpi_exec )
+        logging.info('Python exec path = %s' %python_exec )
+
+        command = '"' + mpi_exec + '" -l -n ' + str(self.num_partitions) + ' "' + python_exec + '"  "' + \
+                  python_solver_file + '"  "' + self.prefix + '"  "' + self.ext + '"'
+        
+        # export results to a log file called amfeti_solver.log
+        if self.log:
+            command += '>pyfeti_solver.log'
+        
+        
+        # writing bat file with the command line
+        local_folder = os.getcwd()
+        os.chdir(self.temp_folder)
+        run_file = open(run_file_path,'w')
+        run_file.write(command)
+        run_file.close()
+
+        logging.info('Run directory = %s' %os.getcwd())
+        logging.info('######################################################################')
+
+        # executing bat file
+        try:    
+            subprocess.call(run_file_path)
+            os.chdir(local_folder)
+            
+        except:
+            os.chdir(local_folder)
+            logging.error('Error during the simulation.')
+            return None
+
+    def read_results(self):
+        solution_path = os.path.join(self.temp_folder,'solution.pkl')
+        u_dict = {}
+        for i in range(1,self.num_partitions+1):
+            displacement_path = os.path.join(self.temp_folder,'displacement_' + str(i) + '.pkl')
+            u_dict[i] =  load_object(displacement_path)
+
+        sol_obj = load_object(solution_path)
+        sol_obj.u_dict = u_dict
+        return sol_obj
+
+    def delete(self):
+        shutil.rmtree(self.temp_folder)
+
+class ParallelFETIsolver(FETIsolver):
+    def __init__(self,K_dict,B_dict,f_dict,temp_folder='temp'):
+        super().__init__(K_dict,B_dict,f_dict)
+        self.manager = ParallelSolverManager(self.K_dict,self.B_dict,self.f_dict,temp_folder=temp_folder) 
+        self.delete_folder = False
+
+    def solve(self):
+        manager = self.manager        
+        manager.launch_mpi_process()
+        sol_obj = manager.read_results()
+
+        if self.delete_folder:
+            manager.delete()
+
+        return sol_obj
+        
+
 class LocalProblem():
     counter = 0
     def __init__(self,K_local, B_local, f_local,id):
@@ -398,13 +509,14 @@ class LocalProblem():
         self.solution = None
         
         self.id = id
-
+        self.interface_size =  0
         self.neighbors_id = []
         self.get_neighbors_id()
 
     def get_neighbors_id(self):
         for nei_id, obj in self.B_local.items():
             self.neighbors_id.append(nei_id[1])
+            self.interface_size += obj.shape[0]
         self.neighbors_id.sort()
 
     def solve(self, lambda_dict,external_force_bool=False):
@@ -535,7 +647,9 @@ class Solution():
         
 
 #Alias variables for backward and future compatibilite
+SerialSolverManager = SolverManager
 FETIManager = SerialSolverManager
+
 
 def cyclic_eig(K_dict,M_dict,B_dict,f_dict,num_of_modes=20,use_precond=True):
     ''' This method compute the cyclic eigenvalues and eigenvector of

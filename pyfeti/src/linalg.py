@@ -527,7 +527,7 @@ def elimination_matrix_from_map_dofs(map_dofs):
     for i,row in enumerate(L):
         scale = sum(row)
         if scale>1.0:
-            L[i,:] = scale*L[i,:]
+            L[i,:] = (1.0/scale)*L[i,:]
     return L
 
 def expansion_matrix_from_map_dofs(map_dofs):

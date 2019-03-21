@@ -5,6 +5,7 @@ from unittest import TestCase, main
 from pandas.util.testing import assert_frame_equal 
 from scipy import sparse
 import numpy as np
+import os
 
 
 class OrderedSet(collections.MutableSet):
@@ -297,10 +298,10 @@ class MapDofs():
         return list(self.map_dofs[self.map_dofs['Global_dof_id']==global_dof].index.values.astype(int))
     
     def row2local_dof(self,row_id):
-        return self.map_dofs['Local_dof_id'].ix[row_id]
+        return self.map_dofs['Local_dof_id'].iloc[row_id]
         
     def row2domain_id(self,row_id):
-        return self.map_dofs['Domain_id'].ix[row_id]
+        return self.map_dofs['Domain_id'].iloc[row_id]
     
     def global_dofs_length(self):
         return max(self.map_dofs['Global_dof_id']) + 1
@@ -396,10 +397,41 @@ def dict2dfmap(id_dict,column_labels=None):
     return pd.DataFrame.from_dict(id_dict, columns=column_labels,orient='index')
 
 
+class Log():
+    def __init__(self,filename):
+        self.filename = filename
+        self.text_list = []
+        
+    def append(self,string):
+        self.text_list.append(string)
+        
+    def save(self):
+        with open(self.filename,'w') as file:
+            for line in self.text_list:
+                file.write(line + '\n')
+
 # Alias for Backward compatibility
 Get_dofs = DofManager
 OrderedDict = collections.OrderedDict
 
+def pyfeti_dir(filename=''):
+    '''
+    Return the absolute path of the filename given relative path
+    directory.
+
+    Parameters
+    ----------
+    filename : string, optional
+        relative path to something inside the amfe directory.
+
+    Returns
+    -------
+    dir : string
+        string of the filename inside the pyfeti-directory. Default value is ''.
+
+    '''
+    pyfeti_abs_path = os.path.dirname(os.path.dirname(__file__))
+    return os.path.join(pyfeti_abs_path, filename.lstrip('/'))
 
 class  Test_Utils(TestCase):
     def test_OrderedSet(self):

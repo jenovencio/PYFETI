@@ -474,10 +474,10 @@ class ParallelSolverManager(SolverManager):
         shutil.rmtree(self.temp_folder)
 
 class ParallelFETIsolver(FETIsolver):
-    def __init__(self,K_dict,B_dict,f_dict,temp_folder='temp'):
+    def __init__(self,K_dict,B_dict,f_dict,temp_folder='temp',delete_folder=False):
         super().__init__(K_dict,B_dict,f_dict)
         self.manager = ParallelSolverManager(self.K_dict,self.B_dict,self.f_dict,temp_folder=temp_folder) 
-        self.delete_folder = False
+        self.delete_folder = delete_folder
 
     def solve(self):
         manager = self.manager        

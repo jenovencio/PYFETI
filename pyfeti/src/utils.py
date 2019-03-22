@@ -6,7 +6,12 @@ from pandas.util.testing import assert_frame_equal
 from scipy import sparse
 import numpy as np
 import os
+import copy
 
+
+amfe2gmsh = {}
+amfe2gmsh['Quad4'] = '3'
+amfe2gmsh['straight_line'] = '1'
 
 class OrderedSet(collections.MutableSet):
 
@@ -105,7 +110,7 @@ class DofManager():
 
  
 class SelectionOperator():
-    def __init__(self,selection_dict,id_map_df):
+    def __init__(self,selection_dict,id_map_df,remove_duplicated = True):
         ''' the selection dict contain labels as key and 
         dofs as values. The idea is to provide a class
         which can apply permutation in matrix and also global to local map
@@ -115,9 +120,10 @@ class SelectionOperator():
                 dict with string and dofs
         
         '''
-        self.selection_dict = selection_dict
+        self.selection_dict = copy.deepcopy(selection_dict)
         self.id_map_df = id_map_df
-        self._remove_duplicate_dofs()
+        if remove_duplicated:
+            self._remove_duplicate_dofs()
 
         self.all_keys_set = OrderedSet(self.selection_dict.keys())
         self.removed_keys = OrderedSet()
@@ -474,7 +480,161 @@ class  Test_Utils(TestCase):
         s = SelectionOperator( group_dict, id_df)
         s.build_B(1)
 
+    def test_DomainCreator(self):
+        creator_obj  = DomainCreator(x_divisions=4,y_divisions=3)
+        creator_obj.build_elements()
+        mesh_path = pyfeti_dir('tests\meshes\mesh1.msh')
+        creator_obj.save_gmsh_file(mesh_path)
 
+class DomainCreator():
+    def __init__(self,width=10,high=10,x_divisions=11,y_divisions=11,domain_id=1):
+        self.width = width
+        self.high = high
+        self.x_divisions = x_divisions
+        self.y_divisions = y_divisions
+        self.domain_id = domain_id
+        self.start_x = 0.0
+        self.start_y = 0.0
+        self.elem_type = 'Quad4'
+        self.gmsh_type = 1
+        self.elem_num = 2*(x_divisions+y_divisions-2) + (x_divisions-1)*(y_divisions-1)
+
+    def node_map(self):
+        a = self.x_divisions 
+        b = 1
+        c = 1
+        return lambda tup : a*tup[0] + b*tup[1] + c
+
+    def build_nodes(self):
+        delta_x = self.width/(self.x_divisions-1)
+        delta_y = self.high/(self.y_divisions-1)
+        x0 = self.start_x
+        y0 = self.start_y
+        nodes_dict = {}
+        for i in range(self.y_divisions):
+            for j in range(self.x_divisions):
+                nodes_dict[i,j] = [x0 + j*delta_x , y0 + i*delta_y, 0.0]
+    
+        return nodes_dict
+
+    def build_elements(self):
+        ''' This function build linear and quad elements based on instance
+        parameters
+        '''
+
+        node_map = self.node_map()
+        quad_elem_nodes = lambda I,J : [(I,J),(I,J+1),(I+1,J+1),(I+1,J)]
+        
+        linear_elem_dict = {'bottom' : {} , 'right' : {} , 'top' : {} , 'left' : {}}
+        delta_dict = {'bottom' : (0,1) , 'right' : (1,0) , 
+                      'top' : (0,-1)  , 'left' : (-1,0)}
+        division_map = {'bottom' : self.x_divisions , 'right' : self.y_divisions , 
+                      'top' : self.x_divisions  , 'left' : self.y_divisions }
+        node_index_pair = (0,0)
+        for key, linear_dict in linear_elem_dict.items():
+            for node_mult in range(division_map[key]-1):
+                next_node_index_pair = tuple( np.array(node_index_pair) +  np.array(delta_dict[key]))
+                linear_dict[node_mult] = list(map(node_map, [node_index_pair,next_node_index_pair]))
+                node_index_pair = next_node_index_pair
+
+        quad_elem_dict = {'domain' : {}}
+        count = 0
+        for elem_id_j in range(self.y_divisions - 1):
+            for elem_id_i in range(self.x_divisions-1):
+                quad_elem_dict['domain'][count] =  list(map(node_map,quad_elem_nodes(elem_id_j,elem_id_i)))
+                count+=1
+
+        elem_dict = {'straight_line' : linear_elem_dict , 'Quad4' : quad_elem_dict } 
+        return elem_dict
+
+    def save_gmsh_file(self,filename, format = '2.2 0 8' ):
+
+
+        tag_dict = {'bottom' : '4' , 'right' : '2' , 'top' : '5' , 'left' : '1', 'domain' : '3'}
+        
+        nodes_dict = self.build_nodes()
+        elem_dict = self.build_elements()
+        
+        format_string = self.create_gmsh_format_string(format)
+        nodes_string = self.create_gmsh_nodes_string(nodes_dict)
+        phys_string = self.create_phys_string(tag_dict)
+        elem_string = self.create_gmsh_elem_string(elem_dict,tag_dict)
+
+        mesh_string = [format_string,phys_string,nodes_string,elem_string]
+        with open(filename,'w') as f:
+            for s in mesh_string:
+                f.write(s)
+
+
+    def create_gmsh_format_string(self,format):
+        tag_format_start   = "$MeshFormat"
+        tag_format_end     = "$EndMeshFormat"
+        format_string_list = [tag_format_start,
+                              format,
+                              tag_format_end]
+
+        format_string = ''
+        for s in format_string_list:
+            format_string += s + '\n'
+        return format_string
+
+    def create_phys_string(self,tag_dict):
+
+        tag_phys_start   = "$PhysicalNames"
+        tag_phys_end     = "$EndPhysicalNames"
+
+        phys_string = tag_phys_start + '\n'
+        phys_string += str(len(tag_dict.keys())) + '\n'
+        phys_count = 1
+        for key, value in tag_dict.items():
+            phys_string += ' '.join([str(phys_count),value,'"' + key + '"']) + '\n'
+            phys_count += 1
+
+        return phys_string
+
+    def create_gmsh_nodes_string(self,nodes_dict):
+
+        tag_nodes_start    = "$Nodes"
+        tag_nodes_end      = "$EndNodes\n"
+
+        nodes_string = tag_nodes_start + '\n'
+        nodes_string += str(len(nodes_dict.keys())) + '\n'
+        count = 1
+        for key,item in nodes_dict.items():
+            nodes_string +=  str(count) + ' ' +  ' '.join(list(map(str,item))) + '\n'
+            count += 1
+    
+        nodes_string += tag_nodes_end
+    
+        return nodes_string
+
+    def create_gmsh_elem_string(self,elem_dict,tag_dict={}):
+       
+        tag_elements_start = "$Elements"
+        tag_elements_end   = "$EndElements"
+        num_of_tags = 4
+        partition_num = 1
+        partition_id = 1
+
+        elem_string = ''.join(tag_elements_start)
+        elem_string += '\n' + str(self.elem_num) + '\n'
+        phys_tag_count=1 
+        elem_count = 1
+        for amfe_elem_tag, item in elem_dict.items():
+            gmsh_elem_tag = amfe2gmsh[ amfe_elem_tag]
+            for phys_tag, elem_dict in item.items():
+                if tag_dict:
+                    phys_tag = tag_dict[phys_tag]
+                else:
+                    phys_tag = str(phys_tag_count)
+                geo_tag = phys_tag
+                for key, nodes in elem_dict.items():
+                    row_i =  ' '.join([str(elem_count),gmsh_elem_tag,str(num_of_tags),phys_tag,geo_tag,str(partition_num),str(partition_id)])
+                    elem_string += row_i + ' ' + ' '.join(list(map(str,nodes))) + '\n'
+                    elem_count +=1
+            phys_tag_count += 1
+        elem_string += tag_elements_end
+        return elem_string
 
 if __name__ == '__main__':
     
@@ -483,3 +643,4 @@ if __name__ == '__main__':
     #testobj.test_dict2dfmap()
     #testobj.test_SelectionOperator_remove_duplicate_dofs()
     testobj.test_SelectionOperator_build_B()
+    testobj.test_DomainCreator()

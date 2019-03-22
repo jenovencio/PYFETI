@@ -8,7 +8,7 @@ sys.path.append('../..')
 from pyfeti.src.utils import OrderedSet, Get_dofs, save_object, MapDofs
 from pyfeti.src.linalg import Matrix, Vector,  elimination_matrix_from_map_dofs, expansion_matrix_from_map_dofs
 from pyfeti.src.feti_solver import ParallelFETIsolver, SerialFETIsolver
-
+from pyfeti.cases.case_generator import create_FETI_case
 
 class  Test_FETIsolver(TestCase):
     def setUp(self):
@@ -120,13 +120,19 @@ class  Test_FETIsolver(TestCase):
         self.postproc(sol_obj)
         print('end Parallel FETI solver ..........\n\n')
 
-        
+    def test_parallel_solver_cases(self):
+        print('Testing Parallel FETI solver ..........\n\n')
+        K_dict, B_dict, f_dict = create_FETI_case(1,4,1)
+        solver_obj = ParallelFETIsolver(K_dict,B_dict,f_dict)
+        sol_obj = solver_obj.solve()
+        x = 1
 
 if __name__=='__main__':
 
-    main()
-    #test_obj = Test_FETIsolver()
-    #test_obj.setUp()
+    #main()
+    test_obj = Test_FETIsolver()
+    test_obj.setUp()
+    test_obj.test_parallel_solver_cases()
     #test_obj.test_parallel_solver()
     #test_obj.test_serial_solver()
     #test_obj.test_elimination_matrix()

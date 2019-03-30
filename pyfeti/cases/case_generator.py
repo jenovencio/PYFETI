@@ -3,6 +3,7 @@ from pyfeti.src.utils import save_object, load_object, pyfeti_dir
 from pyfeti.src.linalg import Matrix
 import copy
 from scipy import sparse
+import numpy as np
 
 case_dict = {}
 case_dict[1] = 'case_18'
@@ -13,7 +14,7 @@ case_dict[5] = 'case_80000'
 
 
 def get_case_matrices(case_id):
-    case_path = pyfeti_dir(os.path.join('cases',case_dict[case_id]))
+    case_path = pyfeti_dir(os.path.join('cases/matrices',case_dict[case_id]))
     K = load_object(os.path.join(case_path,'K.pkl'))
     f = load_object(os.path.join(case_path,'f.pkl'))
     B_left = load_object(os.path.join(case_path,'B_left.pkl'))
@@ -74,7 +75,7 @@ class CreateFETIcase():
                 K = copy.deepcopy(self.K)
                 f = copy.deepcopy(self.f)
                 global_id = self.two2one_map((i,j))
-                if j==0:
+                if i==0:
                     #apply dirichelt B.C
                     K_dir_obj = Matrix(K.todense(),self.s.selection_dict)
                     K = sparse.csr_matrix(K_dir_obj.eliminate_by_identity('left'))
@@ -82,14 +83,14 @@ class CreateFETIcase():
                 if i==(self.domains_x-1):
                     Neumann_mult = 1.0
 
-                K_dict[global_id] = K
+                K_dict[global_id] = K.A
                 f_dict[global_id] = Neumann_mult*f
                 B_dict[global_id] = {}
                 for bool_key, nei_index in self.get_neighbors_dict(i,j).items():
                     global_nei_id = self.two2one_map(nei_index)
                     if global_nei_id is not None:
                         try:
-                            B_dict[global_id][global_id,global_nei_id] = self.B_dict[bool_key]
+                            B_dict[global_id][global_id,global_nei_id] = np.sign(global_nei_id-global_id)*self.B_dict[bool_key]
                         except:
                             pass
 

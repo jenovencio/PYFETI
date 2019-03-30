@@ -97,6 +97,9 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
             pk1 = pk[:]
             wk1 = wk[:]
 
+        if k==(max_int-1):
+            print('Maximum iteration was reached without converging!')
+
         return lampda_pcpg, rk, proj_r_hist, lambda_hist
 
 

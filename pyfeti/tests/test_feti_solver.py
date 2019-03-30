@@ -8,6 +8,7 @@ sys.path.append('../..')
 from pyfeti.src.utils import OrderedSet, Get_dofs, save_object, MapDofs
 from pyfeti.src.linalg import Matrix, Vector,  elimination_matrix_from_map_dofs, expansion_matrix_from_map_dofs
 from pyfeti.src.feti_solver import ParallelFETIsolver, SerialFETIsolver
+from pyfeti.src.solvers import PCPG
 from pyfeti.cases.case_generator import create_FETI_case
 
 class  Test_FETIsolver(TestCase):
@@ -55,6 +56,7 @@ class  Test_FETIsolver(TestCase):
         f_global.data[4] = 250000.00000065
         f_global.data[14] = 500000
 
+        self.f_global = f_global
         #f_global.replace_elements('neu_y',1E3)
 
         self.u_global = u_global = np.linalg.solve(K_global_obj.data,f_global.data)
@@ -70,11 +72,17 @@ class  Test_FETIsolver(TestCase):
         self.f_dict = {}
         self.f_dict[1] = f1
         self.f_dict[2] = f2
-
-        self.domain_list = list(self.f_dict.keys())
-        self.domain_list.sort()
-
         
+        self.domain_list = np.sort(list(self.f_dict.keys()))
+        
+    def dual2primal(self,K_dual,u_dual,f_dual,L,Lexp):
+        
+        f_primal = L@f_dual
+        K_primal = L@K_dual@Lexp
+        u_primal = np.linalg.solve(K_primal,f_primal)
+        np.testing.assert_almost_equal(u_dual,Lexp@u_primal,decimal=10)
+        return u_primal
+
     def postproc(self,sol_obj):
 
         domain_list = self.domain_list
@@ -93,25 +101,62 @@ class  Test_FETIsolver(TestCase):
         u_dual_calc = Lexp.dot(u_global)
 
         interface_gap = self.B_dict[1][1,2]*u_dict[1] + self.B_dict[2][2,1]*u_dict[2]
-
         np.testing.assert_almost_equal(interface_gap,0*interface_gap,decimal=10)
+        self.check_interface_gap(u_dict,self.B_dict)
+
         np.testing.assert_almost_equal(u_global,u_primal,decimal=10)
         np.testing.assert_almost_equal(u_dual,u_dual_calc,decimal=10)
+
+    def check_interface_gap(self,u_dict,B_dict):
+        for key, B in  B_dict.items():
+            for (domain_id,nei_id) in B:
+                if nei_id > domain_id:
+                    interface_gap = B_dict[domain_id][domain_id,nei_id]*u_dict[domain_id] \
+                        + B_dict[nei_id][nei_id,domain_id]*u_dict[nei_id]
+                    np.testing.assert_almost_equal(interface_gap,0*interface_gap,decimal=10)
 
     def test_serial_solver(self):
         print('Testing Serial FETI solver ..........\n\n')
         solver_obj = SerialFETIsolver(self.K_dict,self.B_dict,self.f_dict)
         sol_obj = solver_obj.solve()
         self.postproc(sol_obj)
+
+        K_dual = sparse.block_diag((self.K_dict[1],self.K_dict[2]))
+        f_dual = np.concatenate((self.f_dict[1].data,self.f_dict[2].data))
+        u_dual = sol_obj.displacement
+
+        np.testing.assert_almost_equal(self.f_global.data,self.L@f_dual,decimal=10)
+        u_primal = self.dual2primal(K_dual,u_dual,f_dual,self.L,self.Lexp)
+        np.testing.assert_almost_equal( self.u_global,u_primal,decimal=10)
+
         print('end Serial FETI solver ..........\n\n')
 
     def test_elimination_matrix(self):
+
+        self.setUp()
+        L_target = self.L
+        Lexp_target = self.Lexp  
         solver_obj = SerialFETIsolver(self.K_dict,self.B_dict,self.f_dict)
-        #manager = solver_obj.manager
-        #manager.create_local_problems(solver_obj.K_dict,solver_obj.B_dict,solver_obj.f_dict)
-        #B = manager.assemble_global_B_and_L()
-        #L = manager.assemble_global_L()
-        #K_global, f_global = manager.assemble_global_K_and_f()
+        sol_obj = solver_obj.solve()
+        
+        u_dual = np.array([])
+        u_dict  = sol_obj.u_dict
+        lambda_dict = sol_obj.lambda_dict
+        alpha_dict = sol_obj.alpha_dict
+        
+        for domain_id in self.domain_list:
+            u_dual = np.append(u_dual,u_dict[domain_id])
+
+
+        L_calc = solver_obj.manager.assemble_global_L()
+        Lexp_calc = solver_obj.manager.assemble_global_L_exp()
+
+        n = L_target .shape[0]
+        #testing orthogonality
+        np.testing.assert_array_almost_equal(L_calc.dot(Lexp_calc),np.eye(n))
+
+        # testing L matrix asseblying method
+        np.testing.assert_array_almost_equal(np.sort(L_calc.dot(u_dual)),np.sort(self.u_global))
     
     def test_parallel_solver(self):
         print('Testing Parallel FETI solver ..........\n\n')
@@ -122,17 +167,67 @@ class  Test_FETIsolver(TestCase):
 
     def test_parallel_solver_cases(self):
         print('Testing Parallel FETI solver ..........\n\n')
-        K_dict, B_dict, f_dict = create_FETI_case(1,4,1)
+        K_dict, B_dict, f_dict = create_FETI_case(1,2,1)
         solver_obj = ParallelFETIsolver(K_dict,B_dict,f_dict)
         sol_obj = solver_obj.solve()
         x = 1
+
+    def test_serial_solver_cases(self):
+        print('Testing Serial FETI solver ..........\n\n')
+        K_dict, B_dict, f_dict = create_FETI_case(1,2,2)
+        solver_obj = SerialFETIsolver(K_dict,B_dict,f_dict)
+        sol_obj = solver_obj.solve()
+
+        u_dict  = sol_obj.u_dict
+        lambda_dict = sol_obj.lambda_dict
+        alpha_dict = sol_obj.alpha_dict
+        
+        u_dual = sol_obj.displacement
+        lambda_ = sol_obj.interface_lambda
+        alpha = sol_obj.alpha
+
+        #update L matrices
+        L = solver_obj.manager.assemble_global_L()
+        Lexp = solver_obj.manager.assemble_global_L_exp()
+
+        # get dual matrices
+        K_dual, f_dual = solver_obj.manager.assemble_global_K_and_f()
+        
+        # get F operator
+        F = solver_obj.manager.assemble_global_F()
+        G = solver_obj.manager.assemble_G()
+        e = solver_obj.manager.assemble_e()
+        d = solver_obj.manager.assemble_global_d()
+
+        B = solver_obj.manager.assemble_global_B()
+
+        GGT_inv_ = np.linalg.inv(G@G.T)
+        GGT_inv =  solver_obj.manager.compute_GGT_inverse() 
+
+        lambda_im = G.T.dot((GGT_inv).dot(e))
+        I = np.eye(len(lambda_im))
+        P = lambda r : (I - G.T.dot(GGT_inv.dot(G))).dot(r)
+        F_action = lambda x : F.dot(x)
+        lambda_ker = lambda_ - lambda_im
+        residual = d - F_action(lambda_im)
+        lampda_pcpg, rk, proj_r_hist, lambda_hist = PCPG(F_action,residual,Projection_action=P,tolerance=1.e-10,max_int=500)
+        lambda_calc = lampda_pcpg + lambda_im
+        alpha_sol = GGT_inv.dot(G.dot(d - F.dot(lampda_pcpg)))
+
+        # check error 
+        self.check_interface_gap(u_dict,B_dict)
+        u_primal = self.dual2primal(K_dual,u_dual,f_dual,L,Lexp)
+
+        print('end Serial FETI solver ..........\n\n')
+        
 
 if __name__=='__main__':
 
     #main()
     test_obj = Test_FETIsolver()
     test_obj.setUp()
-    test_obj.test_parallel_solver_cases()
-    #test_obj.test_parallel_solver()
     #test_obj.test_serial_solver()
+    #test_obj.test_parallel_solver()
+    #test_obj.test_parallel_solver_cases()
+    test_obj.test_serial_solver_cases()
     #test_obj.test_elimination_matrix()

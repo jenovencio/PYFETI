@@ -505,8 +505,8 @@ def create_permutation_matrix(row_indexes,col_indexes,shape):
     P[row_indexes, col_indexes] = 1
     return P.toarray()
 
-def map_matrix(map_dofs):
-    map_obj = MapDofs(map_dofs)
+def map_matrix(map_dofs,**kargs):
+    map_obj = MapDofs(map_dofs,**kargs)
     total_dof_length = map_obj.local_dofs_length()
     global_dof_lenth = map_obj.global_dofs_length()
     dof_list = np.arange(total_dof_length)
@@ -520,9 +520,9 @@ def map_matrix(map_dofs):
 
     return L
 
-def elimination_matrix_from_map_dofs(map_dofs):
+def elimination_matrix_from_map_dofs(map_dofs,**kargs):
 
-    L = map_matrix(map_dofs)
+    L = map_matrix(map_dofs,**kargs)
 
     for i,row in enumerate(L):
         scale = sum(row)
@@ -530,9 +530,9 @@ def elimination_matrix_from_map_dofs(map_dofs):
             L[i,:] = (1.0/scale)*L[i,:]
     return L
 
-def expansion_matrix_from_map_dofs(map_dofs):
+def expansion_matrix_from_map_dofs(map_dofs,**kargs):
 
-    L = map_matrix(map_dofs)
+    L = map_matrix(map_dofs,**kargs)
  
     return L.T
 
@@ -646,7 +646,7 @@ def create_voigt_rotation_matrix(n_dofs,alpha_rad, dim=2, axis='z',unit='rad', s
         R = linalg.block_diag(*[R_i]*n_blocks)
     return R
 
-class Pesudoinverse():
+class Pseudoinverse():
     ''' This class intend to solve singular systems
     build the null space of matrix operator and also 
     build the inverse matrix operator
@@ -873,7 +873,7 @@ class Matrix():
         self.issingular = None
         self.prefix = 'K'
         self.eliminated_id = set()
-        self.psudeoinverve = Pesudoinverse(**pseudoinverse_kargs)
+        self.psudeoinverve = Pseudoinverse(**pseudoinverse_kargs)
         self.inverse_computed = False
         if name is None:
             self.update_name()
@@ -886,7 +886,7 @@ class Matrix():
                     name of the pseudoinverse method
         '''
         pseudoinverse_key_args = {'method':name}
-        self.psudeoinverve = Pesudoinverse(**pseudoinverse_key_args)
+        self.psudeoinverve = Pseudoinverse(**pseudoinverse_key_args)
         self.issingular = None
 
     def update_name(self):

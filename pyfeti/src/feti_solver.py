@@ -3,9 +3,12 @@ import numpy as np
 import scipy
 import pandas as pd
 import os
+from scipy.sparse.linalg import LinearOperator
+
 sys.path.append('../..')
 from pyfeti.src.utils import OrderedSet, Get_dofs, save_object, load_object, pyfeti_dir
-from pyfeti.src.linalg import Matrix, Vector, elimination_matrix_from_map_dofs, ProjLinearSys, ProjPrecondLinearSys
+from pyfeti.src.linalg import Matrix, Vector, elimination_matrix_from_map_dofs, \
+                              expansion_matrix_from_map_dofs, ProjLinearSys, ProjPrecondLinearSys
 from pyfeti.src import solvers
 import logging
 import time
@@ -58,16 +61,17 @@ class SerialFETIsolver(FETIsolver):
        manager.assemble_local_G_GGT_and_e()
        manager.assemble_cross_GGT()
        manager.build_local_to_global_mapping()
-       #manager.compute_local_GGT_inv()
-       GGT = manager.assemble_GGT()
+       
        G = manager.assemble_G()
+       GGT = manager.assemble_GGT()
        e = manager.assemble_e()
-       #lambda_im = manager.compute_lambda_im()
-       #gap_error = manager.apply_F(lambda_im, external_force=True)
-
+       
        lambda_sol,alpha_sol, rk, proj_r_hist, lambda_hist = manager.solve_dual_interface_problem()
        u_dict, lambda_dict, alpha_dict = manager.assemble_solution_dict(lambda_sol,alpha_sol)
-       return Solution(u_dict, lambda_dict, alpha_dict,rk, proj_r_hist, lambda_hist)
+       return Solution(u_dict, lambda_dict, alpha_dict,rk, proj_r_hist, lambda_hist,
+                       lambda_map=self.manager.local2global_lambda_dofs,alpha_map=self.manager.local2global_alpha_dofs,
+                       u_map=self.manager.local2global_primal_dofs,lambda_size=self.manager.lambda_size,
+                       alpha_size=self.manager.alpha_size)
         
 class SolverManager():
     def __init__(self,K_dict,B_dict,f_dict):
@@ -92,6 +96,7 @@ class SolverManager():
         self.GGT = None
         self.GGT_inv = None
         self.num_partitions =  len(K_dict.keys())
+        self.map_dofs = None
         self._create_local_problems(K_dict,B_dict,f_dict)
         
 
@@ -117,26 +122,28 @@ class SolverManager():
                 GGT_local_dict = {}
                 for key, B_local in local_problem.B_local.items():
                     local_id, nei_id = key
-                    G = (nei_id - local_id)*(-B_local.dot(R)).T
+                    G = (-B_local.dot(R)).T
                     G_local_dict[key] = G
-                    GGT_local_dict[local_id,local_id] = G.dot(G.T)
-                    self.course_problem.update_G_dict(G_local_dict)
-                    self.course_problem.update_GGT_dict(GGT_local_dict)
+                    try:
+                        GGT_local_dict[local_id,local_id] += G.dot(G.T)
+                    except:
+                        GGT_local_dict[local_id,local_id] = G.dot(G.T)
+
+                self.course_problem.update_G_dict(G_local_dict)
+                self.course_problem.update_GGT_dict(GGT_local_dict)
         
     def assemble_cross_GGT(self):
-        for problem_id, local_problem in self.local_problem_dict.items():
-            GGT_local_dict = {}
-            for key, Gi in self.course_problem.G_dict.items():
-                local_id, nei_id = key
-                for nei_id in local_problem.neighbors_id:
+        GGT_local_dict = {}
+        for (local_i, nei_i) , Gi in self.course_problem.G_dict.items():
+            for (local_j, nei_j), Gj in self.course_problem.G_dict.items():
+                if local_i==nei_j and nei_i==local_j:
                     try:
-                        Gj = self.course_problem.G_dict[nei_id,local_id]
                         if Gi.shape[0]>0 and Gj.shape[0]>0:
-                            GGT_local_dict[local_id,nei_id_id] = Gi.dot(Gj.T)
-                            self.course_problem.update_GGT_dict(GGT_local_dict)
-                    except:
+                            GGT_local_dict[local_i,local_j] = Gi.dot(Gj.T)
+                    except:        
                         pass
-             
+        self.course_problem.update_GGT_dict(GGT_local_dict)
+                    
     def assemble_e(self):
         try:
             self.e = self.course_problem.assemble_e(self.local2global_alpha_dofs,self.alpha_size)
@@ -342,18 +349,54 @@ class SolverManager():
                     idy =  self.local2global_lambda_dofs[nei_id,local_id]
 
                 Bij = Bi_dict[local_id, nei_id]
-                B[np.ix_(idy,idx)] = np.sign(nei_id - local_id)*Bij
+                #B[np.ix_(idy,idx)] = np.sign(nei_id - local_id)*Bij
+                B[np.ix_(idy,idx)] = Bij
 
         return B.tocsc()
 
-    def assemble_global_L(self):
+    def build_dof_map(self):
         map_dofs = self.build_global_map_dataframe()
+        
+        non_uniform_map = list(map_dofs['Global_dof_id'])
+        removed_dofs = []
+        kept_dofs = []
         for local_id,nei_id in self.unique_map:
             if (nei_id,local_id) in self.unique_map and nei_id>local_id:
                 for unique_dof,duplicated_dof in zip(self.unique_map[local_id,nei_id],self.unique_map[nei_id,local_id]):
-                    map_dofs = map_dofs.replace({'Global_dof_id' : duplicated_dof}, unique_dof)
+                    
+                    if unique_dof not in removed_dofs:
+                        non_uniform_map[duplicated_dof] = unique_dof
+                    else:
+                        unique_dof = kept_dofs[removed_dofs.index(unique_dof)]
+                        non_uniform_map[duplicated_dof] = unique_dof
 
-        return elimination_matrix_from_map_dofs(map_dofs)
+                    removed_dofs.append(duplicated_dof)
+                    kept_dofs.append(unique_dof)
+
+        #primal_dofs = np.arange(self.primal_size - self.lambda_size)
+        unique_list = list(set(non_uniform_map))
+        primal_dofs = np.arange(len(unique_list))
+        uniform_map = lambda global_id : primal_dofs[unique_list.index(global_id)]
+        non_uni_2_uni = []
+        for nun_uniform_id in non_uniform_map:
+            non_uni_2_uni.append(uniform_map(nun_uniform_id))
+
+        map_dofs['Primal_dof_id'] = non_uni_2_uni
+        self.map_dofs = map_dofs
+        return self.map_dofs
+    
+    def assemble_global_L(self):
+        if self.map_dofs is None:
+            self.build_dof_map()
+        map_dofs = self.map_dofs
+
+        return elimination_matrix_from_map_dofs(map_dofs,primal_tag='Primal_dof_id')
+
+    def assemble_global_L_exp(self):
+        if self.map_dofs is None:
+            self.build_dof_map()
+        map_dofs = self.map_dofs
+        return expansion_matrix_from_map_dofs(map_dofs,primal_tag='Primal_dof_id')
 
     def build_global_map_dataframe(self):
         list_domain = []
@@ -365,7 +408,6 @@ class SolverManager():
             list_domain.extend([domain_id]*len(local_dof_id))
             list_local_dof.extend(local_dof_id)
             list_global_dof.extend(global_dof_id)
-
 
         map_dict = {}
         map_dict['Domain_id'] = list_domain
@@ -390,6 +432,57 @@ class SolverManager():
 
         return Kd.tocsc(), fd 
 
+    def assemble_global_kernel(self):
+        ''' This method assembles the global R matrix, based on local 
+        R matrices.
+
+        R_global = [R_local(1),  0         ]  alpha(1) 
+                   [     0      R_local(2) ]  alpha(2) 
+
+        '''
+        try:
+            R = scipy.sparse.lil_matrix((self.alpha_size,self.primal_size))
+        except:
+            self.build_local_to_global_mapping()
+            R = scipy.sparse.lil_matrix((self.alpha_size,self.primal_size))
+
+        for local_id in self.local_problem_id_list:
+            local_problem = self.local_problem_dict[local_id]
+            
+            
+            idx = self.local2global_primal_dofs[local_id]
+            try:
+                idy =  self.local2global_alpha_dofs[local_id]
+                R[np.ix_(idy,idx)] = local_problem.kernel.T
+            except:
+                continue
+
+        return R.tocsc()
+
+    def assemble_global_F(self):
+        ''' This function return F as a linear operator
+        '''
+
+        F_action = lambda lambda_ker : self.apply_F(lambda_ker)
+        return LinearOperator((self.lambda_size,self.lambda_size), matvec=F_action)  
+
+    def assemble_global_d(self):
+        ''' This function assembles the d vector related to the followinf system
+
+
+        $$
+        \begin{bmatrix} F & G^{T} \\
+                         G & 0  
+        \end{bmatrix}
+        \begin{bmatrix} \lambda  \\ 
+        \alpha
+        \end{bmatrix}
+        =
+        \begin{bmatrix} d \\ 
+        e \end{bmatrix}
+        $$
+        '''
+        return -self.apply_F(np.array(self.lambda_size*[0.0]), external_force=True)
 
 class ParallelSolverManager(SolverManager):
     def __init__(self,K_dict,B_dict,f_dict,temp_folder='temp'):
@@ -410,7 +503,8 @@ class ParallelSolverManager(SolverManager):
         try:
             os.mkdir(temp_folder)
         except:
-            pass
+            #deleting local files
+            shutil.rmtree(temp_folder, ignore_errors=True)
 
         for key, obj in K_dict.items():
             B_local_dict = B_dict[key]
@@ -438,7 +532,8 @@ class ParallelSolverManager(SolverManager):
         if self.log:
             command += '>pyfeti_solver.log'
         
-        
+       
+
         # writing bat file with the command line
         local_folder = os.getcwd()
         os.chdir(self.temp_folder)
@@ -528,11 +623,12 @@ class LocalProblem():
 
         if lambda_dict is not None:
             # assemble interface and external forces
-            for interface_id, f_interface in lambda_dict.items():
+            #for interface_id, f_interface in lambda_dict.items():
+            for interface_id, B in self.B_local.items():
                 (local_id,nei_id) = interface_id
-                if local_id!=self.id:
+                if local_id>nei_id:
                     interface_id = (nei_id,local_id) 
-                f -= self.B_local[interface_id].T.dot(f_interface)
+                f -= B.T.dot(lambda_dict[interface_id])
         return self.K_local.apply_inverse(f)
 
     def get_interface_dict(self,x):
@@ -613,11 +709,17 @@ class CourseProblem():
                 if isinstance(col_key,int):
                     column_key = col_key
                 else:
-                    column_key = col_key[1]
-                    if col_key[0]!=row_key:
+                    if row_key not in col_key:
                         continue
+                    else:
+                        l_key = list(col_key)
+                        l_key.remove(row_key)
+                        column_key = l_key[0]
+                try:        
+                    M[np.ix_(row_dofs,column_dofs)] += M_dict[row_key,column_key]
+                except:
+                    continue
 
-                M[np.ix_(row_dofs,column_dofs)] += M_dict[row_key,column_key]
         return M
             
     def assemble_block_vector(self,v_dict,map_dict,length):
@@ -636,15 +738,60 @@ class CourseProblem():
         return self.assemble_block_vector(self.e_dict,map_dict,length)
 
 class Solution():
-    def __init__(self,u_dict, lambda_dict, alpha_dict,rk=None, proj_r_hist=None, lambda_hist=None):
+    def __init__(self,u_dict, lambda_dict, alpha_dict,rk=None, proj_r_hist=None, lambda_hist=None, 
+                 lambda_map=None,alpha_map=None,u_map=None,lambda_size=None,alpha_size=None):
         self.u_dict = u_dict 
         self.lambda_dict=lambda_dict 
         self.alpha_dict=alpha_dict
         self.rk=rk 
         self.proj_r_hist=proj_r_hist, 
         self.lambda_hist=lambda_hist
+        self.domain_list = np.sort(list(u_dict.keys()))
+        self.lambda_map = lambda_map
+        self.alpha_map = alpha_map
+        self.u_map = u_map
+        self.lambda_size =lambda_size
+        self.alpha_size = alpha_size
+        self._rebuild_lambda_map()
 
+    def _rebuild_lambda_map(self):
+
+        local_dict ={}
+        try:
+            for key, interface_dict in self.lambda_dict.items():
+                for (dom_id,nei_id),values in interface_dict.items():
+                    if nei_id>dom_id:
+                         local_dict[dom_id,nei_id] = values
+            self.lambda_dict = local_dict
+        except:
+            pass
+
+    @property
+    def displacement(self):
+        u = np.array([])
+        for key in self.domain_list:
+            u = np.append(u,self.u_dict[key])
         
+        return u
+    
+    @property
+    def interface_lambda(self):
+        ''' assemble lambda in the interface
+        '''
+        return self.assemble_vector(self.lambda_dict,self.lambda_size,self.lambda_map)
+
+    @property
+    def alpha(self):
+        ''' assemble lambda in the interface
+        '''
+        return self.assemble_vector(self.alpha_dict,self.alpha_size,self.alpha_map)
+
+    def assemble_vector(self,v_dict,vector_length,map_dict):
+        v = np.zeros(vector_length)
+        for map_index,row_dofs in map_dict.items():
+            v[np.ix_(row_dofs)] += v_dict[map_index]
+        return v
+
 
 #Alias variables for backward and future compatibilite
 SerialSolverManager = SolverManager

@@ -151,7 +151,7 @@ class SelectionOperator():
         
         
         self.P = self.create_permutation_matrix(self.local_indexes)
-        self.ndof = max(self.P.shape)
+        self.ndof = max(self.id_map_df.max()) + 1
     
     @property
     def list_of_all_dofs(self):
@@ -294,29 +294,32 @@ class SelectionOperator():
         return B.tocsr()
 
 class MapDofs():
-    def __init__(self,map_dofs):
+    def __init__(self,map_dofs,primal_tag='Global_dof_id',local_tag='Local_dof_id',domain_tag='Domain_id'):
         '''
         map_dofs as pandas dataframe
         '''
         self.map_dofs = map_dofs
+        self.primal_tag = primal_tag
+        self.local_tag = local_tag
+        self.domain_tag = domain_tag
    
     def get_global_dof_row_index(self,global_dof):
-        return list(self.map_dofs[self.map_dofs['Global_dof_id']==global_dof].index.values.astype(int))
+        return list(self.map_dofs[self.map_dofs[self.primal_tag]==global_dof].index.values.astype(int))
     
     def row2local_dof(self,row_id):
-        return self.map_dofs['Local_dof_id'].iloc[row_id]
+        return self.map_dofs[self.local_tag].iloc[row_id]
         
     def row2domain_id(self,row_id):
-        return self.map_dofs['Domain_id'].iloc[row_id]
+        return self.map_dofs[self.domain_tag].iloc[row_id]
     
     def global_dofs_length(self):
-        return max(self.map_dofs['Global_dof_id']) + 1
+        return max(self.map_dofs[self.primal_tag]) + 1
     
     def local_dofs_length(self,domain_id=None):
         if domain_id is None:
-            return len(self.map_dofs['Local_dof_id'])
+            return len(self.map_dofs[self.local_tag])
         else:
-            return len(self.map_dofs[self.map_dofs['Domain_id']==domain_id]['Domain_id'])
+            return len(self.map_dofs[self.map_dofs[self.domain_tag]==domain_id][self.domain_tag])
           
     def global2local_dof(self,global_dof):
         return (list(map(self.row2local_dof,self.get_global_dof_row_index(global_dof))), 
@@ -331,23 +334,23 @@ class MapDofs():
             return None
     
     def get_domain_rows(self,domain_id):
-        return list(self.map_dofs[self.map_dofs['Domain_id']==domain_id].index.values.astype(int))
+        return list(self.map_dofs[self.map_dofs[self.domain_tag]==domain_id].index.values.astype(int))
     
     def local_dof(self,domain_id=None):
         if domain_id is None:
-            return list(self.map_dofs['Local_dof_id'])
+            return list(self.map_dofs[self.local_tag])
         else:
-            return self.map_dofs[self.map_dofs['Domain_id']==domain_id]['Local_dof_id']
+            return self.map_dofs[self.map_dofs[self.domain_tag]==domain_id][self.local_tag]
          
     def global_dofs(self,domain_id=None):
         if domain_id is None:
-            return list(self.map_dofs['Global_dof_id'])
+            return list(self.map_dofs[self.primal_tag])
         else:
-            return list(self.map_dofs[self.map_dofs['Domain_id']==domain_id]['Global_dof_id'])
+            return list(self.map_dofs[self.map_dofs[self.domain_tag]==domain_id][self.primal_tag])
         
     @property
     def domain_ids(self):
-        return list(self.map_dofs['Domain_id'])
+        return list(self.map_dofs[self.domain_tag])
     
     @property
     def get_local_map_dict(self):

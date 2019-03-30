@@ -172,7 +172,7 @@ class ParallelSolver():
             GGT_local_dict = {}
             for key, B_local in local_problem.B_local.items():
                 local_id, nei_id = key
-                G = (nei_id - local_id)*(-B_local.dot(R)).T
+                G = (-B_local.dot(R)).T
                 G_local_dict[key] = G
                 GGT_local_dict[local_id,local_id] = G.dot(G.T)
                 self.course_problem.update_G_dict(G_local_dict)

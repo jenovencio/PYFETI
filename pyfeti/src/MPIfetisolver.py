@@ -21,7 +21,7 @@ import numpy as np
 import scipy.sparse as sparse
 import scipy
 import logging
-import pandas as pd
+import time
 
 #logging.basicConfig(level=logging.INFO)
 
@@ -546,10 +546,16 @@ if __name__ == "__main__":
         directory = ''
     case_path = os.path.join(directory,case_obj)
     
+    if True:
+        logging.basicConfig(level=logging.DEBUG)
+
     logging.debug('########################################')
     logging.debug('Case object = %s' %case_obj)
     logging.debug('Directory pass to MPI solver = %s' %directory)
     logging.debug('FUll case path passed to MPI solver = %s' %case_path)
+
+    localtime = time.localtime(time.time())
+    logging.debug('Time at start: ', localtime)
     logging.debug('########################################')
     
     my_system = amfe.load_obj(case_path)

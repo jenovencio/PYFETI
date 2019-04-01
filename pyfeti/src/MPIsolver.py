@@ -5,6 +5,7 @@ Created on Wed Dec 20 08:35:26 2017
 @author: ge72tih
 """
 
+        
 
 import subprocess
 import sys
@@ -13,8 +14,9 @@ import numpy as np
 import scipy.sparse as sparse
 import scipy
 import logging
-from pyfeti.src.utils import save_object, load_object, Log
+import time
 
+from pyfeti.src.utils import save_object, load_object, Log
 from pyfeti.src.feti_solver import CourseProblem, Solution
 from pyfeti.src import solvers
 
@@ -135,9 +137,11 @@ class ParallelSolver():
         self.course_problem.G_dict = G_dict
         self.course_problem.e_dict = e_dict
         
+        self._exchange_global_size()
+
         self.assemble_cross_GGT()
         self.GGT_dict = self.course_problem.GGT_dict
-        self._exchange_global_size()
+        
         GGT_dict = exchange_global_dict(self.GGT_dict,self.obj_id,self.partitions_list)
         self.course_problem.GGT_dict = GGT_dict
         
@@ -154,12 +158,21 @@ class ParallelSolver():
         print(rk)
         u_dict, lambda_dict, alpha_dict = self.assemble_solution_dict(lambda_sol,alpha_sol)
         
+        # serializing displacement
         save_object(u_dict[self.obj_id],'displacement_' + str(self.obj_id) + '.pkl')
+
+        # serializing rigid body correction (alpha)
+        try:
+            save_object(alpha_dict [self.obj_id],'alpha_' + str(self.obj_id) + '.pkl')
+        except:
+            pass
+
         if self.obj_id == 1:
-            sol_obj = Solution({}, lambda_dict, alpha_dict,rk, proj_r_hist, lambda_hist)
+            sol_obj = Solution({}, lambda_dict, {}, rk, proj_r_hist, lambda_hist, lambda_map=self.local2global_lambda_dofs,
+                                alpha_map=self.local2global_alpha_dofs, u_map=self.local2global_primal_dofs,lambda_size=self.lambda_size,
+                                alpha_size=self.alpha_size)
             save_object(sol_obj,'solution.pkl')
         
-            
     def assemble_local_G_GGT_and_e(self):
         problem_id = self.obj_id
         local_problem = self.local_problem
@@ -180,6 +193,7 @@ class ParallelSolver():
                 
     def assemble_cross_GGT(self):
         
+        logging.debug('Assembling the cross GGT matrix')
         GGT_local_dict = {}
         for key in local_problem.B_local:
             print(key)
@@ -191,6 +205,7 @@ class ParallelSolver():
                     Gi =self.course_problem.G_dict[local_id,nei_id]
                     
                 Gj = exchange_info(Gi,local_id,nei_id)
+                logging.debug(('Gj = ', Gj))
                 if Gj is not None:
                     if Gi.shape[0]>0 and Gj.shape[0]>0:
                         GGT_local_dict[local_id,nei_id] = Gi.dot(Gj.T)
@@ -390,19 +405,27 @@ if __name__ == "__main__":
     obj_id = rank + 1
     case_path = obj_name + str(obj_id) + obj_ext
     
-    logging.debug('########################################')
-    logging.debug('Case object id = %s' %obj_id)
-    logging.debug('Directory pass to MPI solver = %s' %os.getcwd())
-    logging.debug('FUll case path passed to MPI solver = %s' %case_path)
-    logging.debug('########################################')
+    if True:
+        logging.basicConfig(level=logging.DEBUG,filename='rank_' + str(rank) + '.log')
+    
+    logging.info('########################################')
+    logging.info('Local problem ID = %s' %obj_id)
+    logging.info('Directory pass to MPI solver = %s' %os.getcwd())
+    logging.info('Local object name passed to MPI solver = %s' %case_path)
+    localtime = localtime = time.asctime( time.localtime(time.time()) )
+    start_time = time.time()
+    logging.info('Time at start: %s' %localtime)
+    logging.info('########################################')
     
     local_problem = load_object(case_path)
+
     
     parsolver = ParallelSolver(obj_id,local_problem)
     u_i = parsolver.mpi_solver()
     
 
 
-
-
-
+    localtime = localtime = time.asctime( time.localtime(time.time()) )
+    logging.info('Time at end: %s' %localtime)
+    elapsed_time = time.time() - start_time
+    logging.info('Elapsed time in seconds : %f' %elapsed_time)

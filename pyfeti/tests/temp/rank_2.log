@@ -1,0 +1,13 @@
+INFO:root:########################################
+INFO:root:Local problem ID = 3
+INFO:root:Directory pass to MPI solver = C:\Users\ge72tih\Documents\Projects\PYFETI\pyfeti\tests\temp
+INFO:root:Local object name passed to MPI solver = local_problem_3.pkl
+INFO:root:Time at start: Mon Apr  1 22:29:04 2019
+INFO:root:########################################
+DEBUG:root:Assembling the cross GGT matrix
+DEBUG:root:('Gj = ', array([[ 0.05858041, -0.3697615 ,  0.15327454, -0.3697615 ,  0.24796867,
+        -0.3697615 ],
+       [ 0.09653798,  0.05018712, -0.1255789 ,  0.05018712, -0.34769577,
+         0.05018712],
+       [ 0.42625485,  0.23495134,  0.26804471,  0.23495134,  0.10983458,
+         0.23495134]]))

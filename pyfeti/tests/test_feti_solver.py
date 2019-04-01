@@ -4,6 +4,7 @@ import numpy as np
 from unittest import TestCase, main
 from collections import OrderedDict
 from scipy import sparse
+import time
 sys.path.append('../..')
 from pyfeti.src.utils import OrderedSet, Get_dofs, save_object, MapDofs
 from pyfeti.src.linalg import Matrix, Vector,  elimination_matrix_from_map_dofs, expansion_matrix_from_map_dofs
@@ -166,18 +167,43 @@ class  Test_FETIsolver(TestCase):
         print('end Parallel FETI solver ..........\n\n')
 
     def test_parallel_solver_cases(self):
-        print('Testing Parallel FETI solver ..........\n\n')
-        K_dict, B_dict, f_dict = create_FETI_case(1,2,1)
-        solver_obj = ParallelFETIsolver(K_dict,B_dict,f_dict)
-        sol_obj = solver_obj.solve()
-        x = 1
+        self.test_solver_cases(algorithm=ParallelFETIsolver)
 
     def test_serial_solver_cases(self):
-        print('Testing Serial FETI solver ..........\n\n')
-        K_dict, B_dict, f_dict = create_FETI_case(1,2,2)
-        solver_obj = SerialFETIsolver(K_dict,B_dict,f_dict)
-        sol_obj = solver_obj.solve()
+        #print('Testing Serial FETI solver ..........\n\n')
+        #K_dict, B_dict, f_dict = create_FETI_case(1,4,1)
+        #solver_obj = SerialFETIsolver(K_dict,B_dict,f_dict)
+        #sol_obj = solver_obj.solve()
+        #u_dual,lambda_,alpha = self.postprocessing(sol_obj,solver_obj)
+        #print('end Serial FETI solver ..........\n\n')
+        self.test_solver_cases(algorithm=SerialFETIsolver)
 
+
+    def test_solver_cases(self,algorithm=SerialFETIsolver):
+
+        domin_list_x = [1,2,3,4,5,10]
+        domin_list_y = [1]
+        case_id_list =[1,2]
+        for case_id in case_id_list:
+            for ny in domin_list_y:
+                for nx in domin_list_x:
+                    print('Testing %s ..........' %algorithm.__name__)
+                    print('Number of Subdomain in X direction : %i' %nx)
+                    print('Number of Subdomain in Y direction : %i ' %ny)
+                    K_dict, B_dict, f_dict = create_FETI_case(case_id,nx,ny)
+                    
+                    solver_obj = algorithm(K_dict,B_dict,f_dict)
+                    start_time = time.time()
+                    sol_obj = solver_obj.solve()
+                    elapsed_time = time.time() - start_time
+                    print('Elapsed time : %f ' %elapsed_time)
+                    u_dual,lambda_,alpha = self.postprocessing(sol_obj,solver_obj)
+                    print('end %s ..........\n\n\n' %algorithm.__name__)
+      
+
+
+
+    def postprocessing(self,sol_obj,solver_obj):
         u_dict  = sol_obj.u_dict
         lambda_dict = sol_obj.lambda_dict
         alpha_dict = sol_obj.alpha_dict
@@ -193,32 +219,38 @@ class  Test_FETIsolver(TestCase):
         # get dual matrices
         K_dual, f_dual = solver_obj.manager.assemble_global_K_and_f()
         
-        # get F operator
-        F = solver_obj.manager.assemble_global_F()
-        G = solver_obj.manager.assemble_G()
-        e = solver_obj.manager.assemble_e()
-        d = solver_obj.manager.assemble_global_d()
+        try:
+            # get F operator
+            F = solver_obj.manager.assemble_global_F()
+            G = solver_obj.manager.assemble_G()
+            e = solver_obj.manager.assemble_e()
+            d = solver_obj.manager.assemble_global_d()
 
-        B = solver_obj.manager.assemble_global_B()
+            B = solver_obj.manager.assemble_global_B()
 
-        GGT_inv_ = np.linalg.inv(G@G.T)
-        GGT_inv =  solver_obj.manager.compute_GGT_inverse() 
+            GGT_inv_ = np.linalg.inv(G@G.T)
+            GGT_inv =  solver_obj.manager.compute_GGT_inverse() 
 
-        lambda_im = G.T.dot((GGT_inv).dot(e))
-        I = np.eye(len(lambda_im))
-        P = lambda r : (I - G.T.dot(GGT_inv.dot(G))).dot(r)
-        F_action = lambda x : F.dot(x)
-        lambda_ker = lambda_ - lambda_im
-        residual = d - F_action(lambda_im)
-        lampda_pcpg, rk, proj_r_hist, lambda_hist = PCPG(F_action,residual,Projection_action=P,tolerance=1.e-10,max_int=500)
-        lambda_calc = lampda_pcpg + lambda_im
-        alpha_sol = GGT_inv.dot(G.dot(d - F.dot(lampda_pcpg)))
+            lambda_im = G.T.dot((GGT_inv).dot(e))
+            I = np.eye(len(lambda_im))
+            P = lambda r : (I - G.T.dot(GGT_inv.dot(G))).dot(r)
+            F_action = lambda x : F.dot(x)
+            lambda_ker = lambda_ - lambda_im
+            residual = d - F_action(lambda_im)
+            lampda_pcpg, rk, proj_r_hist, lambda_hist = PCPG(F_action,residual,Projection_action=P,tolerance=1.e-10,max_int=500)
+            lambda_calc = lampda_pcpg + lambda_im
+            alpha_sol = GGT_inv.dot(G.dot(d - F.dot(lampda_pcpg)))
+        except:
+            pass
 
         # check error 
+        B_dict = solver_obj.B_dict
         self.check_interface_gap(u_dict,B_dict)
         u_primal = self.dual2primal(K_dual,u_dual,f_dual,L,Lexp)
+        
+        return u_dual,lambda_,alpha
 
-        print('end Serial FETI solver ..........\n\n')
+        
         
 
 if __name__=='__main__':

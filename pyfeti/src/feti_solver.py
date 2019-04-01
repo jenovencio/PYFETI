@@ -4,7 +4,6 @@ import scipy
 import pandas as pd
 import os
 from scipy.sparse.linalg import LinearOperator
-
 sys.path.append('../..')
 from pyfeti.src.utils import OrderedSet, Get_dofs, save_object, load_object, pyfeti_dir
 from pyfeti.src.linalg import Matrix, Vector, elimination_matrix_from_map_dofs, \
@@ -94,11 +93,13 @@ class SolverManager():
         self.G = None
         self.e = None
         self.GGT = None
-        self.GGT_inv = None
         self.num_partitions =  len(K_dict.keys())
         self.map_dofs = None
         self._create_local_problems(K_dict,B_dict,f_dict)
         
+    @property
+    def GGT_inv(self):
+        return self.course_problem.compute_GGT_inv()
 
     def _create_local_problems(self,K_dict,B_dict,f_dict):
         
@@ -164,14 +165,9 @@ class SolverManager():
             return self.G
         except:
             raise('Build local to global mapping before calling this function')
-
-    def compute_GGT_inverse(self):
-        self.GGT_inv = np.linalg.inv(self.GGT)
-        return self.GGT_inv
     
     def compute_lambda_im(self):
-        GGT_inv = self.compute_GGT_inverse()
-        return  self.G.T.dot((GGT_inv).dot(self.e))
+        return  self.G.T.dot((self.GGT_inv).dot(self.e))
         
     def solve_interface_gap(self,v_dict=None, external_force=False):
         u_dict = {}
@@ -190,9 +186,6 @@ class SolverManager():
                 gap_dict[nei_id, local_id] = -gap
         return gap_dict
 
-    def compute_local_GGT_inv(self):
-        self.course_problem.compute_local_GGT_inv()
-
     def solve_dual_interface_problem(self,algorithm='PCPG'):
         
         lambda_im = self.compute_lambda_im()
@@ -208,7 +201,7 @@ class SolverManager():
         lambda_ker, rk, proj_r_hist, lambda_hist = method_to_call(F_action,residual,Projection_action=Projection_action,
                                                          lambda_init=None,
                                                          Precondicioner_action=None,
-                                                         tolerance=1.e-10,max_int=500)
+                                                         tolerance=1.e-10,max_int=max(self.lambda_size*3,10))
 
         lambda_sol = lambda_im + lambda_ker
 
@@ -355,8 +348,13 @@ class SolverManager():
         return B.tocsc()
 
     def build_dof_map(self):
-        map_dofs = self.build_global_map_dataframe()
         
+        
+        if not self.unique_map:
+            self.build_local_to_global_mapping()
+
+        map_dofs = self.build_global_map_dataframe()
+
         non_uniform_map = list(map_dofs['Global_dof_id'])
         removed_dofs = []
         kept_dofs = []
@@ -493,7 +491,6 @@ class ParallelSolverManager(SolverManager):
         self.log = True
         super().__init__(K_dict,B_dict,f_dict)
         
-        
     def _create_local_problems(self,K_dict,B_dict,f_dict,temp_folder=None):
         if temp_folder is None:
             temp_folder = self.temp_folder
@@ -501,11 +498,17 @@ class ParallelSolverManager(SolverManager):
             self.temp_folder = temp_folder
 
         try:
-            os.mkdir(temp_folder)
-        except:
             #deleting local files
             shutil.rmtree(temp_folder, ignore_errors=True)
+        except:
+            pass
 
+        try:
+            # creating folder for MPI execution
+            os.mkdir(temp_folder)
+        except:
+            pass
+            
         for key, obj in K_dict.items():
             B_local_dict = B_dict[key]
             self.local_problem_id_list.append(key)
@@ -557,12 +560,21 @@ class ParallelSolverManager(SolverManager):
     def read_results(self):
         solution_path = os.path.join(self.temp_folder,'solution.pkl')
         u_dict = {}
+        alpha_dict = {}
         for i in range(1,self.num_partitions+1):
             displacement_path = os.path.join(self.temp_folder,'displacement_' + str(i) + '.pkl')
             u_dict[i] =  load_object(displacement_path)
+            try:
+                alpha_path = os.path.join(self.temp_folder,'alpha_' + str(i) + '.pkl')
+                alpha_dict[i] =  load_object(alpha_path)
+            except:
+                pass
+            
+            
 
         sol_obj = load_object(solution_path)
         sol_obj.u_dict = u_dict
+        sol_obj.alpha_dict = alpha_dict
         return sol_obj
 
     def delete(self):
@@ -587,12 +599,12 @@ class ParallelFETIsolver(FETIsolver):
 
 class LocalProblem():
     counter = 0
-    def __init__(self,K_local, B_local, f_local,id):
+    def __init__(self,K_local, B_local, f_local,id,pseudoinverse_kargs={'method':'svd','tolerance':1.0E-8}):
         LocalProblem.counter+=1
         if isinstance(K_local,Matrix):
             self.K_local = K_local
         else:
-            self.K_local = Matrix(K_local)
+            self.K_local = Matrix(K_local,pseudoinverse_kargs=pseudoinverse_kargs)
 
         self.length = self.K_local.shape[0]
         if isinstance(f_local,Vector):
@@ -683,7 +695,10 @@ class CourseProblem():
         self.global2local_alpha_dofs = {}
         self.local2global_lambda_dofs = {}
         self.global2local_lambda_dofs = {}
-        
+        self.GGT = None
+        self.GGT_inv = None
+        self.course_method = 'inv'
+     
         if id is None:
             self.id = CourseProblem.counter
         else:
@@ -699,9 +714,32 @@ class CourseProblem():
     def update_GGT_dict(self,local_GGT_dict):
         self.GGT_dict.update(local_GGT_dict)
     
-    def compute_local_GGT_inv(self):
-        pass
+    def compute_GGT_inv(self,course_method=None,**kwargs):
+
+        if self.GGT_inv is None:
+            if course_method is None:
+                course_method = self.course_method
+
+            if course_method == 'splu':
+                GGT = scipy.sparse.matrix.csr(self.GGT)
+                self.GGT_inv.dot = lambda x : scipy.sparse.linalg.splu(GGT).solve 
+            elif course_method == 'inv':
+                self.GGT_inv = np.linalg.inv(self.GGT)
+            else:
+                raise('G@G.T is not defined.')
+
+        return self.GGT_inv
     
+    def compute_local_GGT_columns_inv(self,columns_id=None):
+
+        n = self.GGT.shapep[0]
+        GGT_inv_columns = np.array([],shape=(n,len(columns_id)))
+        if columns_id is not None:
+            I = np.identity()
+            b = I[:columns_id]
+            GGT_inv_columns = self.GGT_inv.dot(b)
+        return GGT_inv_columns
+            
     def assemble_block_matrix(self,M_dict,row_map_dict,column_map_dict,shape):
         M = np.zeros(shape)
         for row_key, row_dofs in row_map_dict.items():
@@ -729,7 +767,8 @@ class CourseProblem():
         return v
 
     def assemble_GGT(self,map_dict,shape):
-        return self.assemble_block_matrix(self.GGT_dict,map_dict,map_dict,shape)
+        self.GGT = self.assemble_block_matrix(self.GGT_dict,map_dict,map_dict,shape) 
+        return self.GGT
         
     def assemble_G(self,row_map_dict,column_map_dict,shape):
         return self.assemble_block_matrix(self.G_dict,row_map_dict,column_map_dict,shape)
@@ -740,19 +779,29 @@ class CourseProblem():
 class Solution():
     def __init__(self,u_dict, lambda_dict, alpha_dict,rk=None, proj_r_hist=None, lambda_hist=None, 
                  lambda_map=None,alpha_map=None,u_map=None,lambda_size=None,alpha_size=None):
-        self.u_dict = u_dict 
+        
         self.lambda_dict=lambda_dict 
         self.alpha_dict=alpha_dict
         self.rk=rk 
         self.proj_r_hist=proj_r_hist, 
         self.lambda_hist=lambda_hist
-        self.domain_list = np.sort(list(u_dict.keys()))
         self.lambda_map = lambda_map
         self.alpha_map = alpha_map
         self.u_map = u_map
         self.lambda_size =lambda_size
         self.alpha_size = alpha_size
         self._rebuild_lambda_map()
+        self.domain_list = None
+        self.u_dict = u_dict
+
+    @property
+    def u_dict(self):
+        return self._u_dict 
+
+    @u_dict.setter
+    def u_dict(self,u_dict):
+        self._u_dict = u_dict
+        self.domain_list = np.sort(list(u_dict.keys()))
 
     def _rebuild_lambda_map(self):
 

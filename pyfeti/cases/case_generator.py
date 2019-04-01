@@ -7,7 +7,7 @@ import numpy as np
 
 case_dict = {}
 case_dict[1] = 'case_18'
-case_dict[2] = 'case_200'
+case_dict[2] = 'case_162'
 case_dict[3] = 'case_5000'
 case_dict[4] = 'case_20000'
 case_dict[5] = 'case_80000'
@@ -99,6 +99,7 @@ class CreateFETIcase():
 
 def create_FETI_case(case_id,dim_x,dim_y):
     K, f, B_left, B_right, B_bottom, B_top, s = get_case_matrices(case_id)
+    print('Subdomain matrix size: [%i,%i]' %K.shape)
     case_obj = CreateFETIcase(dim_x,dim_y,K, f, B_left, B_right, B_bottom, B_top, s)
     K_dict, B_dict, f_dict = case_obj.build_subdomain_matrices()
     return K_dict, B_dict, f_dict

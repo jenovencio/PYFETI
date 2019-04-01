@@ -927,7 +927,7 @@ class Matrix():
         return self.psudeoinverve.null_space
 
 
-    def apply_inverse(self, b, method = 'splusps'):
+    def apply_inverse(self, b):
         
         if not self.inverse_computed:
             self.psudeoinverve.compute(self.data)

@@ -1,7 +1,12 @@
+
+<script type="text/javascript" async src="//cdn.bootcss.com/mathjax/2.7.0/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+<script type="text/javascript" async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.1/MathJax.js?config=TeX-MML-AM_CHTML"></script>
+
+
 # PYFETI
 PYFETI is a standalone Python Library to solve and implemented parallel FETI-Like solvers using mpi4py.
 
-#Dependecies
+# Dependecies
 * NumPy
 * Scipy
 * MPI4Py
@@ -9,7 +14,8 @@ PYFETI is a standalone Python Library to solve and implemented parallel FETI-Lik
 * Pandas
 
 
-#Solving with Dual Assembly
+# Theory behind PyFETI
+## Solving with Dual Assembly
 The PyFETI library is intend to provide easy function in order to solve, the dual assembly problem, namely:
 
 

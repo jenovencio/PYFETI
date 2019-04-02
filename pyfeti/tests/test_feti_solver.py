@@ -178,12 +178,11 @@ class  Test_FETIsolver(TestCase):
         #print('end Serial FETI solver ..........\n\n')
         self.test_solver_cases(algorithm=SerialFETIsolver)
 
-
     def test_solver_cases(self,algorithm=SerialFETIsolver):
 
-        domin_list_x = [1,2,3,4,5,10]
+        domin_list_x = [1,2,3,10]
         domin_list_y = [1]
-        case_id_list =[1,2]
+        case_id_list =[1,2,3,4]
         for case_id in case_id_list:
             for ny in domin_list_y:
                 for nx in domin_list_x:
@@ -200,8 +199,30 @@ class  Test_FETIsolver(TestCase):
                     u_dual,lambda_,alpha = self.postprocessing(sol_obj,solver_obj)
                     print('end %s ..........\n\n\n' %algorithm.__name__)
       
+    def test_compare_serial_and_parallel_solver(self):
 
+        print('Starting Comparison Serial and Parallel FETI solver ..........')
+        case_id,nx,ny = 4,10,1 
+        print('Critial Case Selected %i ' %case_id)
+        print('Number of Domain in the X-direction %i ' %nx)
+        print('Number of Domain in the Y-direction %i ' %ny)
+        K_dict, B_dict, f_dict = create_FETI_case(case_id,nx,ny)
+        pseudoinverse_kargs={'method':'svd','tolerance':1.0E-8}
+        solver_obj = SerialFETIsolver(K_dict,B_dict,f_dict,pseudoinverse_kargs=pseudoinverse_kargs)
+        sol_obj = solver_obj.solve()
+        u_dual_serial,lambda_serial,alpha_serial = self.postprocessing(sol_obj,solver_obj)
 
+        solver_obj = ParallelFETIsolver(K_dict,B_dict,f_dict)
+        sol_obj = solver_obj.solve()
+        u_dual_parallel,lambda_parallel,alpha_parallel = self.postprocessing(sol_obj,solver_obj)
+
+        
+        np.testing.assert_almost_equal(u_dual_serial,u_dual_parallel,decimal=10)
+        np.testing.assert_almost_equal(lambda_serial/np.linalg.norm(lambda_serial),
+                                       lambda_parallel/np.linalg.norm(lambda_parallel),decimal=10)
+        np.testing.assert_almost_equal(alpha_serial,alpha_parallel,decimal=10)
+
+        print('End Comparison Serial and Parallel FETI solver ..........\n\n')
 
     def postprocessing(self,sol_obj,solver_obj):
         u_dict  = sol_obj.u_dict
@@ -255,11 +276,12 @@ class  Test_FETIsolver(TestCase):
 
 if __name__=='__main__':
 
-    #main()
-    test_obj = Test_FETIsolver()
-    test_obj.setUp()
+    main()
+    #test_obj = Test_FETIsolver()
+    #test_obj.setUp()
     #test_obj.test_serial_solver()
     #test_obj.test_parallel_solver()
     #test_obj.test_parallel_solver_cases()
-    test_obj.test_serial_solver_cases()
+    #test_obj.test_serial_solver_cases()
     #test_obj.test_elimination_matrix()
+    #test_obj.test_compare_serial_and_parallel_solver()

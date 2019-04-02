@@ -646,6 +646,7 @@ def create_voigt_rotation_matrix(n_dofs,alpha_rad, dim=2, axis='z',unit='rad', s
         R = linalg.block_diag(*[R_i]*n_blocks)
     return R
 
+
 class Pseudoinverse():
     ''' This class intend to solve singular systems
     build the null space of matrix operator and also 
@@ -731,7 +732,7 @@ class Pseudoinverse():
                 idf_l = [np.argwhere(lu.perm_r==elem)[0][0] for elem in idf]
                 Kmod[idf_u,:] = 0.0
                 Kmod[:,idf_u] = 0.0
-                Kmod[idf_u,idf_u] = max(K.data)
+                Kmod[idf_u,idf_u] = K.diagonal().max()
                 lu, idf_garbage, R_garbage = splusps(Kmod,tol=tol)
                 idf = idf_u
                 

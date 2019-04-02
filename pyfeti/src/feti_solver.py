@@ -33,13 +33,14 @@ except:
     python_exec = 'python'
 
 class FETIsolver():
-    def __init__(self,K_dict,B_dict,f_dict):
+    def __init__(self,K_dict,B_dict,f_dict,**kwargs):
         self.K_dict = K_dict
         self.B_dict = B_dict
         self.f_dict = f_dict
         self.x_dict = None
         self.lambda_dict = None
         self.alpha_dict = None
+        self.__dict__.update(kwargs)
         
         
     def solve(self):
@@ -51,9 +52,9 @@ class FETIsolver():
                 pass
                 
 class SerialFETIsolver(FETIsolver):
-    def __init__(self,K_dict,B_dict,f_dict):
-        super().__init__(K_dict,B_dict,f_dict)
-        self.manager = SerialSolverManager(self.K_dict,self.B_dict,self.f_dict) 
+    def __init__(self,K_dict,B_dict,f_dict,**kwargs):
+        super().__init__(K_dict,B_dict,f_dict,**kwargs)
+        self.manager = SerialSolverManager(self.K_dict,self.B_dict,self.f_dict,**kwargs) 
         
     def solve(self):
        manager = self.manager
@@ -73,7 +74,7 @@ class SerialFETIsolver(FETIsolver):
                        alpha_size=self.manager.alpha_size)
         
 class SolverManager():
-    def __init__(self,K_dict,B_dict,f_dict):
+    def __init__(self,K_dict,B_dict,f_dict,pseudoinverse_kargs={'method':'svd','tolerance':1.0E-8}):
         self.local_problem_dict = {}
         self.course_problem = CourseProblem()
         self.local2global_lambda_dofs = {}
@@ -95,6 +96,8 @@ class SolverManager():
         self.GGT = None
         self.num_partitions =  len(K_dict.keys())
         self.map_dofs = None
+        self.tolerance = 1.e-10
+        self.pseudoinverse_kargs = pseudoinverse_kargs
         self._create_local_problems(K_dict,B_dict,f_dict)
         
     @property
@@ -106,7 +109,7 @@ class SolverManager():
         for key, obj in K_dict.items():
             B_local_dict = B_dict[key]
             self.local_problem_id_list.append(key)
-            self.local_problem_dict[key] = LocalProblem(obj,B_local_dict,f_dict[key],id=key)
+            self.local_problem_dict[key] = LocalProblem(obj,B_local_dict,f_dict[key],id=key,pseudoinverse_kargs=self.pseudoinverse_kargs)
             for interface_id, B in B_local_dict.items():
                 self.local_lambda_length_dict[interface_id] = B.shape[0]
         
@@ -201,7 +204,7 @@ class SolverManager():
         lambda_ker, rk, proj_r_hist, lambda_hist = method_to_call(F_action,residual,Projection_action=Projection_action,
                                                          lambda_init=None,
                                                          Precondicioner_action=None,
-                                                         tolerance=1.e-10,max_int=max(self.lambda_size*3,10))
+                                                         tolerance=self.tolerance,max_int=max(self.lambda_size*3,10))
 
         lambda_sol = lambda_im + lambda_ker
 
@@ -482,13 +485,15 @@ class SolverManager():
         '''
         return -self.apply_F(np.array(self.lambda_size*[0.0]), external_force=True)
 
+
 class ParallelSolverManager(SolverManager):
-    def __init__(self,K_dict,B_dict,f_dict,temp_folder='temp'):
+    def __init__(self,K_dict,B_dict,f_dict,pseudoinverse_kargs={'method':'svd','tolerance':1.0E-8},temp_folder='temp'):
         self.temp_folder = temp_folder
         self.local_problem_path = {}
         self.prefix = 'local_problem_'
         self.ext = '.pkl'
         self.log = True
+        self.pseudoinverse_kargs = pseudoinverse_kargs
         super().__init__(K_dict,B_dict,f_dict)
         
     def _create_local_problems(self,K_dict,B_dict,f_dict,temp_folder=None):
@@ -515,9 +520,10 @@ class ParallelSolverManager(SolverManager):
             self.local_problem_dict[key] = LocalProblem(obj,B_local_dict,f_dict[key],id=key)
             for interface_id, B in B_local_dict.items():
                 self.local_lambda_length_dict[interface_id] = B.shape[0]
-                local_path =  os.path.join(temp_folder, self.prefix + str(key) + self.ext)
-                self.local_problem_path[key] = local_path
-                save_object(self.local_problem_dict[key] , local_path)
+
+            local_path =  os.path.join(temp_folder, self.prefix + str(key) + self.ext)
+            self.local_problem_path[key] = local_path
+            save_object(self.local_problem_dict[key] , local_path)
 
     def launch_mpi_process(self):
         python_solver_file = pyfeti_dir(r'src\MPIsolver.py')
@@ -580,10 +586,11 @@ class ParallelSolverManager(SolverManager):
     def delete(self):
         shutil.rmtree(self.temp_folder)
 
+
 class ParallelFETIsolver(FETIsolver):
-    def __init__(self,K_dict,B_dict,f_dict,temp_folder='temp',delete_folder=False):
-        super().__init__(K_dict,B_dict,f_dict)
-        self.manager = ParallelSolverManager(self.K_dict,self.B_dict,self.f_dict,temp_folder=temp_folder) 
+    def __init__(self,K_dict,B_dict,f_dict,temp_folder='temp',delete_folder=False,**kwargs):
+        super().__init__(K_dict,B_dict,f_dict,**kwargs)
+        self.manager = ParallelSolverManager(self.K_dict,self.B_dict,self.f_dict,temp_folder=temp_folder,**kwargs) 
         self.delete_folder = delete_folder
 
     def solve(self):
@@ -682,6 +689,7 @@ class LocalProblem():
         '''
         pass
         
+
 class CourseProblem():
     counter = 0
     def __init__(self,id=None):
@@ -775,6 +783,7 @@ class CourseProblem():
 
     def assemble_e(self,map_dict,length):
         return self.assemble_block_vector(self.e_dict,map_dict,length)
+
 
 class Solution():
     def __init__(self,u_dict, lambda_dict, alpha_dict,rk=None, proj_r_hist=None, lambda_hist=None, 

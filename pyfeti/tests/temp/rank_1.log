@@ -2,14 +2,8 @@ INFO:root:########################################
 INFO:root:Local problem ID = 2
 INFO:root:Directory pass to MPI solver = C:\Users\ge72tih\Documents\Projects\PYFETI\pyfeti\tests\temp
 INFO:root:Local object name passed to MPI solver = local_problem_2.pkl
-INFO:root:Time at start: Mon Apr  1 22:29:04 2019
+INFO:root:Time at start: Tue Apr  2 14:23:48 2019
 INFO:root:########################################
-DEBUG:root:Assembling the cross GGT matrix
-DEBUG:root:('Gj = ', array([], dtype=float64))
-DEBUG:root:('Gj = ', array([[-0.05858041,  0.18037324, -0.15327454,  0.18037324, -0.24796867,
-         0.18037324],
-       [-0.09653798,  0.39404664,  0.1255789 ,  0.39404664,  0.34769577,
-         0.39404664],
-       [-0.42625485,  0.08146893, -0.26804471,  0.08146893, -0.10983458,
-         0.08146893]]))
-DEBUG:root:('Gj = ', {})
+INFO:root:PCG has converged after 30
+INFO:root:Time at end: Tue Apr  2 14:23:56 2019
+INFO:root:Elapsed time in seconds : 8.200150

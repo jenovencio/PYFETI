@@ -8,9 +8,12 @@ import numpy as np
 case_dict = {}
 case_dict[1] = 'case_18'
 case_dict[2] = 'case_162'
-case_dict[3] = 'case_5000'
-case_dict[4] = 'case_20000'
-case_dict[5] = 'case_80000'
+case_dict[3] = 'case_200'
+case_dict[4] = 'case_800'
+case_dict[5] = 'case_3200'
+case_dict[6] = 'case_5000'
+case_dict[7] = 'case_20000'
+case_dict[8] = 'case_80000'
 
 
 def get_case_matrices(case_id):
@@ -83,7 +86,7 @@ class CreateFETIcase():
                 if i==(self.domains_x-1):
                     Neumann_mult = 1.0
 
-                K_dict[global_id] = K.A
+                K_dict[global_id] = K
                 f_dict[global_id] = Neumann_mult*f
                 B_dict[global_id] = {}
                 for bool_key, nei_index in self.get_neighbors_dict(i,j).items():

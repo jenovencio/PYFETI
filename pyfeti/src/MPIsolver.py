@@ -21,7 +21,7 @@ from pyfeti.src.feti_solver import CourseProblem, Solution
 from pyfeti.src import solvers
 
 
-def exchange_info(local_var,sub_id,nei_id,isnumpy=False):
+def exchange_info(local_var,sub_id,nei_id,tag_id=15,isnumpy=False):
     ''' This function exchange info (lists, dicts, arrays, etc) with the 
     neighbors subdomains. Every subdomain has a master objective which receives 
     the info and do some calculations based on it.
@@ -48,6 +48,7 @@ def exchange_info(local_var,sub_id,nei_id,isnumpy=False):
         comm.Recv(var_nei,source=nei_id-1)
     else:
         # sending message to neighbors
+        tag_num = nei_id + sub_id + tag_id + nei_id*sub_id
         comm.send(local_var, dest = nei_id-1)
         # receiving messages from neighbors
         var_nei = comm.recv(source=nei_id-1)
@@ -55,10 +56,16 @@ def exchange_info(local_var,sub_id,nei_id,isnumpy=False):
     return var_nei
 
 def exchange_global_dict(local_dict,local_id,partitions_list):
+    
     for global_id in partitions_list:
         if global_id!=local_id:
             nei_dict =  exchange_info(local_dict,local_id,global_id)
-            local_dict.update(nei_dict)
+            logging.debug(('global_id',global_id))
+            logging.debug(('nei_dict',nei_dict))
+            if nei_dict:
+                local_dict.update(nei_dict)
+
+
     return local_dict
 
 
@@ -104,6 +111,8 @@ class ParallelSolver():
         self.GGT_inv = None
         self.num_partitions = comm.Get_size()
         self.partitions_list = list(range(1,self.num_partitions+1))
+        self.tolerance = 1.e-10
+        self.n_int = n_int
         self.log = Log('log' + str(obj_id) + '.log' )
         
     def _exchange_global_size(self):
@@ -122,9 +131,9 @@ class ParallelSolver():
                 self.local_alpha_length_dict.update(alpha_nei_dict)
                 self.local_primal_length_dict.update(primal_nei_dict)
                 
-        print(self.local_lambda_length_dict)
-        print(self.local_alpha_length_dict)
-        print(self.local_primal_length_dict)
+        logging.debug(('lambda dict', self.local_lambda_length_dict))
+        logging.debug(('alpha dict', self.local_alpha_length_dict))
+        logging.debug(('primal dict',self.local_primal_length_dict))
         
     def mpi_solver(self):
         ''' solve linear FETI problem with PCGP with partial reorthogonalization
@@ -141,8 +150,10 @@ class ParallelSolver():
 
         self.assemble_cross_GGT()
         self.GGT_dict = self.course_problem.GGT_dict
+        logging.debug(('Before GGT_dict = ', self.GGT_dict))
         
         GGT_dict = exchange_global_dict(self.GGT_dict,self.obj_id,self.partitions_list)
+        logging.debug(('After GGT_dict = ', self.GGT_dict))
         self.course_problem.GGT_dict = GGT_dict
         
         
@@ -150,6 +161,7 @@ class ParallelSolver():
         
         
         GGT = self.assemble_GGT()
+        logging.debug(('GGT = ', GGT))
         G = self.assemble_G()
         e = self.assemble_e()
         
@@ -187,29 +199,38 @@ class ParallelSolver():
                 local_id, nei_id = key
                 G = (-B_local.dot(R)).T
                 G_local_dict[key] = G
-                GGT_local_dict[local_id,local_id] = G.dot(G.T)
-                self.course_problem.update_G_dict(G_local_dict)
-                self.course_problem.update_GGT_dict(GGT_local_dict)
+                try:
+                    GGT_local_dict[local_id,local_id] += G.dot(G.T)
+                except:
+                    GGT_local_dict[local_id,local_id] = G.dot(G.T)
+
+            self.course_problem.update_G_dict(G_local_dict)
+            self.course_problem.update_GGT_dict(GGT_local_dict)
                 
     def assemble_cross_GGT(self):
         
+       
         logging.debug('Assembling the cross GGT matrix')
         GGT_local_dict = {}
         for key in local_problem.B_local:
-            print(key)
             local_id, nei_id = key
-            for nei_id in local_problem.neighbors_id:
-                if (local_id,nei_id) not in self.course_problem.G_dict:
-                   Gi =np.array([])
-                else:
-                    Gi =self.course_problem.G_dict[local_id,nei_id]
+
+            if local_id not in self.local_alpha_length_dict:
+                Gi = np.array([])
+            else:
+                Gi = self.course_problem.G_dict[local_id,nei_id]
                     
-                Gj = exchange_info(Gi,local_id,nei_id)
-                logging.debug(('Gj = ', Gj))
-                if Gj is not None:
-                    if Gi.shape[0]>0 and Gj.shape[0]>0:
-                        GGT_local_dict[local_id,nei_id] = Gi.dot(Gj.T)
-                        self.course_problem.update_GGT_dict(GGT_local_dict)
+            logging.debug(('interface pair = ' + str(local_id) + ',' + str(nei_id)))
+            logging.debug(('Gi = ', Gi))
+            Gj = exchange_info(Gi,local_id,nei_id)
+            logging.debug(('Gj = ', Gj))
+            
+            try:
+                GGT_local_dict[local_id,nei_id] = Gi.dot(Gj.T)
+            except:
+                GGT_local_dict[local_id,nei_id] = np.array([])
+
+            self.course_problem.update_GGT_dict(GGT_local_dict)
 
     def build_local_to_global_mapping(self):
         ''' This method create maps between local domain and the global
@@ -291,9 +312,14 @@ class ParallelSolver():
 
     def apply_F(self, v,  external_force=False):
        
+        logging.debug(('global2local_lambda_dofs ', self.global2local_lambda_dofs))
         v_dict = self.vector2localdict(v, self.global2local_lambda_dofs)
         gap_dict = self.solve_interface_gap(v_dict,external_force)
         
+        #global exchange
+        all_gap_dict = exchange_global_dict(gap_dict,self.obj_id,self.partitions_list)
+        gap_dict.update(all_gap_dict)
+
         d = np.zeros(self.lambda_size)
         for interface_id,global_index in self.local2global_lambda_dofs.items():
             d[global_index] += gap_dict[interface_id]
@@ -312,10 +338,12 @@ class ParallelSolver():
 
         method_to_call = getattr(solvers, algorithm)
 
+        n_int = max(self.lambda_size*3,self.n_int)
+        logging.debug(n_int)
         lambda_ker, rk, proj_r_hist, lambda_hist = method_to_call(F_action,residual,Projection_action=Projection_action,
                                                          lambda_init=None,
                                                          Precondicioner_action=None,
-                                                         tolerance=1.e-10,max_int=500)
+                                                         tolerance=self.tolerance,max_int=n_int)
 
         lambda_sol = lambda_im + lambda_ker
 
@@ -326,13 +354,18 @@ class ParallelSolver():
     def solve_interface_gap(self,v_dict=None, external_force=False):
         local_problem = self.local_problem
         u_dict = {}
+        logging.debug(('v_dict', v_dict))
         ui = local_problem.solve(v_dict,external_force)
         u_dict_local = local_problem.get_interface_dict(ui)
         u_dict.update(u_dict_local)
         for nei_id in local_problem.neighbors_id:
-            nei_dict = exchange_info(u_dict,self.obj_id,nei_id)
+            logging.debug(('nei_id', nei_id))
+            logging.debug(('u_dict', u_dict))
+            nei_dict = {}
+            nei_dict[nei_id,self.obj_id] = exchange_info(u_dict[self.obj_id,nei_id],self.obj_id,nei_id)
             u_dict.update(nei_dict)
         
+        logging.debug(('u_dict', u_dict))
         # compute gap
         gap_dict = {}
         for interface_id in u_dict:
@@ -341,6 +374,7 @@ class ParallelSolver():
                 gap = u_dict[local_id,nei_id] - u_dict[nei_id,local_id]
                 gap_dict[local_id, nei_id] = gap
                 gap_dict[nei_id, local_id] = -gap
+        logging.debug(('gap_dict', gap_dict))
         return gap_dict
     
     def vector2localdict(self,v,map_dict):
@@ -406,7 +440,7 @@ if __name__ == "__main__":
     case_path = obj_name + str(obj_id) + obj_ext
     
     if True:
-        logging.basicConfig(level=logging.DEBUG,filename='rank_' + str(rank) + '.log')
+        logging.basicConfig(level=logging.INFO,filename='rank_' + str(rank) + '.log')
     
     logging.info('########################################')
     logging.info('Local problem ID = %s' %obj_id)

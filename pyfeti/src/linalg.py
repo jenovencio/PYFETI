@@ -17,6 +17,7 @@ methods:
 """
 
 import logging 
+from unittest import TestCase, main
 import numpy as np
 from scipy import sparse
 from scipy.sparse import csc_matrix, issparse, lil_matrix, linalg as sla
@@ -382,7 +383,23 @@ class ProjLinearSys():
         ndof = self.A.shape[0]
         return LinearOperator((ndof,ndof), matvec=self.solve , dtype=np.complex)  
     
-    
+class ProjectorOperator(LinearOperator):    
+    ''' This interface provides a interface for the Projected Operator
+    such that
+
+    u = P A P v
+
+    '''
+    def __init__(self,A,P,dtype=np.float,shape=None):
+        super().__init__(dtype=dtype,shape=shape)
+        self.A = A
+        self.P = P
+
+    def _matvec(self,v):
+        return self.A.dot(self.P.dot(v))
+        
+
+
 class DualLinearSys():      
     def __init__(self,A,B,nc,sigma=0.0,precond=None, projection=None):
         ''' Creates a linear operator such as
@@ -536,7 +553,6 @@ def expansion_matrix_from_map_dofs(map_dofs,**kargs):
  
     return L.T
 
-
 def get_unit_rotation_matrix(alpha_rad,dim=3,axis='z'):  
     ''' Create a unitary rotation matrix based on a angle alpha 
     and an axis of rotation
@@ -584,7 +600,6 @@ def get_unit_rotation_matrix(alpha_rad,dim=3,axis='z'):
         raise('Dimension not supported')      
         
     return R_i
-
 
 def find_cyclic_node_pairs(node_set_left,node_set_right,angle,node_coord,dim=2,tol_dist=1.0E-6 ):
     
@@ -1024,3 +1039,31 @@ class Vector():
         self.data[dofs] = value
         return self.data
 
+
+class  Test_linalg(TestCase):
+    def test_ProjectorOperator(self):
+
+        A = 3*np.array([[2,-1,0],[-1,2,0],[0,-1,2]])
+        P = np.array([[1,0,0],[0,1,0],[0,0,0]])
+        PA = ProjectorOperator(A,P,shape=(3,3))
+        b = np.array([-2,4,0])
+        b1 = PA.dot(b)
+
+        np.testing.assert_almost_equal(b1,P.dot(b1),decimal=10)
+
+    def test_ProjectorOperator_with_minres(self):
+        A = 3*np.array([[2,-1,0],[-1,2,0],[0,-1,2]])
+        P = np.array([[1,0,0],[0,1,0],[0,0,0]])
+        PA = ProjectorOperator(A,P,shape=(3,3))
+        Asingular = P.dot(A.dot(P))
+        b = np.array([-2,4,0])
+
+        x_cg, info = sparse.linalg.cg(PA,b)
+        x_minres, info = sparse.linalg.minres(PA,b)
+        x_svd = (np.linalg.pinv(Asingular)).dot(b)
+
+        np.testing.assert_almost_equal(x_cg,x_svd,decimal=10)
+        np.testing.assert_almost_equal(x_minres,x_svd,decimal=10)
+
+if __name__ == '__main__':
+    main()

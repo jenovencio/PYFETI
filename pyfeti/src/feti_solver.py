@@ -4,6 +4,7 @@ import scipy
 import pandas as pd
 import os
 from scipy.sparse.linalg import LinearOperator
+from scipy.sparse import csc_matrix, issparse
 sys.path.append('../..')
 from pyfeti.src.utils import OrderedSet, Get_dofs, save_object, load_object, pyfeti_dir
 from pyfeti.src.linalg import Matrix, Vector, elimination_matrix_from_map_dofs, \
@@ -74,7 +75,7 @@ class SerialFETIsolver(FETIsolver):
                        alpha_size=self.manager.alpha_size)
         
 class SolverManager():
-    def __init__(self,K_dict,B_dict,f_dict,pseudoinverse_kargs={'method':'svd','tolerance':1.0E-8}):
+    def __init__(self,K_dict,B_dict,f_dict,pseudoinverse_kargs={'method':'svd','tolerance':1.0E-8},dual_interface_algorithm='PCPG'):
         self.local_problem_dict = {}
         self.course_problem = CourseProblem()
         self.local2global_lambda_dofs = {}
@@ -98,6 +99,7 @@ class SolverManager():
         self.map_dofs = None
         self.tolerance = 1.e-10
         self.pseudoinverse_kargs = pseudoinverse_kargs
+        self.dual_interface_algorithm = dual_interface_algorithm
         self._create_local_problems(K_dict,B_dict,f_dict)
         
     @property
@@ -189,8 +191,11 @@ class SolverManager():
                 gap_dict[nei_id, local_id] = -gap
         return gap_dict
 
-    def solve_dual_interface_problem(self,algorithm='PCPG'):
+    def solve_dual_interface_problem(self,algorithm=None):
         
+        if algorithm is None:
+            algorithm = self.dual_interface_algorithm
+
         lambda_im = self.compute_lambda_im()
         G = self.G
         GGT_inv = self.GGT_inv
@@ -204,7 +209,7 @@ class SolverManager():
         lambda_ker, rk, proj_r_hist, lambda_hist = method_to_call(F_action,residual,Projection_action=Projection_action,
                                                          lambda_init=None,
                                                          Precondicioner_action=None,
-                                                         tolerance=self.tolerance,max_int=max(self.lambda_size*3,10))
+                                                         tolerance=self.tolerance,max_int=max(self.lambda_size*4,10))
 
         lambda_sol = lambda_im + lambda_ker
 
@@ -276,7 +281,7 @@ class SolverManager():
                         self.local2global_lambda_dofs[local_id,nei_id] = global_index 
                         self.global2local_lambda_dofs[tuple(global_index)] = {(local_id,nei_id):local_dofs}
                         B_indices = local_problem.B_local[local_id,nei_id].nonzero()
-                          
+
                     except:
                         continue
                 else:
@@ -487,14 +492,14 @@ class SolverManager():
 
 
 class ParallelSolverManager(SolverManager):
-    def __init__(self,K_dict,B_dict,f_dict,pseudoinverse_kargs={'method':'svd','tolerance':1.0E-8},temp_folder='temp'):
+    def __init__(self,K_dict,B_dict,f_dict,pseudoinverse_kargs={'method':'svd','tolerance':1.0E-8},temp_folder='temp',**kwargs):
         self.temp_folder = temp_folder
         self.local_problem_path = {}
         self.prefix = 'local_problem_'
         self.ext = '.pkl'
         self.log = True
         self.pseudoinverse_kargs = pseudoinverse_kargs
-        super().__init__(K_dict,B_dict,f_dict)
+        super().__init__(K_dict,B_dict,f_dict,**kwargs)
         
     def _create_local_problems(self,K_dict,B_dict,f_dict,temp_folder=None):
         if temp_folder is None:

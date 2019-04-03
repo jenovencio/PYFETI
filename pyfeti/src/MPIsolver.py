@@ -338,8 +338,7 @@ class ParallelSolver():
 
         method_to_call = getattr(solvers, algorithm)
 
-        n_int = max(self.lambda_size*3,self.n_int)
-        logging.debug(n_int)
+        n_int = max(self.lambda_size*4,self.n_int)
         lambda_ker, rk, proj_r_hist, lambda_hist = method_to_call(F_action,residual,Projection_action=Projection_action,
                                                          lambda_init=None,
                                                          Precondicioner_action=None,

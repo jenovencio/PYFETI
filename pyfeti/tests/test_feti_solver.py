@@ -76,12 +76,105 @@ class  Test_FETIsolver(TestCase):
         
         self.domain_list = np.sort(list(self.f_dict.keys()))
         
+    def test_simple_bar_problem(self):
+        K1 = np.array([[2.,-1.],[-1.,1.]])
+        K2 = np.array([[1.,-1.],[-1.,2.]])
+        B1 = np.array([[0.,1]]) 
+        B2 = np.array([[-1,0]]) 
+        f1 = np.array([0.,0.])                
+        f2 = np.array([0.,1.]) 
+
+        K_dict = {1:K1,2:K2}
+        B_dict = {1 : {(1,2) : B1}, 2 : {(2,1) : B2}}
+        f_dict = {1:f1,2:f2}
+        solver_obj = SerialFETIsolver(K_dict,B_dict,f_dict)
+        solution_obj = solver_obj.solve()
+        u_dual = solution_obj.displacement
+        lambda_ = solution_obj.interface_lambda
+        alpha =  solution_obj.alpha
+
+        u_target = np.array([0.25,0.5,0.5,0.75])
+        np.testing.assert_almost_equal(u_dual,u_target,decimal=10)
+
+    def test_simple_bar_with_redundante_contraints(self):
+        '''
+        A simple example with Reduntant Constraints Positive Define Domains
+        '''
+        K1 = np.array([[2,-1],[-1,1]])
+        K2 = np.array([[1,-1],[-1,2]])
+        B1 = np.array([[0,1],[0,1],[0,1]]) 
+        B2 = np.array([[-1,0],[-1,0],[-1,0]]) 
+        f1 = np.array([0.,0.])                
+        f2 = np.array([0.,1.])  
+
+        K_dict = {1:K1,2:K2}
+        B_dict = {1 : {(1,2) : B1}, 2 : {(2,1) : B2}}
+        f_dict = {1:f1,2:f2}
+        solver_obj = SerialFETIsolver(K_dict,B_dict,f_dict)
+        solution_obj = solver_obj.solve()
+        u_dual = solution_obj.displacement
+        lambda_ = solution_obj.interface_lambda
+        alpha =  solution_obj.alpha
+
+        u_target = np.array([0.25,0.5,0.5,0.75])
+        np.testing.assert_almost_equal(u_dual,u_target,decimal=10)
+
+    def test_2d_thermal_problem(self):
+
+        K1 = K3 = np.array([[1, 0, 0, 0],
+                    [0, 1, -1, 0],
+                    [0, 0, 1, -1],
+                    [0, 0, 0, 1]])
+
+        K2 = K4 = np.array([[1, -1, 0, 0],
+                            [0, 1, 0, 0],
+                            [0, 0, 1, 0],
+                            [-1, 0, 0, 1]])
+
+        q1 = np.array([0.,0.,0.,0.])
+        q2 = np.array([0.,0.,0.,0.])
+        q3 = np.array([0.,0.,0.5,0.])
+        q4 = np.array([0.,0.,0.,0.5])
+
+        B12 =  np.array([[0,1,1,0]])
+        B13 = np.array([[0,0,1,1]])
+
+        B21 =  np.array([[-1,-1,0,0]])
+        B24 = np.array([[0,0,1,1]])
+
+        B31 = np.array([[-1,-1,0,0]])
+        B34 = np.array([[0,1,1,0]])
+
+        B42 = np.array([[-1,-1,0,0]])
+        B43 = np.array([[-1,0,0,-1]])
+
+
+        # Using PyFETI to solve the probrem described above
+        K_dict = {1:K1,2:K2, 3:K3, 4:K4}
+        B_dict = {1 : {(1,2) : B12, (1,3) : B13}, 
+                  2 : {(2,1) : B21, (2,4) : B24}, 
+                  3 : {(3,1) : B31, (3,4) : B34}, 
+                  4 : {(4,2) : B42, (4,3) : B43}}
+
+        q_dict = {1:q1 ,2:q2, 3:q3, 4:q4}
+
+        solver_obj = SerialFETIsolver(K_dict,B_dict,q_dict)
+
+        solution_obj = solver_obj.solve()
+
+        T_dual = solution_obj.displacement
+        lambda_ = solution_obj.interface_lambda
+        alpha =  solution_obj.alpha
+
     def dual2primal(self,K_dual,u_dual,f_dual,L,Lexp):
         
         f_primal = L@f_dual
         K_primal = L@K_dual@Lexp
         u_primal = np.linalg.solve(K_primal,f_primal)
-        np.testing.assert_almost_equal(u_dual,Lexp@u_primal,decimal=10)
+        u_dual_calc = Lexp@u_primal
+        norm1 = np.linalg.norm(u_dual)
+        norm2 = np.linalg.norm(u_dual_calc)
+        np.testing.assert_almost_equal(u_dual/norm1,u_dual_calc/norm2,decimal=8)
         return u_primal
 
     def postproc(self,sol_obj):
@@ -170,17 +263,11 @@ class  Test_FETIsolver(TestCase):
         self.test_solver_cases(algorithm=ParallelFETIsolver)
 
     def test_serial_solver_cases(self):
-        #print('Testing Serial FETI solver ..........\n\n')
-        #K_dict, B_dict, f_dict = create_FETI_case(1,4,1)
-        #solver_obj = SerialFETIsolver(K_dict,B_dict,f_dict)
-        #sol_obj = solver_obj.solve()
-        #u_dual,lambda_,alpha = self.postprocessing(sol_obj,solver_obj)
-        #print('end Serial FETI solver ..........\n\n')
         self.test_solver_cases(algorithm=SerialFETIsolver)
 
     def test_solver_cases(self,algorithm=SerialFETIsolver):
 
-        domin_list_x = [1,2,3,10]
+        domin_list_x = [1,2,5,20]
         domin_list_y = [1]
         case_id_list =[1,2,3,4]
         for case_id in case_id_list:
@@ -191,7 +278,7 @@ class  Test_FETIsolver(TestCase):
                     print('Number of Subdomain in Y direction : %i ' %ny)
                     K_dict, B_dict, f_dict = create_FETI_case(case_id,nx,ny)
                     
-                    solver_obj = algorithm(K_dict,B_dict,f_dict)
+                    solver_obj = algorithm(K_dict,B_dict,f_dict,dual_interface_algorithm='PCPG')
                     start_time = time.time()
                     sol_obj = solver_obj.solve()
                     elapsed_time = time.time() - start_time
@@ -202,19 +289,26 @@ class  Test_FETIsolver(TestCase):
     def test_compare_serial_and_parallel_solver(self):
 
         print('Starting Comparison Serial and Parallel FETI solver ..........')
-        case_id,nx,ny = 4,10,1 
+        case_id,nx,ny = 4,20,1 
         print('Critial Case Selected %i ' %case_id)
         print('Number of Domain in the X-direction %i ' %nx)
         print('Number of Domain in the Y-direction %i ' %ny)
         K_dict, B_dict, f_dict = create_FETI_case(case_id,nx,ny)
         pseudoinverse_kargs={'method':'svd','tolerance':1.0E-8}
         solver_obj = SerialFETIsolver(K_dict,B_dict,f_dict,pseudoinverse_kargs=pseudoinverse_kargs)
+        start_time = time.time()
         sol_obj = solver_obj.solve()
-        u_dual_serial,lambda_serial,alpha_serial = self.postprocessing(sol_obj,solver_obj)
+        elapsed_time = time.time() - start_time
+        print('Serial Solver : Elapsed time : %f ' %elapsed_time)
+        u_dual_serial,lambda_serial,alpha_serial = self.obj_to_array(sol_obj)
 
         solver_obj = ParallelFETIsolver(K_dict,B_dict,f_dict)
+        start_time = time.time()
         sol_obj = solver_obj.solve()
-        u_dual_parallel,lambda_parallel,alpha_parallel = self.postprocessing(sol_obj,solver_obj)
+        elapsed_time = time.time() - start_time
+        print('Parallel Solver : Elapsed time : %f ' %elapsed_time)
+
+        u_dual_parallel,lambda_parallel,alpha_parallel = self.obj_to_array(sol_obj)
 
         
         np.testing.assert_almost_equal(u_dual_serial,u_dual_parallel,decimal=10)
@@ -223,6 +317,16 @@ class  Test_FETIsolver(TestCase):
         np.testing.assert_almost_equal(alpha_serial,alpha_parallel,decimal=10)
 
         print('End Comparison Serial and Parallel FETI solver ..........\n\n')
+
+    def obj_to_array(self,sol_obj):
+        u_dict  = sol_obj.u_dict
+        lambda_dict = sol_obj.lambda_dict
+        alpha_dict = sol_obj.alpha_dict
+        
+        u_dual = sol_obj.displacement
+        lambda_ = sol_obj.interface_lambda
+        alpha = sol_obj.alpha
+        return u_dual,lambda_,alpha
 
     def postprocessing(self,sol_obj,solver_obj):
         u_dict  = sol_obj.u_dict
@@ -240,7 +344,7 @@ class  Test_FETIsolver(TestCase):
         # get dual matrices
         K_dual, f_dual = solver_obj.manager.assemble_global_K_and_f()
         
-        try:
+        if False:
             # get F operator
             F = solver_obj.manager.assemble_global_F()
             G = solver_obj.manager.assemble_G()
@@ -261,8 +365,7 @@ class  Test_FETIsolver(TestCase):
             lampda_pcpg, rk, proj_r_hist, lambda_hist = PCPG(F_action,residual,Projection_action=P,tolerance=1.e-10,max_int=500)
             lambda_calc = lampda_pcpg + lambda_im
             alpha_sol = GGT_inv.dot(G.dot(d - F.dot(lampda_pcpg)))
-        except:
-            pass
+
 
         # check error 
         B_dict = solver_obj.B_dict
@@ -276,12 +379,15 @@ class  Test_FETIsolver(TestCase):
 
 if __name__=='__main__':
 
-    main()
-    #test_obj = Test_FETIsolver()
-    #test_obj.setUp()
+    #main()
+    test_obj = Test_FETIsolver()
+    test_obj.setUp()
     #test_obj.test_serial_solver()
     #test_obj.test_parallel_solver()
     #test_obj.test_parallel_solver_cases()
     #test_obj.test_serial_solver_cases()
     #test_obj.test_elimination_matrix()
     #test_obj.test_compare_serial_and_parallel_solver()
+    #test_obj.test_simple_bar_problem()
+    #test_obj.test_simple_bar_with_redundante_contraints()
+    test_obj.test_2d_thermal_problem()

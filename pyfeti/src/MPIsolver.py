@@ -60,8 +60,6 @@ def exchange_global_dict(local_dict,local_id,partitions_list):
     for global_id in partitions_list:
         if global_id!=local_id:
             nei_dict =  exchange_info(local_dict,local_id,global_id)
-            logging.debug(('global_id',global_id))
-            logging.debug(('nei_dict',nei_dict))
             if nei_dict:
                 local_dict.update(nei_dict)
 
@@ -119,7 +117,6 @@ class ParallelSolver():
         local_id = self.obj_id
         for nei_id in self.local_problem.neighbors_id:
             interface_id = (local_id,nei_id)
-            print('size of id (%i,%i) = %i ' %(local_id,nei_id,self.local_problem.B_local[interface_id].shape[0]))
             self.local_lambda_length_dict[interface_id] = self.local_problem.B_local[interface_id].shape[0]
         
         for global_id in self.partitions_list:
@@ -140,9 +137,7 @@ class ParallelSolver():
         '''
         self.assemble_local_G_GGT_and_e()
         G_dict = exchange_global_dict(self.course_problem.G_dict,self.obj_id,self.partitions_list)
-        print(self.course_problem.e_dict)
         e_dict = exchange_global_dict(self.course_problem.e_dict,self.obj_id,self.partitions_list)
-        print(self.course_problem.e_dict)
         self.course_problem.G_dict = G_dict
         self.course_problem.e_dict = e_dict
         
@@ -166,8 +161,7 @@ class ParallelSolver():
         e = self.assemble_e()
         
         lambda_sol,alpha_sol, rk, proj_r_hist, lambda_hist = self.solve_dual_interface_problem()
-        print(lambda_sol)
-        print(rk)
+
         u_dict, lambda_dict, alpha_dict = self.assemble_solution_dict(lambda_sol,alpha_sol)
         
         # serializing displacement
@@ -370,7 +364,7 @@ class ParallelSolver():
         for interface_id in u_dict:
             local_id, nei_id = interface_id
             if nei_id>local_id:
-                gap = u_dict[local_id,nei_id] - u_dict[nei_id,local_id]
+                gap = u_dict[local_id,nei_id] + u_dict[nei_id,local_id]
                 gap_dict[local_id, nei_id] = gap
                 gap_dict[nei_id, local_id] = -gap
         logging.debug(('gap_dict', gap_dict))

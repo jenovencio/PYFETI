@@ -43,7 +43,7 @@ class CreateFETIcase():
 
     def two2one_map(self,tuple_index):
         a = 1
-        b = self.domains_y
+        b = self.domains_x
         c = 1
         i = tuple_index[0]
         j = tuple_index[1]

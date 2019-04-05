@@ -3,17 +3,21 @@ import numpy as np
 import scipy
 import pandas as pd
 import os
+from scipy import sparse
 from scipy.sparse.linalg import LinearOperator
 from scipy.sparse import csc_matrix, issparse
+from unittest import TestCase, main
+import logging
+import time
+import subprocess
+import shutil
+
 sys.path.append('../..')
 from pyfeti.src.utils import OrderedSet, Get_dofs, save_object, load_object, pyfeti_dir
 from pyfeti.src.linalg import Matrix, Vector, elimination_matrix_from_map_dofs, \
                               expansion_matrix_from_map_dofs, ProjLinearSys, ProjPrecondLinearSys
 from pyfeti.src import solvers
-import logging
-import time
-import subprocess
-import shutil
+
 
 # geting path of MPI executable
 mpi_exec = 'mpiexec'
@@ -192,7 +196,7 @@ class SolverManager():
         for interface_id in u_dict:
             local_id, nei_id = interface_id
             if nei_id>local_id:
-                gap = u_dict[local_id,nei_id] - u_dict[nei_id,local_id]
+                gap = u_dict[local_id,nei_id] + u_dict[nei_id,local_id]
                 gap_dict[local_id, nei_id] = gap
                 gap_dict[nei_id, local_id] = -gap
         return gap_dict
@@ -345,10 +349,10 @@ class SolverManager():
 
         '''
         try:
-            B = scipy.sparse.lil_matrix((self.lambda_size,self.primal_size))
+            B = scipy.sparse.lil_matrix((self.lambda_size,self.primal_size),dtype=np.int)
         except:
             self.build_local_to_global_mapping()
-            B = scipy.sparse.lil_matrix((self.lambda_size,self.primal_size))
+            B = scipy.sparse.lil_matrix((self.lambda_size,self.primal_size),dtype=np.int)
 
         for local_id in self.local_problem_id_list:
             local_problem = self.local_problem_dict[local_id]
@@ -646,6 +650,7 @@ class LocalProblem():
         self.id = id
         self.interface_size =  0
         self.neighbors_id = []
+        self.crosspoints = {}
         self.get_neighbors_id()
 
     def get_neighbors_id(self):
@@ -653,6 +658,54 @@ class LocalProblem():
             self.neighbors_id.append(nei_id[1])
             self.interface_size += obj.shape[0]
         self.neighbors_id.sort()
+
+    def crosspoints_dectection(self):
+        ''' This function detects cross points based on local 
+        information, crosspoints are defined as tuples with more 
+        the two intries, e.g. (1,2,3) a node is connected to 3 domains
+        but it can appears in an another crosspoint tuple.
+        The crosspoints tuple points work as a key to the pointers of local B matrix:
+
+        crosspoints[i,j,k] = (dof_u, dof_lambda_j, dof_lambda_k)
+
+        where dof_u is a columns id of the Local B matrices, 
+        and dof_lambda_j, dof_lambda_k are the rows of the local B matrices:
+
+        Bij [dof_lambda_j, :] -> is associated with lambda_ij
+        Bik [dof_lambda_k, :] -> is associated with lambda_ik
+
+        these line represents a redudant constraint in the global system
+
+        Returns
+            crosspoints : dict
+                a dict with key as crosspoint tuple, and values points to 
+                contraint equation in the local B matrix
+
+        '''
+        crosspoints = self.crosspoints
+        for nei_id_j in self.neighbors_id:
+            for nei_id_k in self.neighbors_id:
+                if nei_id_k>nei_id_j:
+                    Bij = np.abs(self.B_local[self.id,nei_id_j])
+                    Bik = np.abs(self.B_local[self.id,nei_id_k])
+                    try:
+                        B_stack = sparse.vstack((Bij,Bik))
+                    except:
+                        B_stack = np.vstack((Bij,Bik))
+
+                    try:
+                        col_id = np.argwhere(B_stack.T.sum(axis=1)>1)[0][0]
+                        row_id_j = np.argwhere(Bij[:,col_id]>0)[0][0] 
+                        row_id_k = np.argwhere(Bik[:,col_id]>0)[0][0] 
+                        crosspoints[self.id,nei_id_j,nei_id_k] = {col_id : (row_id_j,row_id_k)}
+                        logging.info('Crosspoint detected in Domain id = %i, dofs is connected to domains (%i and %i)' %(self.id,row_id_j,row_id_k))
+                    except:
+                        continue
+
+                else:
+                    continue
+
+        return crosspoints
 
     def solve(self, lambda_dict,external_force_bool=False):
        
@@ -676,7 +729,7 @@ class LocalProblem():
         for interface_id, Bij in self.B_local.items():
             (local_id,nei_id) = interface_id
             #interface_dict[interface_id] = (nei_id-local_id)*Bij.dot(x)
-            interface_dict[interface_id] = (nei_id-local_id)*Bij.dot(x)
+            interface_dict[interface_id] = Bij.dot(x)
 
         return interface_dict
 
@@ -943,3 +996,79 @@ def cyclic_eig(K_dict,M_dict,B_dict,f_dict,num_of_modes=20,use_precond=True):
     info_dict['Time'] = info_dict['End'] - info_dict['Start'] 
 
     return frequency, modes_dict, info_dict
+
+
+class  Test_FETIsolver(TestCase):
+    def test_crosspoints_dectection(self):
+
+        K1 = np.array([[4., 0., 0., 0.],
+                       [0., 4., -1., -2.],
+                       [0., -1., 4., -1.],
+                       [0., -2., -1., 4.]])
+
+        K2 = K3 = K4 = np.array([[4., -1., -2., -1.],
+                                 [-1., 4., -1., -2.],
+                                 [-2., -1., 4., -1.],
+                                 [-1., -2., -1., 4.]])
+
+
+        q0 = 10.0
+        q1 = np.array([0.,0.,0.,0.])
+        q2 = np.array([0.,0.,0.,0.])
+        q3 = np.array([0.,0.,0.,0.])
+        q4 = np.array([0.,0.,1.0,0.0])
+
+        B12 =  np.array([[0,1,0,0],
+                         [0,0,1,0]])
+
+        B13 = np.array([[0,0,1,0],
+                        [0,0,0,1]])
+
+        B14 = np.array([[0,0,1,0]])
+
+        B21 =  np.array([[-1,0,0,0],
+                         [0,0,0,-1]])
+
+        B23 = np.array([[0,0,0,1]])
+
+        B24 = np.array([[0,0,1,0],
+                        [0,0,0,1]])
+
+
+        B31 = np.array([[0,-1,0,0],
+                        [-1,0,0,0]])
+
+        B32 = np.array([[0,-1,0,0]])
+
+        B34 = np.array([[0,1,0,0],
+                        [0,0,1,0]])
+
+        B41 = np.array([[-1,0,0,0]])
+
+        B42 = np.array([[0,-1,0,0],
+                        [-1,0,0,0]])
+
+        B43 = np.array([[-1,0,0,0],
+                        [ 0,0,0,-1]])
+
+
+        # Using PyFETI to solve the probrem described above
+        K_dict = {1:K1,2:K2, 3:K3, 4:K4}
+        B_dict = {1 : {(1,2) : B12, (1,3) : B13, (1,4) : B14}, 
+                  2 : {(2,1) : B21, (2,4) : B24,(2,3) : B23}, 
+                  3 : {(3,1) : B31, (3,4) : B34, (3,2) : B32}, 
+                  4 : {(4,2) : B42, (4,3) : B43, (4,1) : B41}}
+
+        q_dict = {1:q1 ,2:q2, 3:q3, 4:q4}
+        crosspoints_global_dict = {}
+        for i in range(1,5):
+            local_obj = LocalProblem(K_dict[i], B_dict[i],q_dict[i],id=i)
+            crosspoints_global_dict[i] = local_obj.crosspoints_dectection()
+
+        crosspoints_global_dict
+
+        x=1
+
+if __name__=='__main__':
+
+    main()

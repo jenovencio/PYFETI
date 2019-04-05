@@ -361,7 +361,6 @@ class MapDofs():
         
         return local_map_dict
         
-        
 def save_object(obj, filename):
     with open(filename, 'wb') as output:
         pickle.dump(obj, output, pickle.HIGHEST_PROTOCOL)
@@ -666,9 +665,9 @@ class DomainCreator():
 
 if __name__ == '__main__':
     
-    #main()  
-    testobj = Test_Utils()
+    main()  
+    #testobj = Test_Utils()
     #testobj.test_dict2dfmap()
     #testobj.test_SelectionOperator_remove_duplicate_dofs()
-    testobj.test_SelectionOperator_build_B()
-    testobj.test_DomainCreator()
+    #testobj.test_SelectionOperator_build_B()
+    #testobj.test_DomainCreator()

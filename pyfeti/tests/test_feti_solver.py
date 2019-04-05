@@ -12,6 +12,59 @@ from pyfeti.src.feti_solver import ParallelFETIsolver, SerialFETIsolver
 from pyfeti.src.solvers import PCPG
 from pyfeti.cases.case_generator import create_FETI_case
 
+
+
+K1 = np.array([[4., 0., 0., 0.],
+                [0., 4., -1., -2.],
+                [0., -1., 4., -1.],
+                [0., -2., -1., 4.]])
+
+K2 = K3 = K4 = np.array([[4., -1., -2., -1.],
+                            [-1., 4., -1., -2.],
+                            [-2., -1., 4., -1.],
+                            [-1., -2., -1., 4.]])
+
+
+q0 = 1.0
+q1 = np.array([0.,0.,0.,0.])
+q2 = np.array([0.,0.,0.,0.])
+q3 = np.array([0.,0.,0.,0.])
+q4 = np.array([0.,0.,1.0,0.0])*q0
+
+B12 =  np.array([[0,1,0,0],
+                    [0,0,1,0]])
+
+B13 = np.array([[0,0,1,0],
+                [0,0,0,1]])
+
+B14 = np.array([[0,0,1,0]])
+
+B21 =  np.array([[-1,0,0,0],
+                    [0,0,0,-1]])
+
+B23 = np.array([[0,0,0,1]])
+
+B24 = np.array([[0,0,1,0],
+                [0,0,0,1]])
+
+
+B31 = np.array([[0,-1,0,0],
+                [-1,0,0,0]])
+
+B32 = np.array([[0,-1,0,0]])
+
+B34 = np.array([[0,1,0,0],
+                [0,0,1,0]])
+
+B41 = np.array([[-1,0,0,0]])
+
+B42 = np.array([[0,-1,0,0],
+                [-1,0,0,0]])
+
+B43 = np.array([[-1,0,0,0],
+                [ 0,0,0,-1]])
+
+
 class  Test_FETIsolver(TestCase):
     def setUp(self):
         from pyfeti.cases.case1 import K1, K2, B1_dict, B2_dict, global_to_local_dict_1, global_to_local_dict_2, dofs_dict, map_dofs, K_global
@@ -121,65 +174,32 @@ class  Test_FETIsolver(TestCase):
 
     def _test_2d_thermal_problem(self):
 
-        K1 = np.array([[4., 0., 0., 0.],
-                       [0., 4., -1., -2.],
-                       [0., -1., 4., -1.],
-                       [0., -2., -1., 4.]])
-
-        K2 = K3 = K4 = np.array([[4., -1., -2., -1.],
-                                 [-1., 4., -1., -2.],
-                                 [-2., -1., 4., -1.],
-                                 [-1., -2., -1., 4.]])
-
-
-        q0 = 10.0
-        q1 = np.array([0.,0.,0.,0.])
-        q2 = np.array([0.,0.,0.,0.])
-        q3 = np.array([0.,0.,0.,0.])
-        q4 = np.array([0.,0.,1.0,0.0])
-
-        B12 =  np.array([[0,1,0,0],
-                         [0,0,1,0]])
-
-        B13 = np.array([[0,0,1,0],
-                        [0,0,0,1]])
-
-        B14 = np.array([[0,0,1,0]])
-
-        B21 =  np.array([[-1,0,0,0],
-                         [0,0,0,-1]])
-
-        B23 = np.array([[0,0,0,1]])
-
-        B24 = np.array([[0,0,1,0],
-                        [0,0,0,1]])
-
-
-        B31 = np.array([[0,-1,0,0],
-                        [-1,0,0,0]])
-
-        B32 = np.array([[0,-1,0,0]])
-
-        B34 = np.array([[0,1,0,0],
-                        [0,0,1,0]])
-
-        B41 = np.array([[-1,0,0,0]])
-
-        B42 = np.array([[0,-1,0,0],
-                        [-1,0,0,0]])
-
-        B43 = np.array([[-1,0,0,0],
-                        [ 0,0,0,-1]])
-
-
         # Using PyFETI to solve the probrem described above
-        K_dict = {1:K1,2:K2, 3:K3, 4:K4}
-        B_dict = {1 : {(1,2) : B12, (1,3) : B13, (1,4) : B14}, 
-                  2 : {(2,1) : B21, (2,4) : B24,(2,3) : B23}, 
-                  3 : {(3,1) : B31, (3,4) : B34, (3,2) : B32}, 
-                  4 : {(4,2) : B42, (4,3) : B43, (4,1) : B41}}
+        num_domain = 3
+        if num_domain==4:
+            K_dict = {1:K1,2:K2, 3:K3, 4:K4}
+            B_dict = {1 : {(1,2) : B12, (1,3) : B13, (1,4) : B14}, 
+                      2 : {(2,1) : B21, (2,4) : B24,(2,3) : B23}, 
+                      3 : {(3,1) : B31, (3,4) : B34, (3,2) : B32}, 
+                      4 : {(4,2) : B42, (4,3) : B43, (4,1) : B41}}
 
-        q_dict = {1:q1 ,2:q2, 3:q3, 4:q4}
+            q_dict = {1:q1 ,2:q2, 3:q3, 4:q4}
+
+        elif num_domain==2:
+            K_dict = {1:K1,2:K2}
+            B_dict = {1 : {(1,2) : B12}, 
+                      2 : {(2,1) : B21}}
+
+            q_dict = {1:q1 ,2:q4}
+
+        elif num_domain==3:
+            K_dict = {1:K1,2:K2,3:K3}
+            B_dict = {1 : {(1,2) : B12}, 
+                      2 : {(2,1) : B21, (2,3) : B12},
+                      3 : {(3,2) : B21 }}
+            
+            q_dict = {1:q1 ,2:q2, 3:q4}
+
         solver_obj = SerialFETIsolver(K_dict,B_dict,q_dict)
 
         L = solver_obj.manager.assemble_global_L()
@@ -224,6 +244,34 @@ class  Test_FETIsolver(TestCase):
 
         np.testing.assert_almost_equal(T_cg,T_dual,decimal=10)
 
+    def test_verify_F_operator(self):
+        K_dict = {1:K1,2:K2, 3:K3, 4:K4}
+        B_dict = {1 : {(1,2) : B12, (1,3) : B13, (1,4) : B14}, 
+                      2 : {(2,1) : B21, (2,4) : B24,(2,3) : B23}, 
+                      3 : {(3,1) : B31, (3,4) : B34, (3,2) : B32}, 
+                      4 : {(4,2) : B42, (4,3) : B43, (4,1) : B41}}
+
+        q_dict = {1:q1 ,2:q2, 3:q3, 4:q4}
+
+        solver_obj = SerialFETIsolver(K_dict,B_dict,q_dict)
+
+        L = solver_obj.manager.assemble_global_L()
+        Lexp = solver_obj.manager.assemble_global_L_exp()
+        B = solver_obj.manager.assemble_global_B()
+        K, f = solver_obj.manager.assemble_global_K_and_f()
+        R = solver_obj.manager.assemble_global_kernel()
+        e = solver_obj.manager.assemble_e()
+        G = solver_obj.manager.assemble_G()
+        GGT_inv = np.linalg.inv(G.dot(G.T))
+        P = np.eye(B.shape[0]) - (G.T.dot(GGT_inv)).dot(G)
+        F_feti = solver_obj.manager.assemble_global_F()
+
+        K_inv = np.linalg.pinv(K.A)
+        F = B@K_inv@B.T
+        d = B@K_inv@f
+
+        x = np.ones(F.shape[0])
+        np.testing.assert_almost_equal(F.dot(x),F_feti.dot(x),decimal=10)
 
     def dual2primal(self,K_dual,u_dual,f_dual,L,Lexp):
         
@@ -319,16 +367,16 @@ class  Test_FETIsolver(TestCase):
         print('end Parallel FETI solver ..........\n\n')
 
     def test_parallel_solver_cases(self):
-        self.test_solver_cases(algorithm=ParallelFETIsolver)
+        self.run_solver_cases(algorithm=ParallelFETIsolver)
 
     def test_serial_solver_cases(self):
-        self.test_solver_cases(algorithm=SerialFETIsolver)
+        self.run_solver_cases(algorithm=SerialFETIsolver)
 
-    def test_solver_cases(self,algorithm=SerialFETIsolver):
+    def run_solver_cases(self,algorithm=SerialFETIsolver):
 
-        domin_list_x = [1,2,5,20]
-        domin_list_y = [1]
-        case_id_list = [1,2,3,4]
+        domin_list_x = [1,2,5] #[1,2,5,20]
+        domin_list_y = [1,2,5] #[1]
+        case_id_list = [1,2,3] #[1,2,3,4]
         for case_id in case_id_list:
             for ny in domin_list_y:
                 for nx in domin_list_x:
@@ -347,8 +395,8 @@ class  Test_FETIsolver(TestCase):
       
     def test_compare_serial_and_parallel_solver(self):
 
-        print('Starting Comparison Serial and Parallel FETI solver ..........')
-        case_id,nx,ny = 4,20,1 
+        print('Starting Comparison between Serial and Parallel FETI solver ..........')
+        case_id,nx,ny = 5,2,2
         print('Critial Case Selected %i ' %case_id)
         print('Number of Domain in the X-direction %i ' %nx)
         print('Number of Domain in the Y-direction %i ' %ny)
@@ -356,11 +404,13 @@ class  Test_FETIsolver(TestCase):
         pseudoinverse_kargs={'method':'svd','tolerance':1.0E-8}
         solver_obj = SerialFETIsolver(K_dict,B_dict,f_dict,pseudoinverse_kargs=pseudoinverse_kargs)
         start_time = time.time()
+        print('Starting Serial FETI solver ..........')
         sol_obj = solver_obj.solve()
         elapsed_time = time.time() - start_time
         print('Serial Solver : Elapsed time : %f ' %elapsed_time)
         u_dual_serial,lambda_serial,alpha_serial = self.obj_to_array(sol_obj)
 
+        print('\n\n Starting Parallel FETI solver ..........')
         solver_obj = ParallelFETIsolver(K_dict,B_dict,f_dict)
         start_time = time.time()
         sol_obj = solver_obj.solve()
@@ -450,3 +500,4 @@ if __name__=='__main__':
     #test_obj.test_simple_bar_problem()
     #test_obj.test_simple_bar_with_redundante_contraints()
     #test_obj._test_2d_thermal_problem()
+    #test_obj.test_verify_F_operator()

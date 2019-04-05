@@ -2,8 +2,8 @@ INFO:root:########################################
 INFO:root:Local problem ID = 16
 INFO:root:Directory pass to MPI solver = C:\Users\ge72tih\Documents\Projects\PYFETI\pyfeti\tests\temp
 INFO:root:Local object name passed to MPI solver = local_problem_16.pkl
-INFO:root:Time at start: Fri Apr  5 10:26:17 2019
+INFO:root:Time at start: Fri Apr  5 18:36:35 2019
 INFO:root:########################################
-INFO:root:PCG has converged after 34
-INFO:root:Time at end: Fri Apr  5 10:27:27 2019
-INFO:root:Elapsed time in seconds : 70.100789
+INFO:root:PCG has converged after 67
+INFO:root:Time at end: Fri Apr  5 18:40:55 2019
+INFO:root:Elapsed time in seconds : 259.767092

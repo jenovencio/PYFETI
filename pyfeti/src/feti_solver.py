@@ -100,8 +100,11 @@ class SolverManager():
         self.tolerance = 1.e-10
         self.pseudoinverse_kargs = pseudoinverse_kargs
         self.dual_interface_algorithm = dual_interface_algorithm
+        self.is_local_G_GGT_and_e_computed = False
         self._create_local_problems(K_dict,B_dict,f_dict)
         
+
+
     @property
     def GGT_inv(self):
         return self.course_problem.compute_GGT_inv()
@@ -118,6 +121,7 @@ class SolverManager():
         self.local_problem_id_list.sort()
 
     def assemble_local_G_GGT_and_e(self):
+        
         for problem_id, local_problem in self.local_problem_dict.items():
             R = local_problem.get_kernel()
             if R.shape[0]>0:
@@ -138,6 +142,8 @@ class SolverManager():
                 self.course_problem.update_G_dict(G_local_dict)
                 self.course_problem.update_GGT_dict(GGT_local_dict)
         
+        self.is_local_G_GGT_and_e_computed = True
+
     def assemble_cross_GGT(self):
         GGT_local_dict = {}
         for (local_i, nei_i) , Gi in self.course_problem.G_dict.items():
@@ -252,6 +258,11 @@ class SolverManager():
         u = u_dual = [u1, u2] -> global set of variables
         
         '''
+
+        if  not self.is_local_G_GGT_and_e_computed:
+            self.assemble_local_G_GGT_and_e()
+
+    
         dof_primal_init = 0
         dof_lambda_init = 0
         dof_alpha_init = 0
@@ -446,8 +457,12 @@ class SolverManager():
                    [     0      R_local(2) ]  alpha(2) 
 
         '''
+
+        if not self.local2global_alpha_dofs:
+            self.build_local_to_global_mapping()
+
         try:
-            R = scipy.sparse.lil_matrix((self.alpha_size,self.primal_size))
+            R = scipy.sparse.lil_matrix((self.primal_size,self.alpha_size))
         except:
             self.build_local_to_global_mapping()
             R = scipy.sparse.lil_matrix((self.alpha_size,self.primal_size))
@@ -459,7 +474,8 @@ class SolverManager():
             idx = self.local2global_primal_dofs[local_id]
             try:
                 idy =  self.local2global_alpha_dofs[local_id]
-                R[np.ix_(idy,idx)] = local_problem.kernel.T
+                R_local = local_problem.kernel
+                R[np.ix_(idx,idy)] = R_local
             except:
                 continue
 

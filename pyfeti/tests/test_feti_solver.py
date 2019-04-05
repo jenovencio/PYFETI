@@ -119,52 +119,111 @@ class  Test_FETIsolver(TestCase):
         u_target = np.array([0.25,0.5,0.5,0.75])
         np.testing.assert_almost_equal(u_dual,u_target,decimal=10)
 
-    def test_2d_thermal_problem(self):
+    def _test_2d_thermal_problem(self):
 
-        K1 = K3 = np.array([[1, 0, 0, 0],
-                    [0, 1, -1, 0],
-                    [0, 0, 1, -1],
-                    [0, 0, 0, 1]])
+        K1 = np.array([[4., 0., 0., 0.],
+                       [0., 4., -1., -2.],
+                       [0., -1., 4., -1.],
+                       [0., -2., -1., 4.]])
 
-        K2 = K4 = np.array([[1, -1, 0, 0],
-                            [0, 1, 0, 0],
-                            [0, 0, 1, 0],
-                            [-1, 0, 0, 1]])
+        K2 = K3 = K4 = np.array([[4., -1., -2., -1.],
+                                 [-1., 4., -1., -2.],
+                                 [-2., -1., 4., -1.],
+                                 [-1., -2., -1., 4.]])
 
+
+        q0 = 10.0
         q1 = np.array([0.,0.,0.,0.])
         q2 = np.array([0.,0.,0.,0.])
-        q3 = np.array([0.,0.,0.5,0.])
-        q4 = np.array([0.,0.,0.,0.5])
+        q3 = np.array([0.,0.,0.,0.])
+        q4 = np.array([0.,0.,1.0,0.0])
 
-        B12 =  np.array([[0,1,1,0]])
-        B13 = np.array([[0,0,1,1]])
+        B12 =  np.array([[0,1,0,0],
+                         [0,0,1,0]])
 
-        B21 =  np.array([[-1,-1,0,0]])
-        B24 = np.array([[0,0,1,1]])
+        B13 = np.array([[0,0,1,0],
+                        [0,0,0,1]])
 
-        B31 = np.array([[-1,-1,0,0]])
-        B34 = np.array([[0,1,1,0]])
+        B14 = np.array([[0,0,1,0]])
 
-        B42 = np.array([[-1,-1,0,0]])
-        B43 = np.array([[-1,0,0,-1]])
+        B21 =  np.array([[-1,0,0,0],
+                         [0,0,0,-1]])
+
+        B23 = np.array([[0,0,0,1]])
+
+        B24 = np.array([[0,0,1,0],
+                        [0,0,0,1]])
+
+
+        B31 = np.array([[0,-1,0,0],
+                        [-1,0,0,0]])
+
+        B32 = np.array([[0,-1,0,0]])
+
+        B34 = np.array([[0,1,0,0],
+                        [0,0,1,0]])
+
+        B41 = np.array([[-1,0,0,0]])
+
+        B42 = np.array([[0,-1,0,0],
+                        [-1,0,0,0]])
+
+        B43 = np.array([[-1,0,0,0],
+                        [ 0,0,0,-1]])
 
 
         # Using PyFETI to solve the probrem described above
         K_dict = {1:K1,2:K2, 3:K3, 4:K4}
-        B_dict = {1 : {(1,2) : B12, (1,3) : B13}, 
-                  2 : {(2,1) : B21, (2,4) : B24}, 
-                  3 : {(3,1) : B31, (3,4) : B34}, 
-                  4 : {(4,2) : B42, (4,3) : B43}}
+        B_dict = {1 : {(1,2) : B12, (1,3) : B13, (1,4) : B14}, 
+                  2 : {(2,1) : B21, (2,4) : B24,(2,3) : B23}, 
+                  3 : {(3,1) : B31, (3,4) : B34, (3,2) : B32}, 
+                  4 : {(4,2) : B42, (4,3) : B43, (4,1) : B41}}
 
         q_dict = {1:q1 ,2:q2, 3:q3, 4:q4}
-
         solver_obj = SerialFETIsolver(K_dict,B_dict,q_dict)
 
-        solution_obj = solver_obj.solve()
+        L = solver_obj.manager.assemble_global_L()
+        Lexp = solver_obj.manager.assemble_global_L_exp()
+        B = solver_obj.manager.assemble_global_B()
+        K, f = solver_obj.manager.assemble_global_K_and_f()
+        R = solver_obj.manager.assemble_global_kernel()
+        e = solver_obj.manager.assemble_e()
+        G = solver_obj.manager.assemble_G()
+        GGT_inv = np.linalg.inv(G.dot(G.T))
+        P = np.eye(B.shape[0]) - (G.T.dot(GGT_inv)).dot(G)
+        F_feti = solver_obj.manager.assemble_global_F()
 
-        T_dual = solution_obj.displacement
-        lambda_ = solution_obj.interface_lambda
-        alpha =  solution_obj.alpha
+        f_primal = L.dot(f)
+        K_primal = L.dot(K.dot(Lexp))
+        T_primal = np.linalg.solve(K_primal,f_primal)
+
+        T_dual = Lexp.dot(T_primal)
+        interface_gap = B.dot(T_dual)
+        np.testing.assert_almost_equal(interface_gap,0*interface_gap,decimal=10)
+
+        K_inv = np.linalg.pinv(K.A)
+
+        F = B@K_inv@B.T
+        d = B@K_inv@f
+
+        lambda_im = G.T.dot(GGT_inv).dot(e)
+        r0 = d - F.dot(lambda_im)
+        Fp = P.T.dot(F.dot(P))
+        dp = P.T.dot(d)
+        lambda_ker, info = sparse.linalg.cg(Fp,dp,M=P)
+        #lambda_ker, info = sparse.linalg.minres(Fp,dp,M=P)
+        F_action = lambda x : F.dot(x)
+        Projection_action = lambda x : P.dot(x)
+        lampda_ker, rk, proj_r_hist, lambda_hist = PCPG(F_action,r0,Projection_action,tolerance=1.e-16,max_int=1000)
+
+        lambda_cg = lambda_im + lambda_ker
+        r = d - F.dot(lambda_cg)
+        alpha = GGT_inv.dot(G.dot(r))
+
+        T_cg = K_inv@(f - B.T@lambda_cg) + R.dot(alpha)
+
+        np.testing.assert_almost_equal(T_cg,T_dual,decimal=10)
+
 
     def dual2primal(self,K_dual,u_dual,f_dual,L,Lexp):
         
@@ -269,7 +328,7 @@ class  Test_FETIsolver(TestCase):
 
         domin_list_x = [1,2,5,20]
         domin_list_y = [1]
-        case_id_list =[1,2,3,4]
+        case_id_list = [1,2,3,4]
         for case_id in case_id_list:
             for ny in domin_list_y:
                 for nx in domin_list_x:
@@ -379,9 +438,9 @@ class  Test_FETIsolver(TestCase):
 
 if __name__=='__main__':
 
-    #main()
-    test_obj = Test_FETIsolver()
-    test_obj.setUp()
+    main()
+    #test_obj = Test_FETIsolver()
+    #test_obj.setUp()
     #test_obj.test_serial_solver()
     #test_obj.test_parallel_solver()
     #test_obj.test_parallel_solver_cases()
@@ -390,4 +449,4 @@ if __name__=='__main__':
     #test_obj.test_compare_serial_and_parallel_solver()
     #test_obj.test_simple_bar_problem()
     #test_obj.test_simple_bar_with_redundante_contraints()
-    test_obj.test_2d_thermal_problem()
+    #test_obj._test_2d_thermal_problem()

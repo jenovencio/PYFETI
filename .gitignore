@@ -15,9 +15,10 @@
 *.npy
 *.pdf
 *.dat
+/tests/temp/*.pkl
 
 # Folders to ignore
-contpy.egg-info
+pyfeti.egg-info
 docs/_build
 results/
 build/

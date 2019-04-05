@@ -7,7 +7,7 @@ from scipy import sparse
 import numpy as np
 import os
 import copy
-
+import time
 
 amfe2gmsh = {}
 amfe2gmsh['Quad4'] = '3'
@@ -366,9 +366,34 @@ def save_object(obj, filename):
     with open(filename, 'wb') as output:
         pickle.dump(obj, output, pickle.HIGHEST_PROTOCOL)
 
-def load_object(filename):
-    with open(filename, 'rb') as input:
-        obj = pickle.load(input)
+def load_object(filename,tries=3,sleep_delay=5):
+    ''' load a pickle object
+
+    parameters:
+        filename : string
+            path of the file to be open
+        tries : int
+            number of tries before exit
+        sleep_delay : int
+            seconds to wait until next try
+
+    Returns
+        pickle object
+
+
+    '''
+    obj = None
+    for i in range(tries):
+        try:
+            with open(filename, 'rb') as input:
+                obj = pickle.load(input)
+            break
+        except:
+            time.sleep(sleep_delay)
+            continue
+    if obj is None:
+        print('Could not find the file path %s ' %filename)
+        raise FileNotFoundError
     return obj
 
 def dict2dfmap(id_dict,column_labels=None):

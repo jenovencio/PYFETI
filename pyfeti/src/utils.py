@@ -182,13 +182,26 @@ class SelectionOperator():
         P[local_indexes, np.arange(ndof)] = 1
         return P.T.tocsc()
         
-    def create_block_matrix(self,M):
+    def create_block_matrix(self,M,block_keys=None):
         ''' This function create block matrix with string
         which is useful for applying boundary conditions
+        
+        Parameters :
+            M : np.array or sparse matrix
+                matrix to be decomposed
+            block_keys : list, default : None
+                list of keys to create the block matrix
+                if None all keys in the self.selection_dict will be use
         '''
-        block_matrix = {}
-        for key1, dofs_1 in self.selection_dict.items():
-            for key2, dofs_2 in self.selection_dict.items():
+        
+        if block_keys is None:
+            block_keys = list(self.selection_dict.keys())
+           
+        block_matrix = {}           
+        for key1 in block_keys:
+            dofs_1 = self.selection_dict[key1]
+            for key2 in block_keys:
+                dofs_2 = self.selection_dict[key2]
                 block_matrix[key1,key2] = M[np.ix_(list(dofs_1), list(dofs_2))]
         
         return block_matrix
@@ -228,6 +241,14 @@ class SelectionOperator():
         
         M_block = self.create_block_matrix(M)
         
+        M = self.assemble_block_matrix(M_block,list_of_strings)
+        
+        if return_reduced_selection:
+            return M, self.reduced_selector 
+        else:
+            return M
+    
+    def assemble_block_matrix(self,M_block,list_of_strings):
         M_rows = []
         for s_i in list_of_strings:
             M_row_j_list = [] 
@@ -239,11 +260,8 @@ class SelectionOperator():
                     M_row_j_list.append(sparse.csr_matrix(Mij))
             M_rows.append(sparse.hstack(M_row_j_list))
         
-        if return_reduced_selection:
-            return sparse.vstack(M_rows).tocsc(), self.reduced_selector 
-        else:
-            return sparse.vstack(M_rows).tocsc()
-          
+        return sparse.vstack(M_rows).tocsc()
+        
     def assemble_vector(self,f,list_of_strings):
         ''' This method assemble a vector based on the list of string
         useful for ordering the matrix according to the block string matrix
@@ -292,7 +310,75 @@ class SelectionOperator():
         B = sparse.lil_matrix((len(local_id), self.ndof), dtype=np.int8)
         B[np.arange(len(local_id)), local_id ] = 1
         return B.tocsr()
+    
+    def get_union_of_dofs(self,key_list):
+        ''' This function returns the union of the 
+        node given by the key_list
+        
+        Parameters:
+            key_list : list
+                list of the keys of the self.selection_dict
+        
+        Returns:
+            set of the union off dofs
+            
+        '''
+        node_set = set()
+        for key in key_list:
+            node_set.update(self.selection_dict[key])
+            
+        return node_set
+    
+    def get_difference_set(self,key_list_1,key_list_2):
+        ''' This function returns the diffence of the union 
+        of the two sets key_list_1 and key_list_2
+        
+        Parameters:
+            key_list_1 : list
+                list of the keys of the self.selection_dict to perform a union
+            key_list_2 : list
+                list of the keys of the self.selection_dict to perform a union
+                
+        Returns 
+             the difference set of dofs
+        '''
+        union_1 =  self.get_union_of_dofs(key_list_1)
+        union_2 =  self.get_union_of_dofs(key_list_2)
+        return union_1 - union_2
+    
+    def get_complementary_set(self,key_list):
+        ''' This function return the complementary set
+        of the union of the key_list minus all dofs
+        '''
+        all_set = set(self.list_of_all_dofs)
+        given_set = self.get_union_of_dofs(key_list)
+        return all_set - given_set
+    
+    def add_difference_set_into_dict(self,key_list_1,key_list_2,key_id,overwrite=False):
+        ''' This function add to the self.selection_dict 
+        the difference set, defined as the union of the set
+        given by the key_list minus the list of of dofs
+        
+        Parameters:
+            key_list_1 : list
+                list of the keys of the self.selection_dict to perform a union
+            key_list_2 : list
+                list of the keys of the self.selection_dict to perform a union
+            key_id : int or string
+                key for the addition of the new dict
+            
+        Return 
+            None
+            
+        '''
+        if (key_id not in self.selection_dict) or overwrite:
+            self.selection_dict[key_id] = self.get_difference_set(key_list_1,key_list_2)
+        else:
+            raise Exception('Given key_id is already is selection dictionary!')
+            
 
+        
+        
 class MapDofs():
     def __init__(self,map_dofs,primal_tag='Global_dof_id',local_tag='Local_dof_id',domain_tag='Domain_id'):
         '''
@@ -429,6 +515,59 @@ def dict2dfmap(id_dict,column_labels=None):
 
     return pd.DataFrame.from_dict(id_dict, columns=column_labels,orient='index')
 
+def create_selection_operator(node_df,element_df,tag='phys_group',remove_duplicated = False, unique_id = -1):
+    ''' This function creates a SelectionOperator object based on mesh information.
+    
+    Parameters:
+    
+    node_df : pandas.dataframe
+        dataframe containing the map between node id and dofs
+        
+    element_df : pandas.dataframe 
+        dataframe containing elem id in rows and columns with connectivity
+        and tags which have elements in groups
+        
+    tag : string
+        string group to create the selection operator
+        
+    remove_duplicated : Boolean default = False
+        Boolean operator that forces a unique set of dofs per index in the SelectionOperator.
+        
+    unique_id : int or string
+        unique id for the dofs which do not belong to any group tag
+        
+    Returns:
+        A SelctionOperator obj
+    '''
+    
+    if 'connectivity' not in element_df:
+        raise(Exception)
+    
+    
+    
+    get_dof_from_node = lambda node_id : list(node_df.iloc[node_id])
+    get_connectivity_from_elem_id = lambda elem_id : list(element_df['connectivity'].iloc[elem_id])
+    get_dof_list_from_elem_id = lambda elem_id : list(map(get_dof_from_node,get_connectivity_from_elem_id(elem_id)))
+    get_elements_from_group_id = lambda group_id : list(element_df.loc[element_df[tag] == group_id].index)
+    get_dof_list_from_group_id = lambda group_id : np.array(list(map(get_dof_list_from_elem_id,get_elements_from_group_id(group_id)))).flatten()
+    
+    
+    group_set = set(element_df[tag])
+    if unique_id in group_set:
+        print('Group tag uses the unique id %i, please ')
+        raise(Exception)
+    
+    all_dofs = set(node_df.values.flatten())
+    dof_dict = {}
+    dofs = set()
+    for group_id in set(element_df[tag]):
+        group_dofs = get_dof_list_from_group_id(group_id)
+        dof_dict[group_id] = set(group_dofs)
+        dofs.update(group_dofs)
+
+    dof_dict[unique_id] = list(all_dofs - dofs)   
+
+    return SelectionOperator(dof_dict,node_df,remove_duplicated = remove_duplicated)
 
 class Log():
     def __init__(self,filename):

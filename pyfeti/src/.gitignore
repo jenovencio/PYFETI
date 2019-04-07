@@ -1,0 +1,32 @@
+# Files to ignore
+
+# Python specific files
+.spyderworkspace
+.spyderproject
+*.pyc
+*.so
+*.o
+*.vtu
+*.pvd
+*~
+*.ipynb_checkpoints
+
+# saved numpy-arrays
+*.npy
+*.pdf
+*.dat
+*.npz
+
+# Folders to ignore
+contpy.egg-info
+docs/_build
+results/
+build/
+tmp/
+dist/
+private/
+.idea/
+.spyproject/
+.vs/
+__pycache__/
+.egg-info

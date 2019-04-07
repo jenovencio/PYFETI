@@ -5,15 +5,121 @@ from unittest import TestCase, main
 from pandas.util.testing import assert_frame_equal 
 from scipy import sparse
 import numpy as np
-import os
-import copy
-import time
-import shutil
+import os, sys, copy, time, shutil, logging, subprocess
+
 
 amfe2gmsh = {}
 amfe2gmsh['Quad4'] = '3'
 amfe2gmsh['straight_line'] = '1'
 amfe2gmsh['node_point'] = '15'
+
+
+# geting path of MPI executable
+mpi_exec = 'mpiexec'
+try:
+    mpi_path = os.environ['MPIDIR']
+    mpi_exec = os.path.join(mpi_path, mpi_exec).replace('"','')
+except:
+    print("Warning! Using mpiexec in global path")
+    mpi_path = None
+    
+
+try:
+    python_path = os.environ['PYTHON_ENV']
+    python_exec = os.path.join(python_path,'python').replace('"','')
+except:
+    print("Warning! Using python in global path")
+    python_path = None
+    python_exec = 'python'
+
+def get_mpi_exec():
+    return mpi_exec
+
+def get_python_exec():
+    return python_exec
+
+def get_platform():
+    # getting amfe folder
+    if sys.platform[:3]=='win':
+        return 'Windows'
+
+    elif sys.platform[:3]=='lin':
+        return 'Linux'
+    else :
+        raise('Plataform %s is not supported  ' %sys.platform)
+
+class MPILauncher():
+    def __init__(self,python_file,mpi_size,**kwargs):
+
+        self.python_file = python_file
+        self.mpi_size = mpi_size #
+        self.log = True
+        self.kwargs = kwargs
+        if 'tmp_folder' in self.kwargs :
+            self.tmp_folder = self.kwargs[tmp_folde]
+        else:
+            self.tmp_folder = 'tmp'
+
+    def run(self):
+
+        platform = get_platform()
+        if platform=='Windows':
+            self.run_windowns()
+        elif platform=='Linux':
+            self.run_linux()
+
+    def run_linux(self):
+        run_file_path = 'run_mpi.sh'
+        print('Not tested')
+
+    def create_command_string(self,python_file,mpi_size,**kwargs):
+
+        command = '"' + mpi_exec + '" -l -n ' + str(self.mpi_size) + ' "' + python_exec + '"  "' + \
+                python_file + '"'
+         
+        for key, value in self.kwargs.items():
+            command += '  "' + str(key) + '=' + str(value) +  '" '
+        return command
+
+    def run_windowns(self):
+
+        run_file_path = 'run_mpi.bat'
+        logging.info('######################################################################')
+        logging.info('###################### SOLVER INFO ###################################')
+        logging.info('MPI exec path = %s' %mpi_exec )
+        logging.info('Python exec path = %s' %python_exec )
+
+        
+        command = self.create_command_string(self.python_file,self.mpi_size,**self.kwargs)
+
+        # export results to a log file called amfeti_solver.log
+        if self.log:
+            command += '>mpi.log'
+        
+       
+
+        # writing bat file with the command line
+        local_folder = os.getcwd()
+        os.chdir(self.tmp_folder)
+        run_file = open(run_file_path,'w')
+        run_file.write(command)
+        run_file.close()
+
+        logging.info('Run directory = %s' %os.getcwd())
+        logging.info('######################################################################')
+
+        # executing bat file
+        try:    
+            subprocess.call(run_file_path)
+            os.chdir(local_folder)
+            
+        except:
+            os.chdir(local_folder)
+            logging.error('Error during the simulation.')
+            return None
+
+    def remove_folder(self):
+        shutil.rmtree(self.tmp_folder)
 
 class OrderedSet(collections.MutableSet):
 
@@ -866,6 +972,47 @@ class  Test_Utils(TestCase):
         creator_obj.save_gmsh_file(mesh_path)
         shutil.rmtree('meshes')
 
+    def test_mpi_launcher(self):
+        python_script = """from mpi4py import MPI
+import sys\ncomm = MPI.COMM_WORLD
+rank = comm.Get_rank()
+size = comm.Get_size()
+print('UnitTest from rank = %i' %rank)
+for s in sys.argv:
+    print(s) """
+
+        tmp_folder = 'tmp'
+        try:
+            os.mkdir(tmp_folder)
+        except:
+            pass
+
+        dummy_script = r'tmp\test.py' 
+        dummy_file = 'test.py'
+        with open(dummy_script,'w') as f:
+            f.write(python_script)
+
+        mpi_launcher = MPILauncher(dummy_file,2,solver='PCG',pseudoinverse='SuperLU')
+        mpi_launcher.run()
+
+        target_string = '''[1]UnitTest from rank = 1
+[1]test.py
+[1]solver=PCG
+[1]pseudoinverse=SuperLU
+[0]UnitTest from rank = 0
+[0]test.py
+[0]solver=PCG
+[0]pseudoinverse=SuperLU\n'''
+
+        with open(r'tmp\mpi.log','r') as f:
+            txt_string = f.read()
+            self.assertMultiLineEqual(txt_string,target_string)
+
+        try:
+            shutil.rmtree(tmp_folder)
+        except:
+            pass
+
 if __name__ == '__main__':
     
     main()  
@@ -874,3 +1021,4 @@ if __name__ == '__main__':
     #testobj.test_SelectionOperator_remove_duplicate_dofs()
     #testobj.test_SelectionOperator_build_B()
     #testobj.test_DomainCreator()
+    #testobj.test_mpi_launcher()

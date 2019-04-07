@@ -7,3 +7,12 @@ INFO:root:########################################
 INFO:root:PCG has converged after 67
 INFO:root:Time at end: Fri Apr  5 18:40:53 2019
 INFO:root:Elapsed time in seconds : 257.901056
+INFO:root:########################################
+INFO:root:Local problem ID = 1
+INFO:root:Directory pass to MPI solver = C:\Users\ge72tih\Documents\Projects\PYFETI\pyfeti\tests\temp
+INFO:root:Local object name passed to MPI solver = local_problem_1.pkl
+INFO:root:Time at start: Sun Apr  7 20:24:06 2019
+INFO:root:########################################
+INFO:root:PCG has converged after 67
+INFO:root:Time at end: Sun Apr  7 20:28:11 2019
+INFO:root:Elapsed time in seconds : 244.870306

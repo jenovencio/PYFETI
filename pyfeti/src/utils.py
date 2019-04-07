@@ -8,10 +8,12 @@ import numpy as np
 import os
 import copy
 import time
+import shutil
 
 amfe2gmsh = {}
 amfe2gmsh['Quad4'] = '3'
 amfe2gmsh['straight_line'] = '1'
+amfe2gmsh['node_point'] = '15'
 
 class OrderedSet(collections.MutableSet):
 
@@ -377,8 +379,7 @@ class SelectionOperator():
             raise Exception('Given key_id is already is selection dictionary!')
             
 
-        
-        
+
 class MapDofs():
     def __init__(self,map_dofs,primal_tag='Global_dof_id',local_tag='Local_dof_id',domain_tag='Domain_id'):
         '''
@@ -605,52 +606,7 @@ def pyfeti_dir(filename=''):
     pyfeti_abs_path = os.path.dirname(os.path.dirname(__file__))
     return os.path.join(pyfeti_abs_path, filename.lstrip('/'))
 
-class  Test_Utils(TestCase):
-    def test_OrderedSet(self):
-        s = OrderedSet('abracadaba')
-        t = OrderedSet('simsalabim')
-        print(s | t)
-        print(s & t)
-        print(s - t)
 
-    def test_dict2dfmap(self):
-        target_df = pd.DataFrame(data={'x': [0, 2], 'y': [1, 3]})
-
-        id_dict = {}
-        id_dict[0] = [0,1]
-        id_dict[1] = [2,3]
-        id_df = dict2dfmap(id_dict)
-
-        assert_frame_equal(id_df, target_df)
-
-    def test_SelectionOperator_remove_duplicate_dofs(self):
-        id_df = pd.DataFrame(data={'x': [0, 2, 4, 6], 'y': [1, 3, 5, 7]})
-        group_dict = OrderedDict()
-        group_dict[1] = OrderedSet([0,1,2])
-        group_dict[2] = OrderedSet([2,4])
-        group_dict[3] = OrderedSet([0,3])
-
-        s = SelectionOperator( group_dict, id_df)
-        self.assertEqual( list(s.selection_dict[2])[0],4)
-        self.assertEqual( list(s.selection_dict[3])[0],3)
-        self.assertEqual( list(s.selection_dict['internal']),[5,6,7])
-
-
-    def test_SelectionOperator_build_B(self):
-        id_df = pd.DataFrame(data={'x': [0, 2, 4, 6], 'y': [1, 3, 5, 7]})
-        group_dict = OrderedDict()
-        group_dict[1] = OrderedSet([0,1,2])
-        group_dict[2] = OrderedSet([2,4])
-        group_dict[3] = OrderedSet([0,3])
-
-        s = SelectionOperator( group_dict, id_df)
-        s.build_B(1)
-
-    def test_DomainCreator(self):
-        creator_obj  = DomainCreator(x_divisions=4,y_divisions=3)
-        creator_obj.build_elements()
-        mesh_path = pyfeti_dir('tests\meshes\mesh1.msh')
-        creator_obj.save_gmsh_file(mesh_path)
 
 class DomainCreator():
     def __init__(self,width=10,high=10,x_divisions=11,y_divisions=11,domain_id=1):
@@ -663,7 +619,8 @@ class DomainCreator():
         self.start_y = 0.0
         self.elem_type = 'Quad4'
         self.gmsh_type = 1
-        self.elem_num = 2*(x_divisions+y_divisions-2) + (x_divisions-1)*(y_divisions-1)
+        self.elem_num = 0
+        self.tag_dict = {}
 
     def node_map(self):
         a = self.x_divisions 
@@ -688,8 +645,43 @@ class DomainCreator():
         parameters
         '''
 
+        self.elem_num = 0
+
+        elem_dict = {}
+        node_dict = self.create_node_points()
+        linear_elem_dict = self.create_linear_elem()
+        quad_elem_dict = self.create_quad_elem()
+        
+        elem_dict.update({'node_point' : node_dict}) 
+        elem_dict.update({'straight_line' : linear_elem_dict}) 
+        elem_dict.update({'Quad4' : quad_elem_dict})
+
+        return elem_dict
+
+    def create_node_points(self):
+        ''' This function create dict node points 
+        
+        Returns 
+            dict [tag_name] = elem_dict
+        '''
         node_map = self.node_map()
-        quad_elem_nodes = lambda I,J : [(I,J),(I,J+1),(I+1,J+1),(I+1,J)]
+        node_elem_dict = {'corner_BL' : {0 : [node_map((0,0))]} ,
+                          'corner_BR' : {1 : [node_map((0,self.x_divisions-1))]} ,
+                          'corner_TL' : {2 : [node_map((self.y_divisions-1,0))]} ,
+                          'corner_TR' : {3 : [node_map((self.y_divisions-1,self.x_divisions-1))]}}
+        self.elem_num += 4
+        # update self.tag_dict with elem_dict information
+        self.tag_dict.update({'corner_BL' : '6' , 'corner_BR' : '7' , 'corner_TL' : '8' , 'corner_TR' : '9'}) 
+
+        return node_elem_dict
+
+    def create_linear_elem(self):
+        ''' This function create dict straing linear elements 
+        
+        Returns 
+            dict [tag_name] = elem_dict
+        '''
+        node_map = self.node_map()
         
         linear_elem_dict = {'bottom' : {} , 'right' : {} , 'top' : {} , 'left' : {}}
         delta_dict = {'bottom' : (0,1) , 'right' : (1,0) , 
@@ -702,22 +694,42 @@ class DomainCreator():
                 next_node_index_pair = tuple( np.array(node_index_pair) +  np.array(delta_dict[key]))
                 linear_dict[node_mult] = list(map(node_map, [node_index_pair,next_node_index_pair]))
                 node_index_pair = next_node_index_pair
+                self.elem_num += 1
+        # update self.tag_dict with elem_dict information
+        self.tag_dict.update({'bottom' : '4' , 'right' : '2' , 'top' : '5' , 'left' : '1'}) 
 
-        quad_elem_dict = {'domain' : {}}
+        return linear_elem_dict
+
+    def create_quad_elem(self,tag_name='domain'):
+        ''' This function create dict Quad4 elements
+        with the key given by the tag_name
+        
+        Parameters
+            tag_name : string
+                key for the element dictionaty
+
+        Returns 
+            dict [tag_name] = elem_dict
+        '''
+        node_map = self.node_map()
+        quad_elem_nodes = lambda I,J : [(I,J),(I,J+1),(I+1,J+1),(I+1,J)]
+
+        quad_elem_dict = {tag_name : {}}
         count = 0
         for elem_id_j in range(self.y_divisions - 1):
             for elem_id_i in range(self.x_divisions-1):
-                quad_elem_dict['domain'][count] =  list(map(node_map,quad_elem_nodes(elem_id_j,elem_id_i)))
+                quad_elem_dict[tag_name][count] =  list(map(node_map,quad_elem_nodes(elem_id_j,elem_id_i)))
                 count+=1
+        self.elem_num += count 
+        # update self.tag_dict with elem_dict information
+        self.tag_dict.update({'domain' : '3'}) 
 
-        elem_dict = {'straight_line' : linear_elem_dict , 'Quad4' : quad_elem_dict } 
-        return elem_dict
+        return quad_elem_dict
 
     def save_gmsh_file(self,filename, format = '2.2 0 8' ):
-
-
-        tag_dict = {'bottom' : '4' , 'right' : '2' , 'top' : '5' , 'left' : '1', 'domain' : '3'}
         
+        tag_dict = self.tag_dict
+
         nodes_dict = self.build_nodes()
         elem_dict = self.build_elements()
         
@@ -730,7 +742,6 @@ class DomainCreator():
         with open(filename,'w') as f:
             for s in mesh_string:
                 f.write(s)
-
 
     def create_gmsh_format_string(self,format):
         tag_format_start   = "$MeshFormat"
@@ -801,6 +812,59 @@ class DomainCreator():
             phys_tag_count += 1
         elem_string += tag_elements_end
         return elem_string
+
+class  Test_Utils(TestCase):
+    def test_OrderedSet(self):
+        s = OrderedSet('abracadaba')
+        t = OrderedSet('simsalabim')
+        print(s | t)
+        print(s & t)
+        print(s - t)
+
+    def test_dict2dfmap(self):
+        target_df = pd.DataFrame(data={'x': [0, 2], 'y': [1, 3]})
+
+        id_dict = {}
+        id_dict[0] = [0,1]
+        id_dict[1] = [2,3]
+        id_df = dict2dfmap(id_dict)
+
+        assert_frame_equal(id_df, target_df)
+
+    def test_SelectionOperator_remove_duplicate_dofs(self):
+        id_df = pd.DataFrame(data={'x': [0, 2, 4, 6], 'y': [1, 3, 5, 7]})
+        group_dict = OrderedDict()
+        group_dict[1] = OrderedSet([0,1,2])
+        group_dict[2] = OrderedSet([2,4])
+        group_dict[3] = OrderedSet([0,3])
+
+        s = SelectionOperator( group_dict, id_df)
+        self.assertEqual( list(s.selection_dict[2])[0],4)
+        self.assertEqual( list(s.selection_dict[3])[0],3)
+        self.assertEqual( list(s.selection_dict['internal']),[5,6,7])
+
+
+    def test_SelectionOperator_build_B(self):
+        id_df = pd.DataFrame(data={'x': [0, 2, 4, 6], 'y': [1, 3, 5, 7]})
+        group_dict = OrderedDict()
+        group_dict[1] = OrderedSet([0,1,2])
+        group_dict[2] = OrderedSet([2,4])
+        group_dict[3] = OrderedSet([0,3])
+
+        s = SelectionOperator( group_dict, id_df)
+        s.build_B(1)
+
+    def test_DomainCreator(self):
+        creator_obj  = DomainCreator(x_divisions=4,y_divisions=3)
+        creator_obj.build_elements()
+        try:
+            os.mkdir('meshes')
+        except:
+            pass
+
+        mesh_path = r'meshes\mesh1.msh'
+        creator_obj.save_gmsh_file(mesh_path)
+        shutil.rmtree('meshes')
 
 if __name__ == '__main__':
     

@@ -1,11 +1,12 @@
 import numpy as np
 from scipy import sparse
 from scipy import linalg
-import os
+import os, sys, shutil
 from unittest import TestCase, main
 import logging
 import time
 from mpi4py import MPI
+from utils import MPILauncher, pyfeti_dir
 
 def get_chunks(number_of_chuncks,size):
     ''' create chuncks based on number of mpi process
@@ -30,7 +31,7 @@ class ParallelMatrix():
             True is the matrix is serialized 
     '''
     
-    def __init__(self,A, n,tmp_dir = 'tmp',prefix = 'A_'):
+    def __init__(self,A, n,tmp_dir = 'tmp',prefix = 'A_',serializeit=True):
         self.A = A
         self.n = n
         self.tmp_dir = tmp_dir
@@ -39,6 +40,9 @@ class ParallelMatrix():
         self.isserialize = False
         self.get_chunks()
 
+        if serializeit:
+            self.columns_serialization()
+
     def get_chunks(self):
         ''' create chuncks based on number of mpi process
         '''
@@ -46,23 +50,44 @@ class ParallelMatrix():
         return self.chunck_sizes
 
     def columns_serialization(self):
-        try:
-            os.mkdir(self.tmp_dir)
-        except:
-            pass
 
-        init_id = 0
-        for i,col_id in enumerate(self.chunck_sizes):
-            file = os.path.join(self.tmp_dir,self.prefix + str(i) + '.' + self.ext)        
-            logging.info('Saving maitrix to %s' %file)
-            sparse.save_npz(file, self.A[:,init_id:col_id], compressed=True)
-            init_id = col_id
+        start_time = time.time()
+        if not self.isserialize:
+            try:
+                os.mkdir(self.tmp_dir)
+            except:
+                pass
 
-        self.isserialize = True
+            init_id = 0
+            for i,col_id in enumerate(self.chunck_sizes):
+                file = os.path.join(self.tmp_dir,self.prefix + str(i) + '.' + self.ext)        
+                sparse.save_npz(file, self.A[:,init_id:col_id], compressed=True)
+                init_id = col_id
+
+            self.isserialize = True
+        
+        elapsed_time = time.time() - start_time
+        logging.info('Matrix serialization, Elapsed time : %4.5f ' %elapsed_time)
+        return None
 
     def load_columns_matrix(self,rank):
          file = os.path.join(self.tmp_dir,self.prefix + str(rank) + '.' + self.ext)        
          return sparse.load_npz(file)
+
+    def dot(self,v):
+
+        parallel_vec_obj = ParallelVector(v,self.n)
+
+        u = parallel_launcher(self.n,
+                         method = 'parallel_matvec',
+                         tmp_dir = self.tmp_dir,
+                         prefix_matrix = self.prefix,
+                         ext_matrix =  self.ext,
+                         prefix_array = parallel_vec_obj.prefix,
+                         ext_array = parallel_vec_obj.ext)
+
+        return u
+
 
 class ParallelVector():
     '''
@@ -76,7 +101,7 @@ class ParallelVector():
 
        False
     '''
-    def __init__(self,v,n,tmp_dir = 'tmp',prefix = 'v_'):
+    def __init__(self,v,n,tmp_dir = 'tmp',prefix = 'v_',serializeit=True):
         self.v = v
         self.n = n
         self.isserialize = False
@@ -84,8 +109,9 @@ class ParallelVector():
         self.prefix = prefix
         self.ext = 'npy'
         self.get_chunks()
+        if serializeit:
+            self.serialize()
          
-
     def get_chunks(self):
         ''' create chuncks based on number of mpi process
         '''
@@ -93,20 +119,27 @@ class ParallelVector():
         return self.chunck_sizes
 
     def serialize(self):
-        try:
-            os.mkdir(self.tmp_dir)
-        except:
-            pass
 
-        init_id = 0
-        for i,col_id in enumerate(self.chunck_sizes):
+        start_time = time.time()
+        if not self.isserialize:
+            try:
+                os.mkdir(self.tmp_dir)
+            except:
+                pass
+
+            init_id = 0
+            for i,col_id in enumerate(self.chunck_sizes):
             
-            filearr = os.path.join(self.tmp_dir,self.prefix + str(i)  + '.' + self.ext)
-            np.save(filearr, self.v[init_id:col_id])
+                filearr = os.path.join(self.tmp_dir,self.prefix + str(i)  + '.' + self.ext)
+                np.save(filearr, self.v[init_id:col_id])
 
-            init_id = col_id
+                init_id = col_id
 
-        self.isserialize = True
+            self.isserialize = True
+
+        elapsed_time = time.time() - start_time
+        logging.info('vector serialization, Elapsed time : %4.5f ' %elapsed_time)
+        return None
 
     def load_vector_chunck(self,rank):
          filearr = os.path.join(self.tmp_dir,self.prefix + str(rank)  + '.' + self.ext)   
@@ -123,45 +156,139 @@ def matvec(A,v,n=2):
     
     '''
 
-    parallel_matrix_obj = ParallelMatrix(A,n)
-    parallel_matrix_obj.columns_serialization()
-    parallel_vec_obj = ParallelVector(v,n)
-    parallel_vec_obj.serialize()
+    if n==1:
+        u = A.dot(v)
+    else:
 
-    rank_id = 0
+        parallel_matrix_obj = ParallelMatrix(A,n)
+        parallel_vec_obj = ParallelVector(v,n)
 
-    u = np.zeros(v.shape)
-    for rank_id in range(n):
-        Acol = parallel_matrix_obj.load_columns_matrix(rank_id)
-        vc =  parallel_vec_obj.load_vector_chunck(rank_id)
-        u += Acol.dot(vc)
+        u = parallel_launcher(n,
+                         method = 'parallel_matvec',
+                         tmp_dir = parallel_matrix_obj.tmp_dir,
+                         prefix_matrix = parallel_matrix_obj.prefix,
+                         ext_matrix =  parallel_matrix_obj.ext,
+                         prefix_array = parallel_vec_obj.prefix,
+                         ext_array = parallel_vec_obj.ext)
 
 
     return u
 
+def parallel_launcher(n=2,**kwargs):
+    # execute only if run as a script
+    python_file = pyfeti_dir(r'src\MPIlinalg.py')
+    mpi_size = n
+    
+    mip_obj = MPILauncher(python_file,mpi_size,**kwargs)
+    mip_obj.run()
+
+    filearr = os.path.join(kwargs['tmp_dir'],kwargs['prefix_array'] + '.'+  kwargs['ext_array'])   
+
+    y = np.load(filearr)
+    return y
 
 
-class  Test_FETIsolver(TestCase):
+def parallel_matvec(tmp_dir='tmp',prefix_matrix='A_',ext_matrix= 'npz',prefix_array='v_',ext_array='npy',rank=None):
+    # Define rank master
+    rank_master = 0
+
+    # loading matrix in local mpi rank
+    file = os.path.join(prefix_matrix+ str(rank) + '.' + ext_matrix)        
+    Ai = sparse.load_npz(file)
+
+    # loading vector in local mpi rank
+    filearr = os.path.join(prefix_array + str(rank)  + '.' + ext_array)   
+    vi = np.load(filearr)
+
+    # local matrix and vector multiplication
+    yi = Ai.dot(vi) 
+
+    # Gather local vector to rank 0 
+    global_vector_size = Ai.shape[0]
+    sendbuf = yi
+    recvbuf = None
+    if rank==rank_master:
+        recvbuf = np.empty([size, global_vector_size], dtype='d')
+
+    comm.Gather(sendbuf, recvbuf, root=rank_master)
+
+    # save 
+    if rank == rank_master:
+        y = np.sum(recvbuf.T,axis=1)
+        np.save(prefix_array, y)
+       
+    
+class  Test_Parallel(TestCase):
     def test_parallel_matvec(self):
 
-        n = 10
-        x = 3*np.arange(n)
+        n = 10000
+        #x = 3*np.arange(n)
+        x = np.array([1.0]*n)
+        mpi_size = 2
+        if False:
+            top = [4,-1]
+            top.extend([0.0]*(n-2))
+            A = linalg.toeplitz(top,top)
+            A[n-1,0] = -1
+            A[0,n-1] = -1
+        else:
+            A = sparse.rand(n, n, density=0.5, dtype=np.float, random_state=1)
 
-
-        top = [4,-1]
-        top.extend([0.0]*(n-2))
-        A = linalg.toeplitz(top,top)
-        A[n-1,0] = -1
-        A[0,n-1] = -1
         A = sparse.csc_matrix(A)
 
-
+        print('Starting Serial Matrix Vector Multiplication .......')
+        start_time = time.time()
         u_target = A.dot(x)
+        elapsed_time = time.time() - start_time
+        print('Serial matvec : Elapsed time : %f ' %elapsed_time)
 
-        u = matvec(A,x,n=2)
+        print('Starting Parallel Matrix Vector Multiplication .......')
+        start_time = time.time()
+        u = matvec(A,x,n=mpi_size)
+        elapsed_time = time.time() - start_time
+        print('Parallel matvec : Elapsed time : %f ' %elapsed_time)
 
         np.testing.assert_almost_equal(u_target,u,decimal=10)
 
+        shutil.rmtree('tmp')
+
+    def test_parallel_dot(self):
+
+        n = 10000
+        #x = 3*np.arange(n)
+        x = np.array([1.0]*n)
+        mpi_size = 4
+        if False:
+            top = [4,-1]
+            top.extend([0.0]*(n-2))
+            A = linalg.toeplitz(top,top)
+            A[n-1,0] = -1
+            A[0,n-1] = -1
+        else:
+            A = sparse.rand(n, n, density=0.5, dtype=np.float, random_state=1)
+
+        A = sparse.csc_matrix(A)
+
+        print('Starting Serial dot Multiplication .......')
+        start_time = time.time()
+        u_target = A.dot(x)
+        elapsed_time = time.time() - start_time
+        print('Serial matvec : Elapsed time : %f ' %elapsed_time)
+
+        print('Starting Parallel Matrix dot Multiplication 1.......')
+        start_time = time.time()
+        parallelA = ParallelMatrix(A,mpi_size)
+        u = parallelA.dot(x)
+        elapsed_time = time.time() - start_time
+        print('1 Parallel dot : Elapsed time : %f ' %elapsed_time)
+
+        print('Starting Parallel Matrix dot Multiplication 2.......')
+        start_time = time.time()
+        u = parallelA.dot(x)
+        elapsed_time = time.time() - start_time
+        print('2 Parallel dot : Elapsed time : %f ' %elapsed_time)
+
+        np.testing.assert_almost_equal(u_target,u,decimal=10)
 
 
 
@@ -171,16 +298,35 @@ if __name__=='__main__':
     size = comm.Get_size()
 
     if size==1:
+
         main()
 
+
     else:
-   # execute only if run as a script
+        print('Starting MPI parallel mode!')
+    
+        logging.basicConfig(level=logging.INFO,filename='rank_' + str(rank) + '.log')
+        
         args = []
         for s in sys.argv:
             args.append(s)    
         
-        for arg in args:
+        mpi_kwargs = {}
+        for arg in args[1:]:
             try:
-               var, value = arg.split('=')
+                var, value = arg.split('=')
+                try:
+                    mpi_kwargs[var] = int(value)
+                except:
+                    mpi_kwargs[var] = value
             except:
                 print('Commnad line argument nor understoop, arg = %s cannot be splited in variable name + value' %arg)
+        
+       
+
+        method_to_call = locals()[mpi_kwargs['method']]
+
+
+        del mpi_kwargs['method']
+        mpi_kwargs['rank'] = rank
+        method_to_call(**mpi_kwargs)

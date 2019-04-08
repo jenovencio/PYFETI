@@ -597,7 +597,7 @@ class ParallelSolverManager(SolverManager):
             u_dict[i] =  load_object(displacement_path)
             try:
                 alpha_path = os.path.join(self.temp_folder,'alpha_' + str(i) + '.pkl')
-                alpha_dict[i] =  load_object(alpha_path)
+                alpha_dict[i] =  load_object(alpha_path,tries=1,sleep_delay=0)
             except:
                 pass
             

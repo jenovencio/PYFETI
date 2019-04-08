@@ -554,9 +554,16 @@ class MapDofs():
         
         return local_map_dict
         
-def save_object(obj, filename):
-    with open(filename, 'wb') as output:
-        pickle.dump(obj, output, pickle.HIGHEST_PROTOCOL)
+def save_object(obj, filename,tries=2,sleep_delay=3 ):
+    filename = r"{}".format(filename)
+    for i in range(tries):
+        try:
+            with open(filename, 'wb') as output:
+                pickle.dump(obj, output, pickle.HIGHEST_PROTOCOL)
+                break
+        except:
+            time.sleep(sleep_delay)
+            continue
 
 def load_object(filename,tries=3,sleep_delay=5):
     ''' load a pickle object
@@ -574,6 +581,7 @@ def load_object(filename,tries=3,sleep_delay=5):
 
 
     '''
+    filename = r"{}".format(filename)
     obj = None
     for i in range(tries):
         try:

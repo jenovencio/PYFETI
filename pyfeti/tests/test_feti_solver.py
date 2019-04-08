@@ -367,16 +367,17 @@ class  Test_FETIsolver(TestCase):
         print('end Parallel FETI solver ..........\n\n')
 
     def test_parallel_solver_cases(self):
-        self.run_solver_cases(algorithm=ParallelFETIsolver)
+        solver_obj = self.run_solver_cases(algorithm=ParallelFETIsolver)
+        solver_obj.manager.delete()
 
     def test_serial_solver_cases(self):
         self.run_solver_cases(algorithm=SerialFETIsolver)
 
     def run_solver_cases(self,algorithm=SerialFETIsolver):
 
-        domin_list_x = [1,2,5] #[1,2,5,20]
-        domin_list_y = [1,2,5] #[1]
-        case_id_list = [1,2,3] #[1,2,3,4]
+        domin_list_x = [1,2,3] 
+        domin_list_y = [1,2] 
+        case_id_list = [1,2] 
         for case_id in case_id_list:
             for ny in domin_list_y:
                 for nx in domin_list_x:
@@ -392,11 +393,13 @@ class  Test_FETIsolver(TestCase):
                     print('Elapsed time : %f ' %elapsed_time)
                     u_dual,lambda_,alpha = self.postprocessing(sol_obj,solver_obj)
                     print('end %s ..........\n\n\n' %algorithm.__name__)
+
+        return solver_obj
       
     def test_compare_serial_and_parallel_solver(self):
 
         print('Starting Comparison between Serial and Parallel FETI solver ..........')
-        case_id,nx,ny = 5,2,2
+        case_id,nx,ny = 4,2,2
         print('Critial Case Selected %i ' %case_id)
         print('Number of Domain in the X-direction %i ' %nx)
         print('Number of Domain in the Y-direction %i ' %ny)

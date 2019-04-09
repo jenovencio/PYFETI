@@ -37,7 +37,29 @@ python test_feti_solver.py
 ```
 
 Almost every source file also contains unittests, so feel free to run all of them.
+PyFETI uses mpi4pi and requires the installation of some mpi distriction, see [MSMPI](https://docs.microsoft.com/en-us/message-passing-interface/microsoft-mpi),
+[IntelMPI](https://software.intel.com/en-us/mpi-library), and [OpenMPI](https://www.open-mpi.org/). Because multiple MPI implementation are supported, the user must create
+a environment variable to set MPI path that must be used in PyFETI.
 
+```{r, engine='bash', count_lines}
+export MPIDIR=/program/mpi
+```
+
+Also, you can have multiple python virtual environments, then you must set a environment variable to specify which python.exe to use:
+
+
+```{r, engine='bash', count_lines}
+export 'PYTHON_ENV'=/condaenv/pyfeti
+```
+
+Now, it is time to run python and import pyfeti modules.
+
+```{r, engine='bash', count_lines}
+python
+>>> import pyfeti
+```
+
+Have fun!
 
 # Theory behind PyFETI
 ## Solving with Dual Assembly

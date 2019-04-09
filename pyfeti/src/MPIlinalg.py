@@ -6,7 +6,7 @@ from unittest import TestCase, main
 import logging
 import time
 from mpi4py import MPI
-from utils import MPILauncher, pyfeti_dir
+from utils import MPILauncher, getattr_mpi_attributes, pyfeti_dir
 
 def get_chunks(number_of_chuncks,size):
     ''' create chuncks based on number of mpi process
@@ -79,6 +79,7 @@ class ParallelMatrix():
         parallel_vec_obj = ParallelVector(v,self.n)
 
         u = parallel_launcher(self.n,
+                         module = 'MPIlinalg',
                          method = 'parallel_matvec',
                          tmp_dir = self.tmp_dir,
                          prefix_matrix = self.prefix,
@@ -164,13 +165,13 @@ def matvec(A,v,n=2):
         parallel_vec_obj = ParallelVector(v,n)
 
         u = parallel_launcher(n,
+                         module = 'MPIlinalg',
                          method = 'parallel_matvec',
                          tmp_dir = parallel_matrix_obj.tmp_dir,
                          prefix_matrix = parallel_matrix_obj.prefix,
                          ext_matrix =  parallel_matrix_obj.ext,
                          prefix_array = parallel_vec_obj.prefix,
                          ext_array = parallel_vec_obj.ext)
-
 
     return u
 
@@ -188,7 +189,13 @@ def parallel_launcher(n=2,**kwargs):
     return y
 
 
-def parallel_matvec(tmp_dir='tmp',prefix_matrix='A_',ext_matrix= 'npz',prefix_array='v_',ext_array='npy',rank=None):
+def parallel_matvec(tmp_dir='tmp',prefix_matrix='A_',ext_matrix= 'npz',prefix_array='v_',ext_array='npy'):
+    
+    # getting mpi info
+    comm = MPI.COMM_WORLD
+    rank = comm.Get_rank()
+    size = comm.Get_size()
+
     # Define rank master
     rank_master = 0
 
@@ -217,11 +224,12 @@ def parallel_matvec(tmp_dir='tmp',prefix_matrix='A_',ext_matrix= 'npz',prefix_ar
         y = np.sum(recvbuf.T,axis=1)
         np.save(prefix_array, y)
        
+
     
 class  Test_Parallel(TestCase):
     def test_parallel_matvec(self):
 
-        n = 10000
+        n = 1000
         #x = 3*np.arange(n)
         x = np.array([1.0]*n)
         mpi_size = 2
@@ -249,15 +257,18 @@ class  Test_Parallel(TestCase):
         print('Parallel matvec : Elapsed time : %f ' %elapsed_time)
 
         np.testing.assert_almost_equal(u_target,u,decimal=10)
-
-        shutil.rmtree('tmp')
+        
+        try:
+            shutil.rmtree('tmp')
+        except:
+            pass
 
     def test_parallel_dot(self):
 
-        n = 10000
+        n = 1000
         #x = 3*np.arange(n)
         x = np.array([1.0]*n)
-        mpi_size = 4
+        mpi_size = 2
         if False:
             top = [4,-1]
             top.extend([0.0]*(n-2))
@@ -307,26 +318,4 @@ if __name__=='__main__':
     
         logging.basicConfig(level=logging.INFO,filename='rank_' + str(rank) + '.log')
         
-        args = []
-        for s in sys.argv:
-            args.append(s)    
-        
-        mpi_kwargs = {}
-        for arg in args[1:]:
-            try:
-                var, value = arg.split('=')
-                try:
-                    mpi_kwargs[var] = int(value)
-                except:
-                    mpi_kwargs[var] = value
-            except:
-                print('Commnad line argument nor understoop, arg = %s cannot be splited in variable name + value' %arg)
-        
-       
-
-        method_to_call = locals()[mpi_kwargs['method']]
-
-
-        del mpi_kwargs['method']
-        mpi_kwargs['rank'] = rank
-        method_to_call(**mpi_kwargs)
+        getattr_mpi_attributes(sys.argv)

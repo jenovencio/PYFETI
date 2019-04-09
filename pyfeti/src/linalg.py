@@ -392,11 +392,11 @@ class ProjectorOperator(LinearOperator):
     '''
     def __init__(self,A,P,dtype=np.float,shape=None):
         super().__init__(dtype=dtype,shape=shape)
-        self.A = A
-        self.P = P
+        
+        self.PAP = P.T.dot(A.dot(P))
 
     def _matvec(self,v):
-        return self.A.dot(self.P.dot(v))
+        return self.PAP.dot(v)
         
 
 

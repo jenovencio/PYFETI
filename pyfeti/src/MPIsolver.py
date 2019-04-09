@@ -16,10 +16,17 @@ import scipy
 import logging
 import time
 
-from pyfeti.src.utils import save_object, load_object, Log
+from pyfeti.src.utils import save_object, load_object, Log, getattr_mpi_attributes
 from pyfeti.src.feti_solver import CourseProblem, Solution
 from pyfeti.src import solvers
 
+
+from mpi4py import MPI
+import os
+
+comm = MPI.COMM_WORLD
+rank = comm.Get_rank()
+size = comm.Get_size()
 
 def exchange_info(local_var,sub_id,nei_id,tag_id=15,isnumpy=False):
     ''' This function exchange info (lists, dicts, arrays, etc) with the 
@@ -68,16 +75,20 @@ def exchange_global_dict(local_dict,local_id,partitions_list):
 
 
 class ParallelSolver():
-    def __init__(self,obj_id, local_problem, n_int=500, pinv_tolerance=1.0E-8):
+    def __init__(self,obj_id, local_problem, n_int=500, pinv_tolerance=1.0E-8, **kwargs):
         
+
+        self.obj_id = obj_id
+        self.local_problem = local_problem
+
         self.residual = []
         self.lampda_im = []
         self.lampda_ker = []
-        self.local_problem = local_problem
+        
         self.course_problem = CourseProblem(obj_id)
         self.n_int = n_int
         self.pinv_tolerance = pinv_tolerance
-        self.obj_id = obj_id
+        
         self.local2global_lambda_dofs = {}
         self.global2local_lambda_dofs = {}
         self.local2global_alpha_dofs = {}
@@ -411,48 +422,68 @@ class ParallelSolver():
         return u_dict, lambda_dict, alpha_dict 
 
 
-if __name__ == "__main__":
+def launch_ParallelSolver(rank, tmp_folder='temp' ,  prefix='local_problem_', ext='.pkl',**kwargs):
 
-    # importing mpy4py
-    from mpi4py import MPI
-    import os
 
-    comm = MPI.COMM_WORLD
-    rank = comm.Get_rank()
-    size = comm.Get_size()
-    
-    # execute only if run as a script
-    args = []
-    for s in sys.argv:
-        args.append(s)    
-        
-    # load FEA case
-    obj_name = args[1]
-    obj_ext = args[2]
     obj_id = rank + 1
-    case_path = obj_name + str(obj_id) + obj_ext
-    
-    if True:
-        logging.basicConfig(level=logging.INFO,filename='rank_' + str(rank) + '.log')
-    
-    logging.info('########################################')
-    logging.info('Local problem ID = %s' %obj_id)
-    logging.info('Directory pass to MPI solver = %s' %os.getcwd())
-    logging.info('Local object name passed to MPI solver = %s' %case_path)
-    localtime = localtime = time.asctime( time.localtime(time.time()) )
-    start_time = time.time()
-    logging.info('Time at start: %s' %localtime)
-    logging.info('########################################')
-    
-    local_problem = load_object(case_path)
+    case_path = prefix + str(obj_id) + ext
 
-    
+    logging.info('Local problem ID = %s' %obj_id)
+    logging.info('Local object name passed to MPI solver = %s' %case_path)
+
+    local_problem = load_object(case_path)
+    logging.info(('local_problem obj = ', local_problem))
     parsolver = ParallelSolver(obj_id,local_problem)
     u_i = parsolver.mpi_solver()
+    return u_i
+
+
+if __name__ == "__main__":
+
+    
+    
+    system_argument = sys.argv
+
+    if  len(system_argument)>1:
+        mpi_kwargs = {}
+        for arg in system_argument:
+            try:
+                var, value = arg.split('=')
+                try:
+                    mpi_kwargs[var] = int(value)
+                except:
+                    mpi_kwargs[var] = value
+            except:
+                logging.debug('Commnad line argument noy understood, arg = %s cannot be splited in variable name + value' %arg)
+                pass
+
+
+        logging.basicConfig(level=logging.INFO,filename='rank_' + str(rank) + '.log')
+
+        logging.info('########################################')
+        logging.info('MPI rank %i' %rank)
+        logging.info('Directory pass to MPI solver = %s' %os.getcwd())
+        localtime = localtime = time.asctime( time.localtime(time.time()) )
+        start_time = time.time()
+        logging.info('Time at start: %s' %localtime)
+        logging.info('########################################')
     
 
+            
 
-    localtime = localtime = time.asctime( time.localtime(time.time()) )
-    logging.info('Time at end: %s' %localtime)
-    elapsed_time = time.time() - start_time
-    logging.info('Elapsed time in seconds : %f' %elapsed_time)
+        obj_id = rank + 1
+        case_path = mpi_kwargs['prefix'] + str(obj_id) + mpi_kwargs['ext']
+        logging.info('Local object name passed to MPI solver = %s' %case_path)
+    
+        local_problem = load_object(case_path)
+        parsolver = ParallelSolver(obj_id,local_problem)
+        u_i = parsolver.mpi_solver()
+
+        localtime = localtime = time.asctime( time.localtime(time.time()) )
+        logging.info('Time at end: %s' %localtime)
+        elapsed_time = time.time() - start_time
+        logging.info('Elapsed time in seconds : %f' %elapsed_time)
+        logging.info('########################################')
+    else:
+        print('\n WARNING. No system argument were passed to the MPIsolver. Nothing to do! n')
+        pass

@@ -368,7 +368,10 @@ class  Test_FETIsolver(TestCase):
 
     def test_parallel_solver_cases(self):
         solver_obj = self.run_solver_cases(algorithm=ParallelFETIsolver)
-        solver_obj.manager.delete()
+        try:
+            solver_obj.manager.delete()
+        except:
+            print('Could not delete parallel temp folder!')
 
     def test_serial_solver_cases(self):
         self.run_solver_cases(algorithm=SerialFETIsolver)
@@ -399,7 +402,7 @@ class  Test_FETIsolver(TestCase):
     def test_compare_serial_and_parallel_solver(self):
 
         print('Starting Comparison between Serial and Parallel FETI solver ..........')
-        case_id,nx,ny = 4,2,2
+        case_id,nx,ny = 1,2,1
         print('Critial Case Selected %i ' %case_id)
         print('Number of Domain in the X-direction %i ' %nx)
         print('Number of Domain in the Y-direction %i ' %ny)

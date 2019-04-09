@@ -13,7 +13,7 @@ import subprocess
 import shutil
 
 sys.path.append('../..')
-from pyfeti.src.utils import OrderedSet, Get_dofs, save_object, load_object, pyfeti_dir
+from pyfeti.src.utils import OrderedSet, Get_dofs, save_object, load_object, pyfeti_dir, MPILauncher
 from pyfeti.src.linalg import Matrix, Vector, elimination_matrix_from_map_dofs, \
                               expansion_matrix_from_map_dofs, ProjLinearSys, ProjPrecondLinearSys
 from pyfeti.src import solvers
@@ -551,42 +551,18 @@ class ParallelSolverManager(SolverManager):
             save_object(self.local_problem_dict[key] , local_path)
 
     def launch_mpi_process(self):
-        python_solver_file = pyfeti_dir(r'src\MPIsolver.py')
+        python_file = pyfeti_dir(r'src\MPIsolver.py')
         run_file_path = 'run_mpi_solver.bat'
 
-        logging.info('######################################################################')
-        logging.info('###################### SOLVER INFO ###################################')
-        logging.info('MPI exec path = %s' %mpi_exec )
-        logging.info('Python exec path = %s' %python_exec )
+        mpi_obj = MPILauncher(python_file,
+                              mpi_size=self.num_partitions,
+                              module = 'MPIsolver',
+                              method = 'launch_ParallelSolver',
+                              tmp_folder=self.temp_folder ,
+                              prefix = self.prefix, 
+                              ext = self.ext)
+        mpi_obj.run()
 
-        command = '"' + mpi_exec + '" -l -n ' + str(self.num_partitions) + ' "' + python_exec + '"  "' + \
-                  python_solver_file + '"  "' + self.prefix + '"  "' + self.ext + '"'
-        
-        # export results to a log file called amfeti_solver.log
-        if self.log:
-            command += '>pyfeti_solver.log'
-        
-       
-
-        # writing bat file with the command line
-        local_folder = os.getcwd()
-        os.chdir(self.temp_folder)
-        run_file = open(run_file_path,'w')
-        run_file.write(command)
-        run_file.close()
-
-        logging.info('Run directory = %s' %os.getcwd())
-        logging.info('######################################################################')
-
-        # executing bat file
-        try:    
-            subprocess.call(run_file_path)
-            os.chdir(local_folder)
-            
-        except:
-            os.chdir(local_folder)
-            logging.error('Error during the simulation.')
-            return None
 
     def read_results(self):
         solution_path = os.path.join(self.temp_folder,'solution.pkl')

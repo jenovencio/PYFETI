@@ -1,7 +1,4 @@
-
-<script type="text/javascript" async src="//cdn.bootcss.com/mathjax/2.7.0/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
-<script type="text/javascript" async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.1/MathJax.js?config=TeX-MML-AM_CHTML"></script>
-
+<script src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML" type="text/javascript"></script>
 
 # PYFETI
 PYFETI is a standalone Python Library to solve and implemented parallel FETI-Like solvers using mpi4py.
@@ -12,6 +9,34 @@ PYFETI is a standalone Python Library to solve and implemented parallel FETI-Lik
 * MPI4Py
 * Dill
 * Pandas
+* Matplotlib
+
+# Installing PyFETI
+Before installing PyFETI we stronly recommend the use of [ANACONDA](https://www.anaconda.com/distribution/) and [git](https://git-scm.com/downloads).
+PyFETI is suppose to work in both Windows and Linux system, but is not fully supported, so please let us know with you are facing any problem.
+
+# Linux installation
+```{r, engine='bash', count_lines}
+mkdir PYFETI
+cd PYFETI
+git init 
+git clone https://username@bitbucket.org/teamsinspace/documentation-tests.git
+```
+
+The command above should copy the remote files to your local system. Now, we must activate the Anaconda virtual environment and install PyFETI.
+
+```{r, engine='bash', count_lines}
+source activate $you virtual env$
+python setup.py install
+```
+
+If you install PyFETI, you should run all unittest to make sure everything is properly working.
+```{r, engine='bash', count_lines}
+cd pyfeti/src/tests
+python test_feti_solver.py
+```
+
+Almost every source file also contains unittests, so feel free to run all of them.
 
 
 # Theory behind PyFETI

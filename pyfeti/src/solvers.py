@@ -173,7 +173,8 @@ def pminres(F_action,residual,Projection_action=None,lambda_init=None,
             
         #F = F_action
         F = sparse.linalg.LinearOperator((interface_size,interface_size), matvec=F_action)
-        P = sparse.linalg.LinearOperator((interface_size,interface_size), matvec=P)
+        P = sparse.linalg.LinearOperator((interface_size,interface_size), matvec=P, rmatvec = P)
+
         PF= ProjectorOperator(F,P,shape=(interface_size,interface_size))
         b = residual - F.dot(lampda_pcpg)
         #lampda_pcpg, info = sparse.linalg.minres(PF,b,x0=lampda_pcpg,tol=tolerance,maxiter=max_int,show=False,check=False)

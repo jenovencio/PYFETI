@@ -63,7 +63,7 @@ class MPILauncher():
     def run(self):
         platform = get_platform()
         if platform=='Windows':
-            self.run_windowns()
+            self.run_windows()
         elif platform=='Linux':
             self.run_linux()
 

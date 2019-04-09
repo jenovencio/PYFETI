@@ -15,6 +15,7 @@
 *.npy
 *.pdf
 *.dat
+*.npz
 
 # Folders to ignore
 contpy.egg-info
@@ -26,5 +27,6 @@ private/
 .idea/
 .spyproject/
 .vs/
+.vscode
 __pycache__/
 .egg-info

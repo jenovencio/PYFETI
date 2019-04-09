@@ -378,7 +378,7 @@ class  Test_FETIsolver(TestCase):
 
     def run_solver_cases(self,algorithm=SerialFETIsolver):
 
-        domin_list_x = [1,2,3] 
+        domin_list_x = [1,2,] 
         domin_list_y = [1,2] 
         case_id_list = [1,2] 
         for case_id in case_id_list:

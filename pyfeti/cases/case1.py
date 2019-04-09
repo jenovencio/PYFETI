@@ -2,7 +2,7 @@ import sys
 import os
 
 sys.path.append('../..')
-cases_folder = '\\'.join(os.path.abspath(__file__).split('\\')[:-1])
+cases_folder = os.path.dirname(os.path.realpath(__file__))
 casefiles_folder = os.path.join(cases_folder, 'case1files')
 sys.path.append(cases_folder)
 sys.path.append(casefiles_folder)

@@ -551,8 +551,7 @@ class ParallelSolverManager(SolverManager):
             save_object(self.local_problem_dict[key] , local_path)
 
     def launch_mpi_process(self):
-        python_file = pyfeti_dir(r'src\MPIsolver.py')
-        run_file_path = 'run_mpi_solver.bat'
+        python_file = pyfeti_dir(os.path.join('src','MPIsolver.py'))
 
         mpi_obj = MPILauncher(python_file,
                               mpi_size=self.num_partitions,

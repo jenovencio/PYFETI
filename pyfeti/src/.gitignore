@@ -23,6 +23,7 @@ docs/_build
 results/
 build/
 tmp/
+temp/
 dist/
 private/
 .idea/

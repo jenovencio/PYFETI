@@ -177,7 +177,7 @@ def matvec(A,v,n=2):
 
 def parallel_launcher(n=2,**kwargs):
     # execute only if run as a script
-    python_file = pyfeti_dir(r'src\MPIlinalg.py')
+    python_file = pyfeti_dir(os.path.join('src','MPIlinalg.py'))
     mpi_size = n
     
     mip_obj = MPILauncher(python_file,mpi_size,**kwargs)

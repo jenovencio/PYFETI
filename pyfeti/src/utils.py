@@ -61,7 +61,6 @@ class MPILauncher():
             self.tmp_folder = 'tmp'
 
     def run(self):
-
         platform = get_platform()
         if platform=='Windows':
             self.run_windowns()
@@ -69,54 +68,95 @@ class MPILauncher():
             self.run_linux()
 
     def run_linux(self):
-        run_file_path = 'run_mpi.sh'
-        print('Not tested')
+        os_script_name= 'run_mpi.sh'
+        header_string = '#!/bin/sh'
+        mpi_command = self.create_command_string(mpi_args='')
+        self.run_os(os_script_name,mpi_command,header_string)
 
-    def create_command_string(self,python_file,mpi_size,**kwargs):
+    def run_windows(self):
+        os_script_name = 'run_mpi.bat'
+        header_string = 'rem Windows bat file'
+        mpi_command = self.create_command_string(mpi_args='-l')
+        self.run_os(os_script_name,mpi_command,header_string)
+    
+    def create_command_string(self,mpi_args=''):
+        ''' Create the command line to call mpi
+            Parameters:
+            --------
+                python_file : str
+                    string of python script to be called by mpiexec
+                mpi_args : string
+                    extra command to be passed by the mpi
 
-        command = '"' + mpi_exec + '" -l -n ' + str(self.mpi_size) + ' "' + python_exec + '"  "' + \
-                python_file + '"'
+                kwargs : dict 
+                    extra parameters for the python script
+            
+            Returns :
+                command string
+
+        '''
+        command_list = ['"' + mpi_exec + '"',
+                        mpi_args,
+                        '-n',
+                        str(self.mpi_size),
+                        '"' + python_exec + '"',
+                        '"' + self.python_file + '"']
+
+        command = ' '.join(command_list)
          
         for key, value in self.kwargs.items():
             command += '  "' + str(key) + '=' + str(value) +  '" '
         return command
 
-    def run_windowns(self):
+    def run_os(self,os_script_name,mpi_command,header_string=''):
+        ''' This function creates a OS script and
+        run it. It is a common interface for every OS.
+        
+        Parameters:
 
-        run_file_path = 'run_mpi.bat'
+            mpi_command : str
+                mpi command depending on the OS
+            header_string : str
+                header of the OS script file
+
+        Returns 
+            None                
+        '''
+        
         logging.info('######################################################################')
         logging.info('###################### SOLVER INFO ###################################')
         logging.info('MPI exec path = %s' %mpi_exec )
         logging.info('Python exec path = %s' %python_exec )
 
-        
-        command = self.create_command_string(self.python_file,self.mpi_size,**self.kwargs)
+        command = header_string + '\n'
+        command += mpi_command
 
         # export results to a log file called amfeti_solver.log
         if self.log:
             command += '>mpi.log'
         
-       
-
         # writing bat file with the command line
         local_folder = os.getcwd()
         os.chdir(self.tmp_folder)
-        run_file = open(run_file_path,'w')
-        run_file.write(command)
-        run_file.close()
-
+        with open(os_script_name,'w+') as run_file:
+            run_file.write(command)
+        
         logging.info('Run directory = %s' %os.getcwd())
         logging.info('######################################################################')
 
         # executing bat file
         try:    
-            subprocess.call(run_file_path)
+            #subprocess.call(os_script_name,shell=True)
+            full_path = os.path.join(os.getcwd(),os_script_name)
+            os.chmod(full_path, 0o777)
+            subprocess.call(full_path,shell=True)
             os.chdir(local_folder)
             
         except:
             os.chdir(local_folder)
             logging.error('Error during the simulation.')
-            return None
+
+        return None
 
     def remove_folder(self):
         try:
@@ -1075,7 +1115,7 @@ for s in sys.argv:
 [0]pseudoinverse=SuperLU'''
 
         string_list = target_string.split('\n')
-        with open(r'tmp\mpi.log','r') as f:
+        with open(os.path.join('tmp','mpi.log'),'r') as f:
             txt_string = f.readlines()
 
             

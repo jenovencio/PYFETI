@@ -286,6 +286,10 @@ class ParallelSolver():
         self.lambda_size = dof_lambda_init
         self.alpha_size = dof_alpha_init
         self.primal_size = dof_primal_init
+
+        logging.info('Interface size : %i' %self.lambda_size)
+        logging.info('Primal variable size : %i' %self.primal_size)
+        logging.info('Course problem size : %i' %self.alpha_size)
             
     def assemble_GGT(self):
         try:

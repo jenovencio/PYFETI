@@ -977,6 +977,8 @@ class Matrix():
         
         if isinstance(dof_ids,str):
             dofs = list(self.key_dict[dof_ids])
+        elif isinstance(dof_ids,int):
+            dofs = list(self.key_dict[dof_ids])
         else:
             dofs = list(dof_ids)
         

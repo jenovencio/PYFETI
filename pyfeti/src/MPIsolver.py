@@ -24,9 +24,6 @@ from pyfeti.src import solvers
 from mpi4py import MPI
 import os
 
-comm = MPI.COMM_WORLD
-rank = comm.Get_rank()
-size = comm.Get_size()
 
 def exchange_info(local_var,sub_id,nei_id,tag_id=15,isnumpy=False):
     ''' This function exchange info (lists, dicts, arrays, etc) with the 
@@ -175,6 +172,8 @@ class ParallelSolver():
 
         u_dict, lambda_dict, alpha_dict = self.assemble_solution_dict(lambda_sol,alpha_sol)
         
+        # Serialization the results, Displacement and alpha
+        start_time = time.time()
         # serializing displacement
         save_object(u_dict[self.obj_id],'displacement_' + str(self.obj_id) + '.pkl')
 
@@ -183,6 +182,8 @@ class ParallelSolver():
             save_object(alpha_dict [self.obj_id],'alpha_' + str(self.obj_id) + '.pkl')
         except:
             pass
+        elapsed_time = time.time() - start_time
+        logging.info('Parallel Solver : Elapsed time for serializing outputs : %f.' %elapsed_time)
 
         if self.obj_id == 1:
             sol_obj = Solution({}, lambda_dict, {}, rk, proj_r_hist, lambda_hist, lambda_map=self.local2global_lambda_dofs,
@@ -440,6 +441,11 @@ def launch_ParallelSolver(rank, tmp_folder='temp' ,  prefix='local_problem_', ex
 
 if __name__ == "__main__":
 
+    comm = MPI.COMM_WORLD
+    rank = comm.Get_rank()
+    size = comm.Get_size()
+
+    logging.basicConfig(level=logging.INFO,filename='rank_' + str(rank) + '.txt')
     
     
     system_argument = sys.argv
@@ -457,9 +463,9 @@ if __name__ == "__main__":
                 logging.debug('Commnad line argument noy understood, arg = %s cannot be splited in variable name + value' %arg)
                 pass
 
+        logging.basicConfig(level=logging.INFO,filename='rank_' + str(rank) + '.txt')
 
-        logging.basicConfig(level=logging.INFO,filename='rank_' + str(rank) + '.log')
-
+        
         logging.info('########################################')
         logging.info('MPI rank %i' %rank)
         logging.info('Directory pass to MPI solver = %s' %os.getcwd())

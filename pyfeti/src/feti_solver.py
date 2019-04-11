@@ -105,8 +105,11 @@ class SolverManager():
         self.pseudoinverse_kargs = pseudoinverse_kargs
         self.dual_interface_algorithm = dual_interface_algorithm
         self.is_local_G_GGT_and_e_computed = False
+
+        start_time = time.time()
         self._create_local_problems(K_dict,B_dict,f_dict)
-        
+        elapsed_time = time.time() - start_time
+        logging.info('Elaspsed time to create local problems : %4.5e' %elapsed_time)
 
 
     @property
@@ -553,6 +556,7 @@ class ParallelSolverManager(SolverManager):
     def launch_mpi_process(self):
         python_file = pyfeti_dir(os.path.join('src','MPIsolver.py'))
 
+        start_time = time.time()
         mpi_obj = MPILauncher(python_file,
                               mpi_size=self.num_partitions,
                               module = 'MPIsolver',
@@ -560,10 +564,17 @@ class ParallelSolverManager(SolverManager):
                               tmp_folder=self.temp_folder ,
                               prefix = self.prefix, 
                               ext = self.ext)
-        mpi_obj.run()
+        
+        elapsed_time = time.time() - start_time
+        logging.info('Elaspsed time to create mpi launcher : %f' %elapsed_time)
 
+        start_time = time.time()
+        mpi_obj.run()
+        elapsed_time = time.time() - start_time
+        logging.info('Elaspsed time to run mpi : %f' %elapsed_time)
 
     def read_results(self):
+        start_time = time.time()
         solution_path = os.path.join(self.temp_folder,'solution.pkl')
         u_dict = {}
         alpha_dict = {}
@@ -581,6 +592,9 @@ class ParallelSolverManager(SolverManager):
         sol_obj = load_object(solution_path)
         sol_obj.u_dict = u_dict
         sol_obj.alpha_dict = alpha_dict
+
+        elapsed_time = time.time() - start_time
+        logging.info('Elaspsed time to load solutions of each mpi rank : %f' %elapsed_time)
         return sol_obj
 
     def delete(self):
@@ -594,6 +608,7 @@ class ParallelFETIsolver(FETIsolver):
         self.delete_folder = delete_folder
 
     def solve(self):
+        logging.info('')
         manager = self.manager        
         manager.launch_mpi_process()
         sol_obj = manager.read_results()

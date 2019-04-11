@@ -3,9 +3,8 @@ import collections
 import os
 import matplotlib.pyplot as plt
 import shutil
-import amfe
 from pyfeti import utils
-from pyfeti.src.utils import OrderedSet, Get_dofs, save_object, dict2dfmap
+from pyfeti.src.utils import OrderedSet, Get_dofs, save_object, dict2dfmap, sysargs2keydict
 from pyfeti import linalg
 from pyfeti import case_generator
 from pyfeti.src.feti_solver import ParallelFETIsolver
@@ -103,39 +102,82 @@ def create_case(number_of_div = 3, number_of_div_y=None, case_id=1):
 
 
 if __name__ == '__main__':
+    help_doc = ''' 
+            This python script runs a scalility test based on ParallelFETIsolver
+            implemented in PyFETI
+
+            for more information visit: [https://github.com/jenovencio/PYFETI]
+
+
+            Script options
+            max_mpi_size : Maximum number of mpi process in the scalability test
+            divY : Number of division in the Y direction
+            divX : Number of local division in the X direction
+
+            command call
+            python  create_test_case.py max_mpi_size=10 divY=10 divX=10
+            '''
+
+    import sys
+
     log_level = logging.INFO
-    
 
-    max_mpi_size = 10
-    number_of_div_y = 10
-    local_div_x = 10
-    mpi_size = 1
-    
-    for mpi_size in range(1,5):
-        max_div_x = local_div_x*max_mpi_size
-        domains_x = mpi_size
-        domains_y = 1
-        number_of_div_x = int(max_div_x/domains_x)
+    if '-h' in sys.argv:
+        print(help_doc)
+        exit(0)
+    else:
 
-        script_folder = os.path.join(os.path.dirname(__file__),str(mpi_size),'tmp')
-        logging.basicConfig(level=log_level ,filename='master.log')
-        K, f, B_dict, s = create_case(number_of_div = number_of_div_x, number_of_div_y=number_of_div_y , case_id=mpi_size)
-        ndof = K.shape[0]
-        case_obj = case_generator.FETIcase_builder(domains_x,domains_y, K, f, B_dict, s)
-        K_dict, B_dict, f_dict = case_obj.build_subdomain_matrices()
-        logging.info('#################################################')
-        logging.info('Starting Parallel FETI solver ..........')
-        logging.info('MPI size = %i' %mpi_size)
-        logging.info('Local Stiffness matrix size = (%i,%i)' %(ndof,ndof) )
-        logging.info('Domains in x direction = %i' %domains_x)
-        logging.info('Domains in y direction = %i' %domains_y)
-        logging.info('Number of local divisions in x %i' %number_of_div_x)
-        logging.info('Number of local divisions in y %i' %number_of_div_y)
+        import amfe
+        keydict = sysargs2keydict(sys.argv)
+        for key, value in keydict.items():
+            print('%s = %i' %(key,value))
 
-        solver_obj = ParallelFETIsolver(K_dict,B_dict,f_dict,temp_folder=script_folder)
-        start_time = time.time()
-        sol_obj = solver_obj.solve()
-        elapsed_time = time.time() - start_time
-        logging.info('Parallel Solver : Elapsed time : %f.' %elapsed_time)
-        os.system('rm -r ./ '+ str(mpi_size) + '/tmp/*.pkl')
-        logging.info('################################################# \n\n')
+        
+        #variables
+        try:
+            max_mpi_size = keydict['max_mpi_size']
+        except:
+            max_mpi_size = 5
+            print('Set max_mpi_size = %i' %max_mpi_size)
+
+        try:
+            number_of_div_y = keydict['divY']
+        except:
+            number_of_div_y = 5
+            print('Set divY = %i' %number_of_div_y)
+
+        try:
+            local_div_x = keydict['divX']
+        except:
+            local_div_x = 5
+            print('Set divX = %i' %local_div_x )
+
+        
+        for mpi_size in range(1,max_mpi_size+1):
+            max_div_x = local_div_x*max_mpi_size
+            domains_x = mpi_size
+            domains_y = 1
+            number_of_div_x = int(max_div_x/domains_x)
+
+            script_folder = os.path.join(os.path.dirname(__file__),str(mpi_size),'tmp')
+            logging.basicConfig(level=log_level ,filename='master.log')
+            K, f, B_dict, s = create_case(number_of_div = number_of_div_x, number_of_div_y=number_of_div_y , case_id=mpi_size)
+            ndof = K.shape[0]
+            case_obj = case_generator.FETIcase_builder(domains_x,domains_y, K, f, B_dict, s)
+            K_dict, B_dict, f_dict = case_obj.build_subdomain_matrices()
+            logging.info('#################################################')
+            logging.info('Starting Parallel FETI solver ..........')
+            logging.info('MPI size = %i' %mpi_size)
+            logging.info('Local Stiffness matrix size = (%i,%i)' %(ndof,ndof) )
+            logging.info('Domains in x direction = %i' %domains_x)
+            logging.info('Domains in y direction = %i' %domains_y)
+            logging.info('Number of local divisions in x %i' %number_of_div_x)
+            logging.info('Number of local divisions in y %i' %number_of_div_y)
+
+            solver_obj = ParallelFETIsolver(K_dict,B_dict,f_dict,temp_folder=script_folder)
+            start_time = time.time()
+            sol_obj = solver_obj.solve()
+            elapsed_time = time.time() - start_time
+            logging.info('Parallel Solver : Elapsed time : %f.' %elapsed_time)
+            os.system('rm -r ./ '+ str(mpi_size) + '/tmp/*.pkl')
+            logging.info('################################################# \n\n')

@@ -76,7 +76,7 @@ class FETIcase_builder():
                 global_id = self.two2one_map((i,j))
                 if i==0:
                     #apply dirichelt B.C
-                    K_dir_obj = Matrix(K.todense(),self.s.selection_dict)
+                    K_dir_obj = Matrix(K,self.s.selection_dict)
                     try:
                         K = sparse.csr_matrix(K_dir_obj.eliminate_by_identity('left'))
                     except:

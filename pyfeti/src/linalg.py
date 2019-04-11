@@ -917,8 +917,8 @@ class Matrix():
     
     @property 
     def trace(self):
-        return np.trace(self.data)
-    
+        return self.data.diagonal().sum()
+         
     @property 
     def det(self):
         return np.linalg.det(self.data)

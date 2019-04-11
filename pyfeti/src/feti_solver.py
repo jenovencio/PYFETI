@@ -109,7 +109,7 @@ class SolverManager():
         start_time = time.time()
         self._create_local_problems(K_dict,B_dict,f_dict)
         elapsed_time = time.time() - start_time
-        logging.info('Elaspsed time to create local problems : %4.5e' %elapsed_time)
+        logging.info('T -> Elaspsed time : {"create_local_problems" : %4.5e}' %elapsed_time)
 
 
     @property
@@ -566,12 +566,12 @@ class ParallelSolverManager(SolverManager):
                               ext = self.ext)
         
         elapsed_time = time.time() - start_time
-        logging.info('Elaspsed time to create mpi launcher : %f' %elapsed_time)
+        logging.info('T -> Elaspsed time : {"mpi_launcher" : %f}' %elapsed_time)
 
         start_time = time.time()
         mpi_obj.run()
         elapsed_time = time.time() - start_time
-        logging.info('Elaspsed time to run mpi : %f' %elapsed_time)
+        logging.info('T -> Elaspsed time : {"mpi_run" : %f}' %elapsed_time)
 
     def read_results(self):
         start_time = time.time()
@@ -588,13 +588,12 @@ class ParallelSolverManager(SolverManager):
                 pass
             
             
-
         sol_obj = load_object(solution_path)
         sol_obj.u_dict = u_dict
         sol_obj.alpha_dict = alpha_dict
 
         elapsed_time = time.time() - start_time
-        logging.info('Elaspsed time to load solutions of each mpi rank : %f' %elapsed_time)
+        logging.info('T -> Elaspsed time : { "load_results": %f}' %elapsed_time)
         return sol_obj
 
     def delete(self):
@@ -851,7 +850,7 @@ class CourseProblem():
 
 class Solution():
     def __init__(self,u_dict, lambda_dict, alpha_dict,rk=None, proj_r_hist=None, lambda_hist=None, 
-                 lambda_map=None,alpha_map=None,u_map=None,lambda_size=None,alpha_size=None):
+                 lambda_map=None,alpha_map=None,u_map=None,lambda_size=None,alpha_size=None,**kwargs):
         
         self.lambda_dict=lambda_dict 
         self.alpha_dict=alpha_dict
@@ -866,6 +865,7 @@ class Solution():
         self._rebuild_lambda_map()
         self.domain_list = None
         self.u_dict = u_dict
+        self.__dict__.update(kwargs)
 
     @property
     def u_dict(self):

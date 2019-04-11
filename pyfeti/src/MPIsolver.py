@@ -143,6 +143,8 @@ class ParallelSolver():
     def mpi_solver(self):
         ''' solve linear FETI problem with PCGP with partial reorthogonalization
         '''
+
+        start_time = time.time()
         self.assemble_local_G_GGT_and_e()
         G_dict = exchange_global_dict(self.course_problem.G_dict,self.obj_id,self.partitions_list)
         e_dict = exchange_global_dict(self.course_problem.e_dict,self.obj_id,self.partitions_list)
@@ -153,22 +155,23 @@ class ParallelSolver():
 
         self.assemble_cross_GGT()
         self.GGT_dict = self.course_problem.GGT_dict
-        logging.debug(('Before GGT_dict = ', self.GGT_dict))
         
         GGT_dict = exchange_global_dict(self.GGT_dict,self.obj_id,self.partitions_list)
-        logging.debug(('After GGT_dict = ', self.GGT_dict))
         self.course_problem.GGT_dict = GGT_dict
-        
         
         self.build_local_to_global_mapping()
         
+        build_local_matrix_time = time.time() - start_time
+
         
         GGT = self.assemble_GGT()
         logging.debug(('GGT = ', GGT))
         G = self.assemble_G()
         e = self.assemble_e()
         
+        start_time = time.time()
         lambda_sol,alpha_sol, rk, proj_r_hist, lambda_hist = self.solve_dual_interface_problem()
+        elaspsed_time_PCPG = time.time() - start_time
 
         u_dict, lambda_dict, alpha_dict = self.assemble_solution_dict(lambda_sol,alpha_sol)
         
@@ -183,12 +186,13 @@ class ParallelSolver():
         except:
             pass
         elapsed_time = time.time() - start_time
-        logging.info('Parallel Solver : Elapsed time for serializing outputs : %f.' %elapsed_time)
+        logging.info('T -> Elapsed time : Parallel Solver :  {save_output : %f}' %elapsed_time)
 
         if self.obj_id == 1:
             sol_obj = Solution({}, lambda_dict, {}, rk, proj_r_hist, lambda_hist, lambda_map=self.local2global_lambda_dofs,
                                 alpha_map=self.local2global_alpha_dofs, u_map=self.local2global_primal_dofs,lambda_size=self.lambda_size,
-                                alpha_size=self.alpha_size)
+                                alpha_size=self.alpha_size,solver_time=elapsed_time, 
+                                local_matrix_time = build_local_matrix_time, time_PCPG = elaspsed_time_PCPG)
             save_object(sol_obj,'solution.pkl')
         
     def assemble_local_G_GGT_and_e(self):
@@ -287,9 +291,6 @@ class ParallelSolver():
         self.alpha_size = dof_alpha_init
         self.primal_size = dof_primal_init
 
-        logging.info('Interface size : %i' %self.lambda_size)
-        logging.info('Primal variable size : %i' %self.primal_size)
-        logging.info('Course problem size : %i' %self.alpha_size)
             
     def assemble_GGT(self):
         try:
@@ -451,7 +452,7 @@ if __name__ == "__main__":
 
     logging.basicConfig(level=logging.INFO,filename='rank_' + str(rank) + '.txt')
     
-    
+    header ='###################################################################'
     system_argument = sys.argv
 
     if  len(system_argument)>1:
@@ -470,16 +471,14 @@ if __name__ == "__main__":
         logging.basicConfig(level=logging.INFO,filename='rank_' + str(rank) + '.txt')
 
         
-        logging.info('########################################')
+        logging.info(header)
         logging.info('MPI rank %i' %rank)
         logging.info('Directory pass to MPI solver = %s' %os.getcwd())
         localtime = localtime = time.asctime( time.localtime(time.time()) )
         start_time = time.time()
         logging.info('Time at start: %s' %localtime)
-        logging.info('########################################')
+        logging.info(header)
     
-
-            
 
         obj_id = rank + 1
         case_path = mpi_kwargs['prefix'] + str(obj_id) + mpi_kwargs['ext']
@@ -492,8 +491,8 @@ if __name__ == "__main__":
         localtime = localtime = time.asctime( time.localtime(time.time()) )
         logging.info('Time at end: %s' %localtime)
         elapsed_time = time.time() - start_time
-        logging.info('Elapsed time in seconds : %f' %elapsed_time)
-        logging.info('########################################')
+        logging.info('T -> Elapsed time in seconds : %f' %elapsed_time)
+        logging.info(header)
     else:
         print('\n WARNING. No system argument were passed to the MPIsolver. Nothing to do! n')
         pass

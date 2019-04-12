@@ -188,11 +188,13 @@ class ParallelSolver():
         elapsed_time = time.time() - start_time
         logging.info('T -> Elapsed time : Parallel Solver :  {save_output : %f}' %elapsed_time)
 
+
         if self.obj_id == 1:
             sol_obj = Solution({}, lambda_dict, {}, rk, proj_r_hist, lambda_hist, lambda_map=self.local2global_lambda_dofs,
                                 alpha_map=self.local2global_alpha_dofs, u_map=self.local2global_primal_dofs,lambda_size=self.lambda_size,
-                                alpha_size=self.alpha_size,solver_time=elapsed_time, 
+                                alpha_size=self.alpha_size,solver_time=elapsed_time,
                                 local_matrix_time = build_local_matrix_time, time_PCPG = elaspsed_time_PCPG)
+
             save_object(sol_obj,'solution.pkl')
         
     def assemble_local_G_GGT_and_e(self):

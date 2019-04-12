@@ -110,12 +110,16 @@ if __name__ == '__main__':
 
 
             Script options
-            max_mpi_size : Maximum number of mpi process in the scalability test
-            divY : Number of division in the Y direction
-            divX : Number of local division in the X direction
+            max_mpi_size : Maximum number of mpi process in the scalability test, Default = 5
+            min_mpi_size : Minimum number of mpi process in the scalability test, Default = 1
+            mpi_step : Step of MPI process to be tested, Default = 1
+            divY : Number of division in the Y direction, Default = 5
+            divX : Number of local division in the X direction, Default = 5
 
-            command call
-            python  create_test_case.py max_mpi_size=10 divY=10 divX=10
+            
+
+            example of command call:
+            > python  create_test_case.py max_mpi_size=10 divY=10 divX=10
             '''
 
 
@@ -138,7 +142,8 @@ if __name__ == '__main__':
         log_level = logging.INFO
         date_str = datetime.now().strftime('%Y_%m_%d_%H_%M')
         logging.basicConfig(level=log_level ,filename='master_' + date_str  + '.log')
-        logging.info(datetime.now().strftime('%Y %m %d %H %M %S'))
+        logging.info('############ SCALABILITY TEST ##############')
+        logging.info(datetime.now().strftime('%Y-%m-%d  %H:%M:%S'))
         
 
         
@@ -161,8 +166,19 @@ if __name__ == '__main__':
             local_div_x = 5
         print('Set divX = %i' %local_div_x )
         
+        try:
+            min_mpi_size = keydict['min_mpi_size']
+        except:
+            min_mpi_size = 1
+        print('Set min_mpi_size = %i' %min_mpi_size )
 
-        for mpi_size in range(1,max_mpi_size+1):
+        try:
+            mpi_step = keydict['mpi_step']
+        except:
+            mpi_step = 1
+        print('Set mpi_step = %i' %mpi_step )
+
+        for mpi_size in range(min_mpi_size,max_mpi_size+1,mpi_step):
             max_div_x = local_div_x*max_mpi_size
             domains_x = mpi_size
             domains_y = 1
@@ -192,20 +208,20 @@ if __name__ == '__main__':
             start_time = time.time()
             solution_obj = solver_obj.solve()
             elapsed_time = time.time() - start_time
-            logging.info('T -> Elapsed time : {"Parallel Solver" : %f}' %elapsed_time)
+            logging.info('{"Parallel Solver" : %f} #Elapsed time (s)' %elapsed_time)
 
-         
-            
             solution_obj.local_matrix_time
             solution_obj.time_PCPG 
 
             logging.info('{"Interface_size" : %i}' %len(solution_obj.interface_lambda))
             logging.info('{"Primal_variable_size" : %i}' %len(solution_obj.displacement))
             logging.info('{"Course_problem_size" : %i}' %len(solution_obj.alpha))
+            logging.info('{"PCPG_iterations" : %i}' %solution_obj.PCGP_iterations)
+            logging.info('{"PCPG_residual" : %6.4e}' %solution_obj.projected_residual)
 
-            logging.info('T -> Elapsed time  :{"Global_FETI_solver" : %f}' %solution_obj.solver_time)
-            logging.info('T -> Elapsed time  :{"Local_matrix_preprocessing" : %f}' %solution_obj.local_matrix_time)
-            logging.info('T -> Elapsed time  :{"PCPG" : %f}' %solution_obj.time_PCPG)
+            logging.info('{"Global_FETI_solver" : %f} #Elapsed time (s)' %solution_obj.solver_time)
+            logging.info('{"Local_matrix_preprocessing" : %f} #Elapsed time (s)' %solution_obj.local_matrix_time)
+            logging.info('{"PCPG" : %f} #Elapsed time (s)' %solution_obj.time_PCPG)
 
             logging.info(header)
             logging.info('END OF MPI size : %i' %mpi_size)

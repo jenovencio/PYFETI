@@ -109,7 +109,7 @@ class SolverManager():
         start_time = time.time()
         self._create_local_problems(K_dict,B_dict,f_dict)
         elapsed_time = time.time() - start_time
-        logging.info('T -> Elaspsed time : {"create_local_problems" : %4.5e}' %elapsed_time)
+        logging.info('{"create_local_problems" : %4.5e} #Elapsed time (s)' %elapsed_time)
 
 
     @property
@@ -566,12 +566,12 @@ class ParallelSolverManager(SolverManager):
                               ext = self.ext)
         
         elapsed_time = time.time() - start_time
-        logging.info('T -> Elaspsed time : {"mpi_launcher" : %f}' %elapsed_time)
+        logging.info('{"mpi_launcher" : %f} #Elapsed time (s)' %elapsed_time)
 
         start_time = time.time()
         mpi_obj.run()
         elapsed_time = time.time() - start_time
-        logging.info('T -> Elaspsed time : {"mpi_run" : %f}' %elapsed_time)
+        logging.info('{"mpi_run" : %f} #Elapsed time (s)' %elapsed_time)
 
     def read_results(self):
         start_time = time.time()
@@ -593,7 +593,7 @@ class ParallelSolverManager(SolverManager):
         sol_obj.alpha_dict = alpha_dict
 
         elapsed_time = time.time() - start_time
-        logging.info('T -> Elaspsed time : { "load_results": %f}' %elapsed_time)
+        logging.info('{ "load_results": %f} #Elapsed time (s)' %elapsed_time)
         return sol_obj
 
     def delete(self):
@@ -855,7 +855,7 @@ class Solution():
         self.lambda_dict=lambda_dict 
         self.alpha_dict=alpha_dict
         self.rk=rk 
-        self.proj_r_hist=proj_r_hist, 
+        self.proj_r_hist=proj_r_hist 
         self.lambda_hist=lambda_hist
         self.lambda_map = lambda_map
         self.alpha_map = alpha_map
@@ -875,6 +875,14 @@ class Solution():
     def u_dict(self,u_dict):
         self._u_dict = u_dict
         self.domain_list = np.sort(list(u_dict.keys()))
+
+    @property
+    def PCGP_iterations(self):
+        return len(self.proj_r_hist)
+
+    @property
+    def projected_residual(self):
+        return self.proj_r_hist[-1]
 
     def _rebuild_lambda_map(self):
 

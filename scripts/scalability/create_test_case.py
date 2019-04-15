@@ -126,10 +126,8 @@ if __name__ == '__main__':
     header ='###################################################################'
     import sys
     from datetime import datetime
-
+    curdir = os.getcwd()
     
-    
-
     if '-h' in sys.argv:
         print(help_doc)
         exit(0)
@@ -138,11 +136,20 @@ if __name__ == '__main__':
         import amfe
         
         keydict = sysargs2keydict(sys.argv)
-
         log_level = logging.INFO
-        date_str = datetime.now().strftime('%Y_%m_%d_%H_%M')
+        date_str = datetime.now().strftime('%Y_%m_%d_%H_%M_%S')
+
+        
+        scalability_folder = os.path.join(curdir,date_str)
+        os.mkdir(scalability_folder)
+
+        # change to scalability local folder
+        os.chdir(scalability_folder)
+
         logging.basicConfig(level=log_level ,filename='master_' + date_str  + '.log')
-        logging.info('############ SCALABILITY TEST ##############')
+        logging.info(header)
+        logging.info('#####################    SCALABILITY TEST #######################')
+        logging.info(header)
         logging.info(datetime.now().strftime('%Y-%m-%d  %H:%M:%S'))
         
 
@@ -152,31 +159,31 @@ if __name__ == '__main__':
             max_mpi_size = keydict['max_mpi_size']
         except:
             max_mpi_size = 5
-        print('Set max_mpi_size = %i' %max_mpi_size)
+        logging.info('Set max_mpi_size = %i' %max_mpi_size)
 
         try:
             number_of_div_y = keydict['divY']
         except:
             number_of_div_y = 5
-        print('Set divY = %i' %number_of_div_y)
+        logging.info('Set divY = %i' %number_of_div_y)
 
         try:
             local_div_x = keydict['divX']
         except:
             local_div_x = 5
-        print('Set divX = %i' %local_div_x )
+        logging.info('Set divX = %i' %local_div_x )
         
         try:
             min_mpi_size = keydict['min_mpi_size']
         except:
             min_mpi_size = 1
-        print('Set min_mpi_size = %i' %min_mpi_size )
+        logging.info('Set min_mpi_size = %i' %min_mpi_size )
 
         try:
             mpi_step = keydict['mpi_step']
         except:
             mpi_step = 1
-        print('Set mpi_step = %i' %mpi_step )
+        logging.info('Set mpi_step = %i' %mpi_step )
 
         for mpi_size in range(min_mpi_size,max_mpi_size+1,mpi_step):
             max_div_x = local_div_x*max_mpi_size
@@ -184,7 +191,7 @@ if __name__ == '__main__':
             domains_y = 1
             number_of_div_x = int(max_div_x/domains_x)
             logging.info(header)
-            logging.info('#######################     MPI size  : %i    ####################' %mpi_size)
+            logging.info('########################     MPI size  : %i    #####################' %mpi_size)
             logging.info(header)
             script_folder = os.path.join(os.path.dirname(__file__),str(mpi_size),'tmp')
 
@@ -204,7 +211,19 @@ if __name__ == '__main__':
             logging.info('Number of local divisions in x %i' %number_of_div_x)
             logging.info('Number of local divisions in y %i' %number_of_div_y)
 
-            solver_obj = ParallelFETIsolver(K_dict,B_dict,f_dict,temp_folder=script_folder)
+            # solver parameters
+            pseudoinverse_kargs={'method':'svd','tolerance':1.0E-8}
+            dual_interface_algorithm = 'PCPG'
+
+            logging.info('{"dual_interface_algorithm" :  "%s"}' %dual_interface_algorithm)
+            logging.info('{"pseudoinverse_method" : "%s"}' %pseudoinverse_kargs['method'])
+            logging.info('{"pseudoinverse_tolerance" : %2.2e}' %pseudoinverse_kargs['tolerance'])
+
+
+            # calling parallel solver
+            solver_obj = ParallelFETIsolver(K_dict,B_dict,f_dict,temp_folder=script_folder,
+                                            pseudoinverse_kargs=pseudoinverse_kargs,
+                                            dual_interface_algorithm=dual_interface_algorithm)
             start_time = time.time()
             solution_obj = solver_obj.solve()
             elapsed_time = time.time() - start_time
@@ -228,3 +247,6 @@ if __name__ == '__main__':
             logging.info(header)
             logging.info('\n\n\n')
             os.system('rm -r ./ '+ str(mpi_size) + '/tmp/*.pkl')
+
+    # back to original folder
+    os.chdir(curdir)

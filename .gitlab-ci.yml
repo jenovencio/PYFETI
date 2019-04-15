@@ -1,0 +1,30 @@
+# Information on how to build or extend the runner:
+# http://doc.gitlab.com/ce/ci/yaml/README.html
+
+stages:
+    - build
+    - unittest
+    - doctest
+    - modeltest
+    - linttest
+
+build:
+    stage: build
+    script:
+        - export PATH="/home/gitlab-runner/anaconda3/bin:$PATH"
+        - python setup.py develop
+
+unittest:
+  stage: unittest
+  when: always
+  script:
+    - export PATH="/home/gitlab-runner/anaconda3/bin:$PATH"
+    - python setup.py develop
+    - nosetests
+
+documentation_test:
+    stage: doctest
+    when: always
+    script:
+        - export PATH="/home/gitlab-runner/anaconda3/bin:$PATH"
+        - python setup.py build_sphinx

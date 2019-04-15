@@ -745,13 +745,16 @@ class Pseudoinverse():
             
             # add constraint in K matrix and applu SuperLu again
             if len(idf):
+                pass
+
+            if False:
                 Kmod = K[:,:] # creating copy because np.array is a reference
                 idf_u = [np.argwhere(lu.perm_c==elem)[0][0] for elem in idf]
                 idf_l = [np.argwhere(lu.perm_r==elem)[0][0] for elem in idf]
                 Kmod[idf_u,:] = 0.0
                 Kmod[:,idf_u] = 0.0
                 Kmod[idf_u,idf_u] = K.diagonal().max()
-                lu, idf_garbage, R_garbage = splusps(Kmod,tol=tol)
+                lu, idf_garbage, R_garbage = sla.splu(K_mod)
                 idf = idf_u
                 
             K_pinv = lu.solve
@@ -797,10 +800,10 @@ class Pseudoinverse():
         idf = self.free_index
         
         # f must be orthogonal to the null space R.T*f = 0 
-        P = sparse.eye(f.shape[0]).tolil()
-        if idf:
-            P[idf,idf] = 0.0
-        
+        #P = sparse.eye(f.shape[0]).tolil()
+        #if idf:
+        #    P[idf,idf] = 0.0
+        #     f = P.dot(f)
         #if self.solver_opt == 'cholsps':
         #    f[idf] = 0.0
         
@@ -809,7 +812,7 @@ class Pseudoinverse():
                 raise('System has no solution because right hand side is \
                        \n not orthogonal to the null space of the matrix operator.')
         
-        u_hat = K_pinv(P.dot(f))
+        u_hat = K_pinv(f)
         
         if alpha.size>0:
             u_hat += self.calc_kernel_correction(alpha)
@@ -1149,6 +1152,22 @@ class  Test_linalg(TestCase):
             x = pinv.apply(f)
             error = (K.dot(x) - f)/norm_f
             np.testing.assert_almost_equal(error,error_target,decimal=10)
+
+    def test_splusps_and_lu(self):
+
+        from scipy.linalg import lu_factor, lu_solve
+        A = np.array([[2, 5, 8, 7], [5, 2, 2, 8], [7, 5, 6, 6], [5, 4, 4, 8]])
+        lu, piv = lu_factor(A)
+        b = np.array([1, 1, 1, 1])
+        x = lu_solve((lu, piv), b)
+
+        lu, idf, R = splusps(A)
+
+        x_splu = lu.solve(b)
+
+        np.testing.assert_almost_equal(x,x_splu,decimal=10)
+
+
 
 if __name__ == '__main__':
     main()

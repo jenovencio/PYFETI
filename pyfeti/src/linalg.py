@@ -19,6 +19,7 @@ methods:
 import os, logging
 from unittest import TestCase, main
 import numpy as np
+import scipy
 from scipy import sparse
 from scipy.sparse import csc_matrix, issparse, lil_matrix, linalg as sla
 from scipy import linalg
@@ -170,11 +171,7 @@ def splusps(A,tol=1.0e-6):
     Pc[np.arange(n), lu.perm_c] = 1
     Pr[lu.perm_r, np.arange(n)] = 1
 
-    #L1 = (Pr.T * L).A
-    #L2 = (U*Pc.T).A
-
     Utrace = np.trace(U.A)
-
     diag_U = np.diag(U.A)/Utrace
 
     idf = np.where(abs(diag_U)<tol)[0].tolist()
@@ -184,9 +181,6 @@ def splusps(A,tol=1.0e-6):
         R = Pc.A.dot(R)
     else:
         R = np.array([])
-
-    #for v in R.T:
-    #    is_null_space(A,v, tol)
 
     return  lu, idf, R
 
@@ -803,8 +797,9 @@ class Pseudoinverse():
         idf = self.free_index
         
         # f must be orthogonal to the null space R.T*f = 0 
+        P = sparse.eye(f.shape[0]).tolil()
         if idf:
-            f[idf] = 0.0
+            P[idf,idf] = 0.0
         
         #if self.solver_opt == 'cholsps':
         #    f[idf] = 0.0
@@ -814,7 +809,7 @@ class Pseudoinverse():
                 raise('System has no solution because right hand side is \
                        \n not orthogonal to the null space of the matrix operator.')
         
-        u_hat = K_pinv(f)
+        u_hat = K_pinv(P.dot(f))
         
         if alpha.size>0:
             u_hat += self.calc_kernel_correction(alpha)
@@ -1049,12 +1044,9 @@ class Vector():
         return self.data
 
 
-
-
-
 class  Test_linalg(TestCase):
 
-    def create_pinv_matrix_and_vector_1(self,mult=1.0):
+    def create_pinv_matrix_and_vector_1(self,mult=1.0,case_id=None):
         
         A = np.array([[1.,-1.,0.,0.],[-1.,2.,-1.,0.],[0.,-1.,2.,-1.],[0.,0.,-1.,1.]])
         R = np.array([[1,1,1,1]])
@@ -1062,8 +1054,11 @@ class  Test_linalg(TestCase):
 
         return A, b
 
-    def create_pinv_matrix_and_vector_2(self,mult=1.0):
-        matrices_path = pyfeti_dir(os.path.join('cases','matrices','case_800'))
+    def create_pinv_matrix_and_vector_2(self,mult=1.0,case_id=0):
+        cases = {}
+        cases[0] = 'case_18'
+        cases[1] = 'case_800'
+        matrices_path = pyfeti_dir(os.path.join('cases','matrices',cases[case_id]))
         K = load_object(os.path.join(matrices_path,'K.pkl'))
         B1 = load_object(os.path.join(matrices_path,'B_left.pkl'))
         B2 = load_object(os.path.join(matrices_path,'B_right.pkl'))
@@ -1071,7 +1066,15 @@ class  Test_linalg(TestCase):
         ones = np.ones(B1.shape[0])
 
         f = B2.T.dot(ones) - B1.T.dot(ones) 
-        return K, mult*f
+
+
+        R = scipy.linalg.null_space(K.A)
+        Pr = (np.eye(f.shape[0]) - R.dot(R.T))
+        fr = Pr.dot(f)
+
+        null_space_force = R.T.dot(fr)
+
+        return K, mult*fr
 
     def test_ProjectorOperator(self):
 
@@ -1114,29 +1117,43 @@ class  Test_linalg(TestCase):
         
     def test_pinv_class(self):
 
+        
+
         cases = []
         cases.append(self.create_pinv_matrix_and_vector_1)
         cases.append(self.create_pinv_matrix_and_vector_2)
-        K, f = cases[1](1.0E10)
-        Kpinv = np.linalg.pinv(K.A)
+        cases.append(self.create_pinv_matrix_and_vector_2)
 
-        # compute the pinv with numpy method
-        xsol = Kpinv.dot(f)
-        error_target = K.dot(xsol) - f
+        cases_id = [0,0,1]
+        for i in range(len(cases_id)):
+            K, f = cases[i](1.0E10,case_id=cases_id[i])
 
-        Kinv, R = pinv_and_null_space_svd(K,tol=1.0E-8)
+            # maybe the matrix is sparse
+            try:
+                Kpinv = np.linalg.pinv(K.A)
+            except:
+                Kpinv = np.linalg.pinv(K)
+            norm_f = np.linalg.norm(f)
+            # compute the pinv with numpy method
+            xsol = Kpinv.dot(f)
+            error_target = (K.dot(xsol) - f)/norm_f
 
-        pinv = Pseudoinverse(method='splusps',tolerance=1.0E-8)
-        pinv.compute(K)
-        x = pinv.apply(f)
+            Kinv, R = pinv_and_null_space_svd(K,tol=1.0E-8)
+            xpinv = np.array(Kinv.dot(f)).flatten()
+            error_pinv = (K.dot(xpinv) - f)/norm_f
+            np.testing.assert_almost_equal(error_pinv,error_target,decimal=10)
 
-        error = K.dot(x) - f
-        np.testing.assert_almost_equal(error,error_target,decimal=10)
+
+            pinv = Pseudoinverse(method='splusps',tolerance=1.0E-8)
+            pinv.compute(K)
+            x = pinv.apply(f)
+            error = (K.dot(x) - f)/norm_f
+            np.testing.assert_almost_equal(error,error_target,decimal=10)
 
 if __name__ == '__main__':
-    #main()
+    main()
 
-    testobj = Test_linalg() 
+    #testobj = Test_linalg() 
     #testobj.test_slusps()
-    testobj.test_pinv_class()
+    #testobj.test_pinv_class()
     #testobj.create_pinv_matrix_and_vector_2()

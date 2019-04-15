@@ -16,7 +16,7 @@ methods:
 
 """
 
-import logging 
+import os, logging
 from unittest import TestCase, main
 import numpy as np
 from scipy import sparse
@@ -26,7 +26,7 @@ from scipy.sparse.linalg import LinearOperator
 
 import sys
 sys.path.append('../..')
-from pyfeti.src.utils import OrderedSet, Get_dofs, save_object, MapDofs
+from pyfeti.src.utils import OrderedSet, Get_dofs, save_object, MapDofs, pyfeti_dir, load_object
 
 
 def cholsps(A, tol=1.0e-8):    
@@ -151,6 +151,13 @@ def splusps(A,tol=1.0e-6):
     idp = [] # id of non-zero pivot columns
     idf = [] # id of zero pivot columns
     
+    try:
+        A[-1,-1] +=1.0E-15
+        A[-2,-2] +=1.0E-15
+        A[-3,-3] +=1.0E-15
+    except:
+        pass
+
     if not isinstance(A,csc_matrix):  
         A = csc_matrix(A)
 
@@ -401,7 +408,6 @@ class ProjectorOperator(LinearOperator):
     def _matvec(self,v):
         return self.PAP.dot(v)
         
-
 
 class DualLinearSys():      
     def __init__(self,A,B,nc,sigma=0.0,precond=None, projection=None):
@@ -1043,7 +1049,30 @@ class Vector():
         return self.data
 
 
+
+
+
 class  Test_linalg(TestCase):
+
+    def create_pinv_matrix_and_vector_1(self,mult=1.0):
+        
+        A = np.array([[1.,-1.,0.,0.],[-1.,2.,-1.,0.],[0.,-1.,2.,-1.],[0.,0.,-1.,1.]])
+        R = np.array([[1,1,1,1]])
+        b = mult*np.array([-1.,0.,0.,1.])
+
+        return A, b
+
+    def create_pinv_matrix_and_vector_2(self,mult=1.0):
+        matrices_path = pyfeti_dir(os.path.join('cases','matrices','case_800'))
+        K = load_object(os.path.join(matrices_path,'K.pkl'))
+        B1 = load_object(os.path.join(matrices_path,'B_left.pkl'))
+        B2 = load_object(os.path.join(matrices_path,'B_right.pkl'))
+
+        ones = np.ones(B1.shape[0])
+
+        f = B2.T.dot(ones) - B1.T.dot(ones) 
+        return K, mult*f
+
     def test_ProjectorOperator(self):
 
         A = 3*np.array([[2,-1,0],[-1,2,0],[0,-1,2]])
@@ -1068,5 +1097,46 @@ class  Test_linalg(TestCase):
         np.testing.assert_almost_equal(x_cg,x_svd,decimal=10)
         np.testing.assert_almost_equal(x_minres,x_svd,decimal=10)
 
+    def test_slusps(self):
+        K, f = self.create_pinv_matrix_and_vector_1(100.0)
+        Kpinv = np.linalg.pinv(K)
+
+        # compute the pinv with numpy method
+        xsol = Kpinv.dot(f)
+        error_target = K.dot(xsol) - f
+
+        # compute the pinv with superLU
+        lu, idf, R = splusps(K)
+        x = lu.solve(f)
+        error = K.dot(x) - f
+
+        np.testing.assert_almost_equal(error,error_target,decimal=10)
+        
+    def test_pinv_class(self):
+
+        cases = []
+        cases.append(self.create_pinv_matrix_and_vector_1)
+        cases.append(self.create_pinv_matrix_and_vector_2)
+        K, f = cases[1](1.0E10)
+        Kpinv = np.linalg.pinv(K.A)
+
+        # compute the pinv with numpy method
+        xsol = Kpinv.dot(f)
+        error_target = K.dot(xsol) - f
+
+        Kinv, R = pinv_and_null_space_svd(K,tol=1.0E-8)
+
+        pinv = Pseudoinverse(method='splusps',tolerance=1.0E-8)
+        pinv.compute(K)
+        x = pinv.apply(f)
+
+        error = K.dot(x) - f
+        np.testing.assert_almost_equal(error,error_target,decimal=10)
+
 if __name__ == '__main__':
-    main()
+    #main()
+
+    testobj = Test_linalg() 
+    #testobj.test_slusps()
+    testobj.test_pinv_class()
+    #testobj.create_pinv_matrix_and_vector_2()

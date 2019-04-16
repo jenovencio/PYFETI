@@ -167,15 +167,13 @@ def splusps(A,tol=1.0e-6):
 
     lu = sla.splu(A)
 
-    #L = lu.L
     U = lu.U
-    Pr = lil_matrix((n, n))
     Pc = lil_matrix((n, n))
     Pc[np.arange(n), lu.perm_c] = 1
-    Pr[lu.perm_r, np.arange(n)] = 1
-
-    Utrace = np.trace(U.A)
-    diag_U = np.diag(U.A)/Utrace
+    
+    U_diag = U.diagonal()
+    Utrace = U_diag.sum()
+    diag_U = U_diag/Utrace
 
     idf = np.where(abs(diag_U)<tol)[0].tolist()
     
@@ -754,6 +752,8 @@ class Pseudoinverse():
             # add constraint in K matrix and applu SuperLu again
             if len(idf):
                 Pr = lambda x : x - R.dot(R.T.dot(x))
+            else:
+                Pr = lambda x : x 
 
             if False:
                 Kmod = K[:,:] # creating copy because np.array is a reference

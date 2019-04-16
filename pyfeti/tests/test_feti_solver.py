@@ -405,7 +405,7 @@ class  Test_FETIsolver(TestCase):
 
     def test_compare_svd_splusps(self):
         print('Starting Comparison between Serial SVD and SPLUSPS ..........')
-        case_id,nx,ny = 1,2,2
+        case_id,nx,ny = 4,4,4
         print('Critical Case Selected %i ' %case_id)
         print('Number of Domain in the X-direction %i ' %nx)
         print('Number of Domain in the Y-direction %i ' %ny)
@@ -413,13 +413,13 @@ class  Test_FETIsolver(TestCase):
         
         solver_obj = SerialFETIsolver(K_dict,B_dict,f_dict,pseudoinverse_kargs={'method':'svd','tolerance':1.0E-8})
         start_time = time.time()
+        print('....................................')
         print('Starting SVD FETI solver ..........')
         sol_obj = solver_obj.solve()
         elapsed_time = time.time() - start_time
         print('SVD Solver : Elapsed time : %f ' %elapsed_time)
         u_dual_svd,lambda_svd,alpha_svd = self.obj_to_array(sol_obj)
 
-        K_dual_svd, f_dual_svd = solver_obj.manager.assemble_global_K_and_f()
 
         print('\n\n Starting SPLUSPS FETI solver ..........')
         solver_obj = SerialFETIsolver(K_dict,B_dict,f_dict,pseudoinverse_kargs={'method':'splusps','tolerance':1.0E-8})
@@ -427,24 +427,20 @@ class  Test_FETIsolver(TestCase):
         sol_obj_slu = solver_obj.solve()
         elapsed_time = time.time() - start_time
         print('SPLUSPS Solver : Elapsed time : %f ' %elapsed_time)
+        print('....................................')
 
         # check gap using SPLUSPS local solver
         self.check_interface_gap(sol_obj_slu.u_dict,solver_obj.B_dict)
 
         # assembling dual vectors 
         u_dual_slu,lambda_slu,alpha_slu = self.obj_to_array(sol_obj_slu)
-
-        #L = solver_obj.manager.assemble_global_L()
-        #Lexp = solver_obj.manager.assemble_global_L_exp()
-        K_dual, f_dual = solver_obj.manager.assemble_global_K_and_f()
-
-        # checking dual forces 
-        np.testing.assert_almost_equal(f_dual_svd, f_dual ,decimal=10)
-
-        #u_primal = self.dual2primal(K_dual,u_dual_slu,f_dual,L,Lexp)
-
+ 
+        # compare results  
         norm = np.linalg.norm(u_dual_svd)
+        norm_lambda = np.linalg.norm(lambda_svd)
+        norm_alpha = np.linalg.norm(alpha_svd)
         np.testing.assert_almost_equal(u_dual_svd/norm,u_dual_slu/norm,decimal=10)
+        np.testing.assert_almost_equal(lambda_svd/norm_lambda,lambda_slu/norm_lambda,decimal=10)
         
         print('End Comparison SVD and SPLUSPS FETI solver ..........\n\n')
 
@@ -543,8 +539,8 @@ class  Test_FETIsolver(TestCase):
 
 if __name__=='__main__':
 
-    #main()
-    test_obj = Test_FETIsolver()
+    main()
+    #test_obj = Test_FETIsolver()
     #test_obj.setUp()
     #test_obj.test_serial_solver()
     #test_obj.test_parallel_solver()
@@ -557,4 +553,4 @@ if __name__=='__main__':
     #test_obj._test_2d_thermal_problem()
     #test_obj.test_verify_F_operator()
     #test_obj.test_compare_serial_and_parallel_solver_slusps()
-    test_obj.test_compare_svd_splusps()
+    #test_obj.test_compare_svd_splusps()

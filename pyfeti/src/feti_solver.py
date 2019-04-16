@@ -518,8 +518,7 @@ class ParallelSolverManager(SolverManager):
         self.prefix = 'local_problem_'
         self.ext = '.pkl'
         self.log = True
-        self.pseudoinverse_kargs = pseudoinverse_kargs
-        super().__init__(K_dict,B_dict,f_dict,**kwargs)
+        super().__init__(K_dict,B_dict,f_dict,pseudoinverse_kargs=pseudoinverse_kargs,**kwargs)
         
     def _create_local_problems(self,K_dict,B_dict,f_dict,temp_folder=None):
         if temp_folder is None:
@@ -542,7 +541,7 @@ class ParallelSolverManager(SolverManager):
         for key, obj in K_dict.items():
             B_local_dict = B_dict[key]
             self.local_problem_id_list.append(key)
-            self.local_problem_dict[key] = LocalProblem(obj,B_local_dict,f_dict[key],id=key)
+            self.local_problem_dict[key] = LocalProblem(obj,B_local_dict,f_dict[key],id=key,pseudoinverse_kargs=self.pseudoinverse_kargs)
             for interface_id, B in B_local_dict.items():
                 self.local_lambda_length_dict[interface_id] = B.shape[0]
 

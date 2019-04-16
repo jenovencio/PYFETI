@@ -486,7 +486,10 @@ if __name__ == "__main__":
         case_path = mpi_kwargs['prefix'] + str(obj_id) + mpi_kwargs['ext']
         logging.info('Local object name passed to MPI solver = %s' %case_path)
     
+        start_time_load = time.time()
         local_problem = load_object(case_path)
+        elapsed_time = time.time() - start_time_load
+        logging.info('{"load_object": %2.5e} # Elapsed time in seconds' %elapsed_time)
         parsolver = ParallelSolver(obj_id,local_problem)
         u_i = parsolver.mpi_solver()
 

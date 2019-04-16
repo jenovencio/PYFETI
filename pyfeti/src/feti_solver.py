@@ -106,10 +106,9 @@ class SolverManager():
         self.dual_interface_algorithm = dual_interface_algorithm
         self.is_local_G_GGT_and_e_computed = False
 
-        start_time = time.time()
+       
         self._create_local_problems(K_dict,B_dict,f_dict)
-        elapsed_time = time.time() - start_time
-        logging.info('{"create_local_problems" : %4.5e} #Elapsed time (s)' %elapsed_time)
+        
 
 
     @property
@@ -525,6 +524,7 @@ class ParallelSolverManager(SolverManager):
         super().__init__(K_dict,B_dict,f_dict,**kwargs)
         
     def _create_local_problems(self,K_dict,B_dict,f_dict,temp_folder=None):
+        start_time = time.time()
         if temp_folder is None:
             temp_folder = self.temp_folder
         else:
@@ -552,6 +552,9 @@ class ParallelSolverManager(SolverManager):
             local_path =  os.path.join(temp_folder, self.prefix + str(key) + self.ext)
             self.local_problem_path[key] = local_path
             save_object(self.local_problem_dict[key] , local_path)
+
+        elapsed_time = time.time() - start_time
+        logging.info('{"serializing_local_problems" : %4.5e} #Elapsed time (s)' %elapsed_time)
 
     def launch_mpi_process(self):
         python_file = pyfeti_dir(os.path.join('src','MPIsolver.py'))

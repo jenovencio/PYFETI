@@ -115,6 +115,7 @@ if __name__ == '__main__':
             mpi_step : Step of MPI process to be tested, Default = 1
             divY : Number of division in the Y direction, Default = 5
             divX : Number of local division in the X direction, Default = 5
+            method : Method to compute the local pseudoinverse, Default = svd (splusps also avaliable)
 
             
 
@@ -156,6 +157,12 @@ if __name__ == '__main__':
         
         #variables
         try:
+            method = keydict['method']
+        except:
+            method = 'svd'
+        logging.info('Set pseudoinverse method  = %s' %method)
+
+        try:
             max_mpi_size = keydict['max_mpi_size']
         except:
             max_mpi_size = 5
@@ -185,6 +192,10 @@ if __name__ == '__main__':
             mpi_step = 1
         logging.info('Set mpi_step = %i' %mpi_step )
 
+    
+        domain_size = max_mpi_size*local_div_x*number_of_div_y*2
+        logging.info('Domain size (%i,%i)' %(domain_size,domain_size))
+
         for mpi_size in range(min_mpi_size,max_mpi_size+1,mpi_step):
             max_div_x = local_div_x*max_mpi_size
             domains_x = mpi_size
@@ -193,26 +204,32 @@ if __name__ == '__main__':
             logging.info(header)
             logging.info('########################     MPI size  : %i    #####################' %mpi_size)
             logging.info(header)
+            logging.info('Date - Time = ' + datetime.now().strftime('%Y-%m-%d - %H:%M:%S'))
             script_folder = os.path.join(os.path.dirname(__file__),str(mpi_size),'tmp')
 
+            logging.info('Domains in x direction = %i' %domains_x)
+            logging.info('Domains in y direction = %i' %domains_y)
+            logging.info('Number of local divisions in x %i' %number_of_div_x)
+            logging.info('Number of local divisions in y %i' %number_of_div_y)
+            
+            logging.info(header)
             logging.info('# AMFE log : Assembling local matrices')            
             K, f, B_dict, s = create_case(number_of_div = number_of_div_x, number_of_div_y=number_of_div_y , case_id=mpi_size)
             ndof = K.shape[0]
             case_obj = case_generator.FETIcase_builder(domains_x,domains_y, K, f, B_dict, s)
             K_dict, B_dict, f_dict = case_obj.build_subdomain_matrices()
-            logging.info('# END AMFE log')            
+            logging.info('# END AMFE log')    
+            logging.info(header)
+
             logging.info(header)
             logging.info('# Starting Parallel FETI solver ..........')
             logging.info(header)
             logging.info('{"MPI_size" : %i}' %mpi_size)
             logging.info('{"Local_Stiffness_matrix_size" = (%i,%i)}' %(ndof,ndof) )
-            logging.info('Domains in x direction = %i' %domains_x)
-            logging.info('Domains in y direction = %i' %domains_y)
-            logging.info('Number of local divisions in x %i' %number_of_div_x)
-            logging.info('Number of local divisions in y %i' %number_of_div_y)
+            
 
             # solver parameters
-            pseudoinverse_kargs={'method':'svd','tolerance':1.0E-8}
+            pseudoinverse_kargs={'method':method,'tolerance':1.0E-8}
             dual_interface_algorithm = 'PCPG'
 
             logging.info('{"dual_interface_algorithm" :  "%s"}' %dual_interface_algorithm)
@@ -242,6 +259,7 @@ if __name__ == '__main__':
             logging.info('{"Local_matrix_preprocessing" : %f} #Elapsed time (s)' %solution_obj.local_matrix_time)
             logging.info('{"PCPG" : %f} #Elapsed time (s)' %solution_obj.time_PCPG)
 
+            logging.info('Date - Time = ' + datetime.now().strftime('%Y-%m-%d - %H:%M:%S'))
             logging.info(header)
             logging.info('END OF MPI size : %i' %mpi_size)
             logging.info(header)

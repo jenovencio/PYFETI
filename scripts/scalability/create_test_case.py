@@ -268,14 +268,13 @@ if __name__ == '__main__':
             
             except:
                 logging.error('Parallel solver Error!')
-                raise ParallelFETIsolverError('Parallel solver Error!')
 
             logging.info('Date - Time = ' + datetime.now().strftime('%Y-%m-%d - %H:%M:%S'))
             logging.info(header)
             logging.info('END OF MPI size : %i' %mpi_size)
             logging.info(header)
             logging.info('\n\n\n')
-            os.system('rm -r ./ '+ str(mpi_size) + '/tmp/*.pkl')
+            #os.system('rm -r ./ '+ str(mpi_size) + '/tmp/*.pkl')
 
     # back to original folder
     os.chdir(curdir)

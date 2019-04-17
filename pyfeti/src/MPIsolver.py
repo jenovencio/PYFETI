@@ -172,9 +172,12 @@ class ParallelSolver():
         start_time = time.time()
         lambda_sol,alpha_sol, rk, proj_r_hist, lambda_hist = self.solve_dual_interface_problem()
         elaspsed_time_PCPG = time.time() - start_time
+        logging.info('{"elaspsed_time_PCPG" : %2.4e} # Elapsed time' %elaspsed_time_PCPG)
 
+        
         u_dict, lambda_dict, alpha_dict = self.assemble_solution_dict(lambda_sol,alpha_sol)
         
+
         # Serialization the results, Displacement and alpha
         start_time = time.time()
         # serializing displacement
@@ -185,10 +188,8 @@ class ParallelSolver():
             save_object(alpha_dict [self.obj_id],'alpha_' + str(self.obj_id) + '.pkl')
         except:
             pass
+        
         elapsed_time = time.time() - start_time
-        logging.info('T -> Elapsed time : Parallel Solver :  {save_output : %f}' %elapsed_time)
-
-
         if self.obj_id == 1:
             sol_obj = Solution({}, lambda_dict, {}, rk, proj_r_hist, lambda_hist, lambda_map=self.local2global_lambda_dofs,
                                 alpha_map=self.local2global_alpha_dofs, u_map=self.local2global_primal_dofs,lambda_size=self.lambda_size,
@@ -196,6 +197,9 @@ class ParallelSolver():
                                 local_matrix_time = build_local_matrix_time, time_PCPG = elaspsed_time_PCPG)
 
             save_object(sol_obj,'solution.pkl')
+
+        elapsed_time = time.time() - start_time
+        logging.info('{"serialization_time":%2.4e}' %elapsed_time)
         
     def assemble_local_G_GGT_and_e(self):
         problem_id = self.obj_id
@@ -292,8 +296,7 @@ class ParallelSolver():
         self.lambda_size = dof_lambda_init
         self.alpha_size = dof_alpha_init
         self.primal_size = dof_primal_init
-
-            
+       
     def assemble_GGT(self):
         try:
             self.GGT = self.course_problem.assemble_GGT(self.local2global_alpha_dofs,(self.alpha_size ,self.alpha_size))
@@ -470,7 +473,9 @@ if __name__ == "__main__":
                 logging.debug('Commnad line argument noy understood, arg = %s cannot be splited in variable name + value' %arg)
                 pass
 
-        logging.basicConfig(level=logging.INFO,filename='rank_' + str(rank) + '.txt')
+
+
+        logging.basicConfig(level=logging.DEBUG,filename='rank_' + str(rank) + '.txt')
 
         
         logging.info(header)

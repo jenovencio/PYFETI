@@ -137,16 +137,22 @@ if __name__ == '__main__':
         import amfe
         
         keydict = sysargs2keydict(sys.argv)
-        log_level = logging.INFO
+
+        #variables
+        try:
+            loglevel = keydict['loglevel']
+        except:
+            loglevel = 'INFO'
+        
         date_str = datetime.now().strftime('%Y_%m_%d_%H_%M_%S')
 
-        
         scalability_folder = os.path.join(curdir,date_str)
         os.mkdir(scalability_folder)
 
         # change to scalability local folder
         os.chdir(scalability_folder)
 
+        log_level = getattr(logging,loglevel)
         logging.basicConfig(level=log_level ,filename='master_' + date_str  + '.log')
         logging.info(header)
         logging.info('#####################    SCALABILITY TEST #######################')
@@ -238,26 +244,30 @@ if __name__ == '__main__':
 
 
             # calling parallel solver
-            solver_obj = ParallelFETIsolver(K_dict,B_dict,f_dict,temp_folder=script_folder,
-                                            pseudoinverse_kargs=pseudoinverse_kargs,
-                                            dual_interface_algorithm=dual_interface_algorithm)
-            start_time = time.time()
-            solution_obj = solver_obj.solve()
-            elapsed_time = time.time() - start_time
-            logging.info('{"Parallel Solver" : %f} #Elapsed time (s)' %elapsed_time)
+            try:
+                solver_obj = ParallelFETIsolver(K_dict,B_dict,f_dict,temp_folder=script_folder,
+                                                pseudoinverse_kargs=pseudoinverse_kargs,
+                                                dual_interface_algorithm=dual_interface_algorithm)
+                start_time = time.time()
+                solution_obj = solver_obj.solve()
+                elapsed_time = time.time() - start_time
+                logging.info('{"Parallel Solver" : %f} #Elapsed time (s)' %elapsed_time)
 
-            solution_obj.local_matrix_time
-            solution_obj.time_PCPG 
+                solution_obj.local_matrix_time
+                solution_obj.time_PCPG 
 
-            logging.info('{"Interface_size" : %i}' %len(solution_obj.interface_lambda))
-            logging.info('{"Primal_variable_size" : %i}' %len(solution_obj.displacement))
-            logging.info('{"Course_problem_size" : %i}' %len(solution_obj.alpha))
-            logging.info('{"PCPG_iterations" : %i}' %solution_obj.PCGP_iterations)
-            logging.info('{"PCPG_residual" : %6.4e}' %solution_obj.projected_residual)
+                logging.info('{"Interface_size" : %i}' %len(solution_obj.interface_lambda))
+                logging.info('{"Primal_variable_size" : %i}' %len(solution_obj.displacement))
+                logging.info('{"Course_problem_size" : %i}' %len(solution_obj.alpha))
+                logging.info('{"PCPG_iterations" : %i}' %solution_obj.PCGP_iterations)
+                logging.info('{"PCPG_residual" : %6.4e}' %solution_obj.projected_residual)
 
-            logging.info('{"Global_FETI_solver" : %f} #Elapsed time (s)' %solution_obj.solver_time)
-            logging.info('{"Local_matrix_preprocessing" : %f} #Elapsed time (s)' %solution_obj.local_matrix_time)
-            logging.info('{"PCPG" : %f} #Elapsed time (s)' %solution_obj.time_PCPG)
+                logging.info('{"Global_FETI_solver" : %f} #Elapsed time (s)' %solution_obj.solver_time)
+                logging.info('{"Local_matrix_preprocessing" : %f} #Elapsed time (s)' %solution_obj.local_matrix_time)
+                logging.info('{"PCPG" : %f} #Elapsed time (s)' %solution_obj.time_PCPG)
+            
+            except ParallelFETIsolverError:
+                logging.error('Parallel solver Error!')
 
             logging.info('Date - Time = ' + datetime.now().strftime('%Y-%m-%d - %H:%M:%S'))
             logging.info(header)

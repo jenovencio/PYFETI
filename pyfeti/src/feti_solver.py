@@ -105,12 +105,8 @@ class SolverManager():
         self.pseudoinverse_kargs = pseudoinverse_kargs
         self.dual_interface_algorithm = dual_interface_algorithm
         self.is_local_G_GGT_and_e_computed = False
-
-       
         self._create_local_problems(K_dict,B_dict,f_dict)
         
-
-
     @property
     def GGT_inv(self):
         return self.course_problem.compute_GGT_inv()
@@ -576,15 +572,16 @@ class ParallelSolverManager(SolverManager):
         logging.info('{"mpi_run" : %f} #Elapsed time (s)' %elapsed_time)
 
     def read_results(self):
+        logging.info('Reading results from MPISolver')
         start_time = time.time()
         solution_path = os.path.join(self.temp_folder,'solution.pkl')
         u_dict = {}
         alpha_dict = {}
         for i in range(1,self.num_partitions+1):
-            displacement_path = os.path.join(self.temp_folder,'displacement_' + str(i) + '.pkl')
-            u_dict[i] =  load_object(displacement_path)
             try:
-                alpha_path = os.path.join(self.temp_folder,'alpha_' + str(i) + '.pkl')
+                displacement_path = os.path.join(self.temp_folder,'displacement_' + str(i) + '.pkl')
+                alpha_path = os.path.join(self.temp_folder,'alpha_' + str(i) + '.pkl')                
+                u_dict[i] =  load_object(displacement_path)
                 alpha_dict[i] =  load_object(alpha_path,tries=1,sleep_delay=0)
             except:
                 pass

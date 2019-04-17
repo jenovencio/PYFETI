@@ -152,17 +152,17 @@ class MPILauncher():
             subprocess.call(full_path,shell=True)
             os.chdir(local_folder)
             
-        except:
+        except SimulationError:
             os.chdir(local_folder)
-            logging.error('Error during the simulation.')
-
+            logging.error('Error during MPI execution.')
+            raise SimulationError('Error during MPI execution.')
         return None
 
     def remove_folder(self):
         try:
             shutil.rmtree(self.tmp_folder)
         except:
-            print('Could not remove the folder = %s' %(self.tmp_folder))
+            logging.warning('Could not remove the folder = %s' %(self.tmp_folder))
 
 def sysargs2keydict(system_argument):
     ''' This function converts system arguments sys.argv
@@ -722,8 +722,8 @@ def load_object(filename,tries=3,sleep_delay=5):
             time.sleep(sleep_delay)
             continue
     if obj is None:
-        print('Could not find the file path %s ' %filename)
-        raise FileNotFoundError
+        logging.warning('Could not find the file path %s ' %filename)
+        
     return obj
 
 def dict2dfmap(id_dict,column_labels=None):

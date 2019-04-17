@@ -555,6 +555,7 @@ class ParallelSolverManager(SolverManager):
         python_file = pyfeti_dir(os.path.join('src','MPIsolver.py'))
 
         start_time = time.time()
+        
         mpi_obj = MPILauncher(python_file,
                               mpi_size=self.num_partitions,
                               module = 'MPIsolver',
@@ -567,9 +568,13 @@ class ParallelSolverManager(SolverManager):
         logging.info('{"mpi_launcher" : %f} #Elapsed time (s)' %elapsed_time)
 
         start_time = time.time()
+        localtime = time.asctime( time.localtime(time.time()) )
+        logging.info('Local Time before mpi run: %s' %localtime)
         mpi_obj.run()
         elapsed_time = time.time() - start_time
         logging.info('{"mpi_run" : %f} #Elapsed time (s)' %elapsed_time)
+        localtime = time.asctime( time.localtime(time.time()) )
+        logging.info('Local Time after mpi run: %s' %localtime
 
     def read_results(self):
         logging.info('Reading results from MPISolver')

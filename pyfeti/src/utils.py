@@ -49,13 +49,13 @@ def get_platform():
         raise('Plataform %s is not supported  ' %sys.platform)
 
 class MPILauncher():
-    def __init__(self,python_file,mpi_size,**kwargs):
+    def __init__(self,python_file,mpi_size,save_log=False,**kwargs):
 
         self.python_file = python_file
         self.mpi_size = mpi_size #
-        self.log = True
+        self.log = save_log
         self.kwargs = kwargs
-        if 'tmp_folder' in self.kwargs :
+        if 'tmp_folder' in self.kwargs:
             self.tmp_folder = self.kwargs['tmp_folder']
         else:
             self.tmp_folder = 'tmp'
@@ -683,7 +683,7 @@ class MapDofs():
         
         return local_map_dict
         
-def save_object(obj, filename,tries=2,sleep_delay=3 ):
+def save_object(obj, filename,tries=2,sleep_delay=3):
     filename = r"{}".format(filename)
     for i in range(tries):
         try:

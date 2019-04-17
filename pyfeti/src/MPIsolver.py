@@ -119,7 +119,7 @@ class ParallelSolver():
         self.partitions_list = list(range(1,self.num_partitions+1))
         self.tolerance = 1.e-10
         self.n_int = n_int
-        self.log = Log('log' + str(obj_id) + '.log' )
+        logging.info('local length = %i' %self.local_problem.length)
         
     def _exchange_global_size(self):
         local_id = self.obj_id
@@ -165,6 +165,7 @@ class ParallelSolver():
 
         
         GGT = self.assemble_GGT()
+        logging.info('GGT size = %i' %GGT.shape[0])
         logging.debug(('GGT = ', GGT))
         G = self.assemble_G()
         e = self.assemble_e()
@@ -474,8 +475,8 @@ if __name__ == "__main__":
                 pass
 
 
-
-        logging.basicConfig(level=logging.DEBUG,filename='rank_' + str(rank) + '.txt')
+        obj_id = rank + 1
+        logging.basicConfig(level=logging.DEBUG,filename='domain_' + str(obj_id) + '.log')
 
         
         logging.info(header)
@@ -487,7 +488,7 @@ if __name__ == "__main__":
         logging.info(header)
     
 
-        obj_id = rank + 1
+        
         case_path = mpi_kwargs['prefix'] + str(obj_id) + mpi_kwargs['ext']
         logging.info('Local object name passed to MPI solver = %s' %case_path)
     
@@ -495,14 +496,17 @@ if __name__ == "__main__":
         local_problem = load_object(case_path)
         elapsed_time = time.time() - start_time_load
         logging.info('{"load_object": %2.5e} # Elapsed time in seconds' %elapsed_time)
+        
+        start_time = time.time()
         parsolver = ParallelSolver(obj_id,local_problem)
         u_i = parsolver.mpi_solver()
-
-        localtime = localtime = time.asctime( time.localtime(time.time()) )
-        logging.info('Time at end: %s' %localtime)
         elapsed_time = time.time() - start_time
-        logging.info('T -> Elapsed time in seconds : %f' %elapsed_time)
+
+        logging.info('Total Parallel solver elapsed time after loading data : %f' %elapsed_time)
+
+        localtime = time.asctime( time.localtime(time.time()) )
+        logging.info('Time at end: %s' %localtime)
         logging.info(header)
     else:
-        print('\n WARNING. No system argument were passed to the MPIsolver. Nothing to do! n')
+        print('/n WARNING. No system argument were passed to the MPIsolver. Nothing to do! /n')
         pass

@@ -152,7 +152,7 @@ class MPILauncher():
             subprocess.call(full_path,shell=True)
             os.chdir(local_folder)
             
-        except SimulationError:
+        except:
             os.chdir(local_folder)
             logging.error('Error during MPI execution.')
             raise SimulationError('Error during MPI execution.')

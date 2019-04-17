@@ -266,8 +266,9 @@ if __name__ == '__main__':
                 logging.info('{"Local_matrix_preprocessing" : %f} #Elapsed time (s)' %solution_obj.local_matrix_time)
                 logging.info('{"PCPG" : %f} #Elapsed time (s)' %solution_obj.time_PCPG)
             
-            except ParallelFETIsolverError:
+            except:
                 logging.error('Parallel solver Error!')
+                raise ParallelFETIsolverError('Parallel solver Error!')
 
             logging.info('Date - Time = ' + datetime.now().strftime('%Y-%m-%d - %H:%M:%S'))
             logging.info(header)

@@ -354,6 +354,7 @@ class ParallelSolver():
         residual = -self.apply_F(lambda_im, external_force=True)
 
         method_to_call = getattr(solvers, algorithm)
+        logging.info('Dual Interface algorithm = %s' %algorithm)
 
         n_int = max(self.lambda_size*4,self.n_int)
         lambda_ker, rk, proj_r_hist, lambda_hist = method_to_call(F_action,residual,Projection_action=Projection_action,
@@ -456,7 +457,8 @@ if __name__ == "__main__":
     rank = comm.Get_rank()
     size = comm.Get_size()
 
-    logging.basicConfig(level=logging.INFO,filename='rank_' + str(rank) + '.txt')
+    obj_id = rank + 1
+    logging.basicConfig(level=logging.DEBUG,filename='domain_' + str(obj_id) + '.log')
     
     header ='###################################################################'
     system_argument = sys.argv
@@ -475,8 +477,7 @@ if __name__ == "__main__":
                 pass
 
 
-        obj_id = rank + 1
-        logging.basicConfig(level=logging.DEBUG,filename='domain_' + str(obj_id) + '.log')
+        
 
         
         logging.info(header)

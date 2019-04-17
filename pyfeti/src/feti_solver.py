@@ -105,6 +105,8 @@ class SolverManager():
         self.pseudoinverse_kargs = pseudoinverse_kargs
         self.dual_interface_algorithm = dual_interface_algorithm
         self.is_local_G_GGT_and_e_computed = False
+
+       
         self._create_local_problems(K_dict,B_dict,f_dict)
         
 
@@ -521,6 +523,7 @@ class ParallelSolverManager(SolverManager):
         super().__init__(K_dict,B_dict,f_dict,pseudoinverse_kargs=pseudoinverse_kargs,**kwargs)
         
     def _create_local_problems(self,K_dict,B_dict,f_dict,temp_folder=None):
+        start_time = time.time()
         if temp_folder is None:
             temp_folder = self.temp_folder
         else:
@@ -549,9 +552,13 @@ class ParallelSolverManager(SolverManager):
             self.local_problem_path[key] = local_path
             save_object(self.local_problem_dict[key] , local_path)
 
+        elapsed_time = time.time() - start_time
+        logging.info('{"serializing_local_problems" : %4.5e} #Elapsed time (s)' %elapsed_time)
+
     def launch_mpi_process(self):
         python_file = pyfeti_dir(os.path.join('src','MPIsolver.py'))
 
+        start_time = time.time()
         mpi_obj = MPILauncher(python_file,
                               mpi_size=self.num_partitions,
                               module = 'MPIsolver',
@@ -559,10 +566,17 @@ class ParallelSolverManager(SolverManager):
                               tmp_folder=self.temp_folder ,
                               prefix = self.prefix, 
                               ext = self.ext)
-        mpi_obj.run()
+        
+        elapsed_time = time.time() - start_time
+        logging.info('{"mpi_launcher" : %f} #Elapsed time (s)' %elapsed_time)
 
+        start_time = time.time()
+        mpi_obj.run()
+        elapsed_time = time.time() - start_time
+        logging.info('{"mpi_run" : %f} #Elapsed time (s)' %elapsed_time)
 
     def read_results(self):
+        start_time = time.time()
         solution_path = os.path.join(self.temp_folder,'solution.pkl')
         u_dict = {}
         alpha_dict = {}
@@ -576,10 +590,12 @@ class ParallelSolverManager(SolverManager):
                 pass
             
             
-
         sol_obj = load_object(solution_path)
         sol_obj.u_dict = u_dict
         sol_obj.alpha_dict = alpha_dict
+
+        elapsed_time = time.time() - start_time
+        logging.info('{ "load_results": %f} #Elapsed time (s)' %elapsed_time)
         return sol_obj
 
     def delete(self):
@@ -593,6 +609,7 @@ class ParallelFETIsolver(FETIsolver):
         self.delete_folder = delete_folder
 
     def solve(self):
+        logging.info('')
         manager = self.manager        
         manager.launch_mpi_process()
         sol_obj = manager.read_results()
@@ -835,12 +852,12 @@ class CourseProblem():
 
 class Solution():
     def __init__(self,u_dict, lambda_dict, alpha_dict,rk=None, proj_r_hist=None, lambda_hist=None, 
-                 lambda_map=None,alpha_map=None,u_map=None,lambda_size=None,alpha_size=None):
+                 lambda_map=None,alpha_map=None,u_map=None,lambda_size=None,alpha_size=None,**kwargs):
         
         self.lambda_dict=lambda_dict 
         self.alpha_dict=alpha_dict
         self.rk=rk 
-        self.proj_r_hist=proj_r_hist, 
+        self.proj_r_hist=proj_r_hist 
         self.lambda_hist=lambda_hist
         self.lambda_map = lambda_map
         self.alpha_map = alpha_map
@@ -850,6 +867,7 @@ class Solution():
         self._rebuild_lambda_map()
         self.domain_list = None
         self.u_dict = u_dict
+        self.__dict__.update(kwargs)
 
     @property
     def u_dict(self):
@@ -859,6 +877,14 @@ class Solution():
     def u_dict(self,u_dict):
         self._u_dict = u_dict
         self.domain_list = np.sort(list(u_dict.keys()))
+
+    @property
+    def PCGP_iterations(self):
+        return len(self.proj_r_hist)
+
+    @property
+    def projected_residual(self):
+        return self.proj_r_hist[-1]
 
     def _rebuild_lambda_map(self):
 

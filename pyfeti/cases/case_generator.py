@@ -28,15 +28,11 @@ def get_case_matrices(case_id):
     return K, f, B_left, B_right, B_bottom, B_top, s
     
 
-class CreateFETIcase():
-    def __init__(self,domains_x,domains_y, K, f, B_left, B_right, B_bottom, B_top,s):
+class FETIcase_builder():
+    def __init__(self,domains_x,domains_y, K, f, B_dict,s):
         self.K = K
         self.f = f
-        self.B_dict = {}        
-        self.B_dict['left'] = B_left
-        self.B_dict['right'] = B_right
-        self.B_dict['bottom'] = B_bottom
-        self.B_dict['top'] = B_top
+        self.B_dict = B_dict       
         self.s = s
         self.domains_x = domains_x
         self.domains_y = domains_y
@@ -80,8 +76,11 @@ class CreateFETIcase():
                 global_id = self.two2one_map((i,j))
                 if i==0:
                     #apply dirichelt B.C
-                    K_dir_obj = Matrix(K.todense(),self.s.selection_dict)
-                    K = sparse.csr_matrix(K_dir_obj.eliminate_by_identity('left'))
+                    K_dir_obj = Matrix(K,self.s.selection_dict)
+                    try:
+                        K = sparse.csr_matrix(K_dir_obj.eliminate_by_identity('left'))
+                    except:
+                        K = sparse.csr_matrix(K_dir_obj.eliminate_by_identity(1))
 
                 if i==(self.domains_x-1):
                     Neumann_mult = 1.0
@@ -100,6 +99,16 @@ class CreateFETIcase():
         return K_dict, B_dict, f_dict
 
 
+
+class CreateFETIcase(FETIcase_builder):
+    def __init__(self,domains_x,domains_y, K, f, B_left, B_right, B_bottom, B_top,s):
+        B_dict = {}
+        B_dict['left'] = B_left
+        B_dict['right'] = B_right
+        B_dict['bottom'] = B_bottom
+        B_dict['top'] = B_top
+        super().__init__(domains_x,domains_y, K, f, B_dict ,s)
+
 def create_FETI_case(case_id,dim_x,dim_y):
     K, f, B_left, B_right, B_bottom, B_top, s = get_case_matrices(case_id)
     print('Subdomain matrix size: [%i,%i]' %K.shape)
@@ -114,4 +123,6 @@ if __name__ == '__main__':
     #case_obj = CreateFETIcase(2,1,K, f, B_left, B_right, B_bottom, B_top, s)
     #K_dict, B_dict, f_dict = case_obj.build_subdomain_matrices()
     K_dict, B_dict, f_dict = create_FETI_case(case_id,dim_x,dim_y)
+
+
 

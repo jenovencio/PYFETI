@@ -8,21 +8,30 @@ from pyfeti import utils
 from pyfeti.src.utils import OrderedSet, Get_dofs, save_object, dict2dfmap
 from pyfeti import linalg
 
-def create_case(number_of_div = 3):
+def create_case(number_of_div = 3, number_of_div_y=None, case_id=1):
     ''' This function create a subdomain matrices based on the number of 
     divisions.
 
     paramenters:
         number_of_div : int (default = 3)
+            number of nodes in the x direction
+        number_of_div_y : Default = None
+            number of nodes in the x direction, if None value = number_of_dif
+        case_id : int
+            if of the case to save files
 
     return 
         create a directory called "matrices_{matrix shape[0]}" and store the matrices K, f, 
         B_left, B_right, B_tio, B_bottom and also the selectionOperator with the matrices indeces
     '''
+
+    if number_of_div_y is None:
+        number_of_div_y = number_of_div
+
     creator_obj  = utils.DomainCreator(x_divisions=number_of_div,y_divisions=number_of_div)
     creator_obj.build_elements()
     mesh_folder = 'meshes'
-    mesh_path = os.path.join(mesh_folder,'mesh1.msh')
+    mesh_path = os.path.join(mesh_folder,'mesh' + str(case_id)+ '.msh')
 
     try:
         creator_obj.save_gmsh_file(mesh_path)
@@ -45,7 +54,7 @@ def create_case(number_of_div = 3):
     my_system.apply_neumann_boundaries(2, value, 'normal')
     id_matrix = my_system.assembly_class.id_matrix
 
-    K, f = my_system.assembly_class.assemble_k_and_f()
+    K, _ = my_system.assembly_class.assemble_k_and_f()
     ndof = K.shape[0]
     matrices_path = 'matrices'
     case_path = os.path.join(matrices_path,'case_' + str(ndof))
@@ -61,7 +70,7 @@ def create_case(number_of_div = 3):
 
     os.mkdir(case_path)
 
-    K0, fext = my_system.assembly_class.assemble_k_and_f_neumann()
+    _ , fext = my_system.assembly_class.assemble_k_and_f_neumann()
     save_object(K,os.path.join(case_path,'K.pkl'))
     save_object(fext,os.path.join(case_path,'f.pkl'))
 
@@ -98,7 +107,7 @@ def create_case(number_of_div = 3):
     
 
     amfe.plot2Dmesh(m)
-    plt.savefig(os.path.join(case_path,'mesh.png'))
+    plt.savefig(os.path.join(case_path,'mesh' + str(case_id) + '.png'))
 
     return case_path
 

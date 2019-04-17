@@ -24,9 +24,6 @@ from pyfeti.src import solvers
 from mpi4py import MPI
 import os
 
-comm = MPI.COMM_WORLD
-rank = comm.Get_rank()
-size = comm.Get_size()
 
 def exchange_info(local_var,sub_id,nei_id,tag_id=15,isnumpy=False):
     ''' This function exchange info (lists, dicts, arrays, etc) with the 
@@ -146,6 +143,8 @@ class ParallelSolver():
     def mpi_solver(self):
         ''' solve linear FETI problem with PCGP with partial reorthogonalization
         '''
+
+        start_time = time.time()
         self.assemble_local_G_GGT_and_e()
         G_dict = exchange_global_dict(self.course_problem.G_dict,self.obj_id,self.partitions_list)
         e_dict = exchange_global_dict(self.course_problem.e_dict,self.obj_id,self.partitions_list)
@@ -156,25 +155,28 @@ class ParallelSolver():
 
         self.assemble_cross_GGT()
         self.GGT_dict = self.course_problem.GGT_dict
-        logging.debug(('Before GGT_dict = ', self.GGT_dict))
         
         GGT_dict = exchange_global_dict(self.GGT_dict,self.obj_id,self.partitions_list)
-        logging.debug(('After GGT_dict = ', self.GGT_dict))
         self.course_problem.GGT_dict = GGT_dict
-        
         
         self.build_local_to_global_mapping()
         
+        build_local_matrix_time = time.time() - start_time
+
         
         GGT = self.assemble_GGT()
         logging.debug(('GGT = ', GGT))
         G = self.assemble_G()
         e = self.assemble_e()
         
+        start_time = time.time()
         lambda_sol,alpha_sol, rk, proj_r_hist, lambda_hist = self.solve_dual_interface_problem()
+        elaspsed_time_PCPG = time.time() - start_time
 
         u_dict, lambda_dict, alpha_dict = self.assemble_solution_dict(lambda_sol,alpha_sol)
         
+        # Serialization the results, Displacement and alpha
+        start_time = time.time()
         # serializing displacement
         save_object(u_dict[self.obj_id],'displacement_' + str(self.obj_id) + '.pkl')
 
@@ -183,11 +185,16 @@ class ParallelSolver():
             save_object(alpha_dict [self.obj_id],'alpha_' + str(self.obj_id) + '.pkl')
         except:
             pass
+        elapsed_time = time.time() - start_time
+        logging.info('T -> Elapsed time : Parallel Solver :  {save_output : %f}' %elapsed_time)
+
 
         if self.obj_id == 1:
             sol_obj = Solution({}, lambda_dict, {}, rk, proj_r_hist, lambda_hist, lambda_map=self.local2global_lambda_dofs,
                                 alpha_map=self.local2global_alpha_dofs, u_map=self.local2global_primal_dofs,lambda_size=self.lambda_size,
-                                alpha_size=self.alpha_size)
+                                alpha_size=self.alpha_size,solver_time=elapsed_time,
+                                local_matrix_time = build_local_matrix_time, time_PCPG = elaspsed_time_PCPG)
+
             save_object(sol_obj,'solution.pkl')
         
     def assemble_local_G_GGT_and_e(self):
@@ -285,6 +292,7 @@ class ParallelSolver():
         self.lambda_size = dof_lambda_init
         self.alpha_size = dof_alpha_init
         self.primal_size = dof_primal_init
+
             
     def assemble_GGT(self):
         try:
@@ -440,8 +448,13 @@ def launch_ParallelSolver(rank, tmp_folder='temp' ,  prefix='local_problem_', ex
 
 if __name__ == "__main__":
 
+    comm = MPI.COMM_WORLD
+    rank = comm.Get_rank()
+    size = comm.Get_size()
+
+    logging.basicConfig(level=logging.INFO,filename='rank_' + str(rank) + '.txt')
     
-    
+    header ='###################################################################'
     system_argument = sys.argv
 
     if  len(system_argument)>1:
@@ -457,33 +470,34 @@ if __name__ == "__main__":
                 logging.debug('Commnad line argument noy understood, arg = %s cannot be splited in variable name + value' %arg)
                 pass
 
+        logging.basicConfig(level=logging.INFO,filename='rank_' + str(rank) + '.txt')
 
-        logging.basicConfig(level=logging.INFO,filename='rank_' + str(rank) + '.log')
-
-        logging.info('########################################')
+        
+        logging.info(header)
         logging.info('MPI rank %i' %rank)
         logging.info('Directory pass to MPI solver = %s' %os.getcwd())
         localtime = localtime = time.asctime( time.localtime(time.time()) )
         start_time = time.time()
         logging.info('Time at start: %s' %localtime)
-        logging.info('########################################')
+        logging.info(header)
     
-
-            
 
         obj_id = rank + 1
         case_path = mpi_kwargs['prefix'] + str(obj_id) + mpi_kwargs['ext']
         logging.info('Local object name passed to MPI solver = %s' %case_path)
     
+        start_time_load = time.time()
         local_problem = load_object(case_path)
+        elapsed_time = time.time() - start_time_load
+        logging.info('{"load_object": %2.5e} # Elapsed time in seconds' %elapsed_time)
         parsolver = ParallelSolver(obj_id,local_problem)
         u_i = parsolver.mpi_solver()
 
         localtime = localtime = time.asctime( time.localtime(time.time()) )
         logging.info('Time at end: %s' %localtime)
         elapsed_time = time.time() - start_time
-        logging.info('Elapsed time in seconds : %f' %elapsed_time)
-        logging.info('########################################')
+        logging.info('T -> Elapsed time in seconds : %f' %elapsed_time)
+        logging.info(header)
     else:
         print('\n WARNING. No system argument were passed to the MPIsolver. Nothing to do! n')
         pass

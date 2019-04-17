@@ -164,7 +164,35 @@ class MPILauncher():
         except:
             print('Could not remove the folder = %s' %(self.tmp_folder))
 
+def sysargs2keydict(system_argument):
+    ''' This function converts system arguments sys.argv
+    to a key pair dictionary
 
+    Parameters
+        system_argument : sys.args
+            sys.args must have the follow format
+            "method=python_func" "arg1=value1" "arg2=value2"
+
+            such that the python function that supports mpi has the
+
+
+        Return:
+            dict
+                {arg1:value1, arg2:value2}
+
+    '''
+    sys_kwargs = {}
+    for arg in system_argument[1:]:
+        try:
+            var, value = arg.split('=')
+            try:
+                sys_kwargs[var] = int(value)
+            except:
+                sys_kwargs[var] = value
+        except:
+            print('Commnad line argument noy understood, arg = %s cannot be splited in variable name + value' %arg)
+
+    return sys_kwargs
 
 def getattr_mpi_attributes(system_argument):
     ''' This function call a function which supports mpi4py

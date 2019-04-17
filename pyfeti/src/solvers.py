@@ -74,6 +74,7 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
             
             norm_wk = np.linalg.norm(wk)
             proj_r_hist.append(norm_wk)
+            logging.debug('Iteration = %i, Norm of project residual wk = %2.5e!' %(k,norm_wk))
             if norm_wk<tolerance:
                 logging.info('PCG has converged after %i' %(k+1))
                 break
@@ -101,8 +102,8 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
             wk1 = wk[:]
 
         if k==(max_int-1):
-            logging.info('Maximum iteration was reached, MAX_INT = %i, without converging!' %k)
-            logging.info('Projected norm = %2.5e , where the PCPG tolerance is set to %2.5e' %(norm_wk,tolerance))
+            logging.warning('Maximum iteration was reached, MAX_INT = %i, without converging!' %k)
+            logging.warning('Projected norm = %2.5e , where the PCPG tolerance is set to %2.5e' %(norm_wk,tolerance))
 
         return lampda_pcpg, rk, proj_r_hist, lambda_hist
 

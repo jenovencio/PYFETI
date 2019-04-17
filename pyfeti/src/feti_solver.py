@@ -573,8 +573,8 @@ class ParallelSolverManager(SolverManager):
         mpi_obj.run()
         elapsed_time = time.time() - start_time
         logging.info('{"mpi_run" : %f} #Elapsed time (s)' %elapsed_time)
-        localtime = time.asctime( time.localtime(time.time()) )
-        logging.info('Local Time after mpi run: %s' %localtime
+        localtime = time.asctime( time.localtime(time.time()))
+        logging.info('Local Time after mpi run: %s' %localtime)
 
     def read_results(self):
         logging.info('Reading results from MPISolver')

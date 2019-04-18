@@ -458,7 +458,7 @@ if __name__ == "__main__":
     size = comm.Get_size()
 
     obj_id = rank + 1
-    logging.basicConfig(level=logging.DEBUG,filename='domain_' + str(obj_id) + '.log')
+    logging.basicConfig(level=logging.INFO,filename='domain_' + str(obj_id) + '.log')
     
     header ='###################################################################'
     system_argument = sys.argv

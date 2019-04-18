@@ -356,7 +356,7 @@ class ParallelSolver():
         method_to_call = getattr(solvers, algorithm)
         logging.info('Dual Interface algorithm = %s' %algorithm)
 
-        n_int = max(self.lambda_size*4,self.n_int)
+        n_int = max(self.lambda_size,self.n_int)
         lambda_ker, rk, proj_r_hist, lambda_hist = method_to_call(F_action,residual,Projection_action=Projection_action,
                                                          lambda_init=None,
                                                          Precondicioner_action=None,
@@ -501,6 +501,8 @@ if __name__ == "__main__":
         start_time = time.time()
         parsolver = ParallelSolver(obj_id,local_problem)
         u_i = parsolver.mpi_solver()
+        
+        comm.Barrier()
         elapsed_time = time.time() - start_time
 
         logging.info('Total Parallel solver elapsed time after loading data : %f' %elapsed_time)

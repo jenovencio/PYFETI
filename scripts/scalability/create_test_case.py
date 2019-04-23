@@ -116,7 +116,7 @@ if __name__ == '__main__':
             divY : Number of division in the Y direction, Default = 5
             divX : Number of local division in the X direction, Default = 5
             method : Method to compute the local pseudoinverse, Default = svd (splusps also avaliable)
-            FETI_algotihm : Type of FETI algorithm SerialFETIsolver of ParallelFETIsolver,  Default = ParallelFETIsolver
+            FETI_algorithm : Type of FETI algorithm SerialFETIsolver of ParallelFETIsolver,  Default = ParallelFETIsolver
 
             example of command call:
             > python  create_test_case.py max_mpi_size=10 divY=10 divX=10

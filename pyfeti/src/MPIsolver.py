@@ -146,6 +146,8 @@ class ParallelSolver():
 
         start_time = time.time()
         self.assemble_local_G_GGT_and_e()
+
+        logging.info('self.assemble_local_G_GGT_and_e()')
         G_dict = exchange_global_dict(self.course_problem.G_dict,self.obj_id,self.partitions_list)
         e_dict = exchange_global_dict(self.course_problem.e_dict,self.obj_id,self.partitions_list)
         self.course_problem.G_dict = G_dict
@@ -155,13 +157,18 @@ class ParallelSolver():
         self._exchange_global_size()
 
         self.assemble_cross_GGT()
+        logging.info('self.assemble_cross_GGT()')
         self.GGT_dict = self.course_problem.GGT_dict
         
         GGT_dict = exchange_global_dict(self.GGT_dict,self.obj_id,self.partitions_list)
+
+        logging.info('GGT_dict ')
         self.course_problem.GGT_dict = GGT_dict
         
         self.build_local_to_global_mapping()
-        
+        logging.info('build_local_to_global_mapping()')
+
+
         build_local_matrix_time = time.time() - start_time
 
         

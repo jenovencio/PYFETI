@@ -335,7 +335,6 @@ class ParallelSolver():
         
         #global exchange
         all_gap_dict = exchange_global_dict(gap_dict,self.obj_id,self.partitions_list)
-        comm.Barrier() 
         gap_dict.update(all_gap_dict)
 
         d = np.zeros(self.lambda_size)
@@ -349,15 +348,22 @@ class ParallelSolver():
         lambda_im = self.compute_lambda_im()
         G = self.G
         GGT_inv = self.GGT_inv
-        I = np.eye(self.lambda_size)
-        Projection_action = lambda r : (I - G.T.dot(GGT_inv.dot(G))).dot(r)
+        Projection_action = lambda r : r - G.T.dot(GGT_inv.dot(G.dot(r)))
         F_action = lambda lambda_ker : self.apply_F(lambda_ker)
         residual = -self.apply_F(lambda_im, external_force=True)
-
+        d = -self.apply_F(0.0*lambda_im, external_force=True)
+        norm_d = np.linalg.norm(d)
+        
+        logging.info('norm d  = %4.2e' %norm_d)
+        n_int = max(self.lambda_size,self.n_int)
+        tolerance = norm_d*self.tolerance    
+        logging.info('Setting PCPG tolerance = %4.2e' %tolerance)
+        logging.info('Setting PCPG max number of iterations = %i' %n_int)
         method_to_call = getattr(solvers, algorithm)
+        
         logging.info('Dual Interface algorithm = %s' %algorithm)
 
-        n_int = max(self.lambda_size,self.n_int)
+        
         lambda_ker, rk, proj_r_hist, lambda_hist = method_to_call(F_action,residual,Projection_action=Projection_action,
                                                          lambda_init=None,
                                                          Precondicioner_action=None,

@@ -3,6 +3,8 @@ import numpy as np
 from scipy import sparse
 from pyfeti.src.linalg import ProjectorOperator
 import logging
+from mpi4py import MPI
+
 
 def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
         Precondicioner_action=None,tolerance=1.e-10,max_int=500):
@@ -43,6 +45,10 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
 
         '''
          
+        comm = MPI.COMM_WORLD
+        rank = comm.Get_rank()
+        size = comm.Get_size()
+
         interface_size = len(residual)
          
         if lambda_init is None:
@@ -75,7 +81,16 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
             norm_wk = np.linalg.norm(wk)
             proj_r_hist.append(norm_wk)
             logging.info('Iteration = %i, Norm of project residual wk = %2.5e!' %(k,norm_wk))
-            if norm_wk<tolerance:
+            
+            # exchange info through MPI
+            sendbuf = np.array([norm_wk])
+            recvbuf = np.array([norm_wk])
+            comm.Allreduce(sendbuf,
+                            recvbuf,
+                            op = MPI.MAX)
+
+            logging.info('Max Norm of project residual in MPI wk = %2.5e!' %(recvbuf[0]))
+            if recvbuf[0]<tolerance:
                 logging.info('PCG has converged after %i' %(k+1))
                 break
 

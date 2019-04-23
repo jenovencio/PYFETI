@@ -151,6 +151,7 @@ class ParallelSolver():
         self.course_problem.G_dict = G_dict
         self.course_problem.e_dict = e_dict
         
+
         self._exchange_global_size()
 
         self.assemble_cross_GGT()
@@ -170,12 +171,13 @@ class ParallelSolver():
         G = self.assemble_G()
         e = self.assemble_e()
         
+        comm.Barrier()
         start_time = time.time()
         lambda_sol,alpha_sol, rk, proj_r_hist, lambda_hist = self.solve_dual_interface_problem()
         elaspsed_time_PCPG = time.time() - start_time
         logging.info('{"elaspsed_time_PCPG" : %2.4e} # Elapsed time' %elaspsed_time_PCPG)
 
-        
+        comm.Barrier()
         u_dict, lambda_dict, alpha_dict = self.assemble_solution_dict(lambda_sol,alpha_sol)
         
 
@@ -341,6 +343,7 @@ class ParallelSolver():
         for interface_id,global_index in self.local2global_lambda_dofs.items():
             d[global_index] += gap_dict[interface_id]
 
+        comm.Barrier()
         return -d
 
     def solve_dual_interface_problem(self,algorithm='PCPG'):

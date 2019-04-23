@@ -335,6 +335,7 @@ class ParallelSolver():
         
         #global exchange
         all_gap_dict = exchange_global_dict(gap_dict,self.obj_id,self.partitions_list)
+        comm.Barrier() 
         gap_dict.update(all_gap_dict)
 
         d = np.zeros(self.lambda_size)

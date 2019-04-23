@@ -74,7 +74,7 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
             
             norm_wk = np.linalg.norm(wk)
             proj_r_hist.append(norm_wk)
-            logging.debug('Iteration = %i, Norm of project residual wk = %2.5e!' %(k,norm_wk))
+            logging.info('Iteration = %i, Norm of project residual wk = %2.5e!' %(k,norm_wk))
             if norm_wk<tolerance:
                 logging.info('PCG has converged after %i' %(k+1))
                 break

@@ -82,18 +82,20 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
             proj_r_hist.append(norm_wk)
             logging.info('Iteration = %i, Norm of project residual wk = %2.5e!' %(k,norm_wk))
             
-            # exchange info through MPI
-            sendbuf = np.array([norm_wk])
-            recvbuf = np.array([norm_wk])
-            comm.Allreduce(sendbuf,
-                            recvbuf,
-                            op = MPI.MAX)
+            try:
+                # exchange info through MPI
+                sendbuf = np.array([norm_wk])
+                recvbuf, best_rank = comm.allreduce(sendobj=(sendbuf,rank), op=MPI.MINLOC)
+                norm_wk = recvbuf
+                logging.info('Min Norm of project residual wk = %2.5e at rank = %i ' %(norm_wk,best_rank))
+            except:
+                pass
 
-            logging.info('Max Norm of project residual in MPI wk = %2.5e!' %(recvbuf[0]))
-            if recvbuf[0]<tolerance:
+            if norm_wk<tolerance:
                 logging.info('PCG has converged after %i' %(k+1))
                 break
 
+           
             zk = Precond(wk)
             yk = P(zk)
 
@@ -120,6 +122,17 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
             logging.warning('Maximum iteration was reached, MAX_INT = %i, without converging!' %k)
             logging.warning('Projected norm = %2.5e , where the PCPG tolerance is set to %2.5e' %(norm_wk,tolerance))
 
+
+        #update residual and projected residual
+        try:
+            #if rank!=best_rank:
+            #    lampda_pcpg = None
+            #comm.Bcast(lampda_pcpg, root=best_rank)
+            #lampda_pcpg = comm.bcast(obj=lampda_pcpg, root=best_rank)
+            pass
+        except:
+            pass
+        
         return lampda_pcpg, rk, proj_r_hist, lambda_hist
 
 

@@ -363,6 +363,8 @@ class ParallelSolver():
                                                          Precondicioner_action=None,
                                                          tolerance=self.tolerance,max_int=n_int)
 
+        #logging.info(('lambda_ker = ',lambda_ker))
+
         lambda_sol = lambda_im + lambda_ker
 
         alpha_sol = GGT_inv.dot(G.dot(residual - self.apply_F(lambda_ker)))

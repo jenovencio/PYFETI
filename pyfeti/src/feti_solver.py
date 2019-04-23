@@ -63,23 +63,33 @@ class SerialFETIsolver(FETIsolver):
         
     def solve(self):
        manager = self.manager
+
+       start_time = time.time()
        manager.assemble_local_G_GGT_and_e()
        manager.assemble_cross_GGT()
        manager.build_local_to_global_mapping()
-       
+       build_local_matrix_time = time.time() - start_time
+
        G = manager.assemble_G()
        GGT = manager.assemble_GGT()
        e = manager.assemble_e()
        
+       start_time = time.time()
        lambda_sol,alpha_sol, rk, proj_r_hist, lambda_hist = manager.solve_dual_interface_problem()
+       elaspsed_time_PCPG = time.time() - start_time
+
        u_dict, lambda_dict, alpha_dict = manager.assemble_solution_dict(lambda_sol,alpha_sol)
+
+       elapsed_time = time.time() - start_time
        return Solution(u_dict, lambda_dict, alpha_dict,rk, proj_r_hist, lambda_hist,
                        lambda_map=self.manager.local2global_lambda_dofs,alpha_map=self.manager.local2global_alpha_dofs,
                        u_map=self.manager.local2global_primal_dofs,lambda_size=self.manager.lambda_size,
-                       alpha_size=self.manager.alpha_size)
+                       alpha_size=self.manager.alpha_size,
+                       solver_time=elapsed_time,local_matrix_time = build_local_matrix_time, 
+                       time_PCPG = elaspsed_time_PCPG)
         
 class SolverManager():
-    def __init__(self,K_dict,B_dict,f_dict,pseudoinverse_kargs={'method':'svd','tolerance':1.0E-8},dual_interface_algorithm='PCPG'):
+    def __init__(self,K_dict,B_dict,f_dict,pseudoinverse_kargs={'method':'svd','tolerance':1.0E-8},dual_interface_algorithm='PCPG',**kwargs):
         self.local_problem_dict = {}
         self.course_problem = CourseProblem()
         self.local2global_lambda_dofs = {}

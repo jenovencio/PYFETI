@@ -7,7 +7,7 @@ from pyfeti import utils
 from pyfeti.src.utils import OrderedSet, Get_dofs, save_object, dict2dfmap, sysargs2keydict
 from pyfeti import linalg
 from pyfeti import case_generator
-from pyfeti.src.feti_solver import ParallelFETIsolver
+from pyfeti.src import feti_solver
 import time, logging
 
 
@@ -116,8 +116,7 @@ if __name__ == '__main__':
             divY : Number of division in the Y direction, Default = 5
             divX : Number of local division in the X direction, Default = 5
             method : Method to compute the local pseudoinverse, Default = svd (splusps also avaliable)
-
-            
+            FETI_algotihm : Type of FETI algorithm SerialFETIsolver of ParallelFETIsolver,  Default = ParallelFETIsolver
 
             example of command call:
             > python  create_test_case.py max_mpi_size=10 divY=10 divX=10
@@ -162,6 +161,13 @@ if __name__ == '__main__':
 
         
         #variables
+
+        try: 
+            FETI_algorithm = keydict['FETI_algorithm']
+        except:
+            FETI_algorithm = 'ParallelFETIsolver'
+        logging.info('Set FETI algorithm  = %s' %FETI_algorithm)
+
         try:
             method = keydict['method']
         except:
@@ -245,7 +251,11 @@ if __name__ == '__main__':
 
             # calling parallel solver
             try:
-                solver_obj = ParallelFETIsolver(K_dict,B_dict,f_dict,temp_folder=script_folder,
+                #solver_obj = ParallelFETIsolver(K_dict,B_dict,f_dict,temp_folder=script_folder,
+                #                                pseudoinverse_kargs=pseudoinverse_kargs,
+                #                                dual_interface_algorithm=dual_interface_algorithm)
+                FETIsolver = getattr(feti_solver, FETI_algorithm)
+                solver_obj = FETIsolver(K_dict,B_dict,f_dict,temp_folder=script_folder,
                                                 pseudoinverse_kargs=pseudoinverse_kargs,
                                                 dual_interface_algorithm=dual_interface_algorithm)
                 start_time = time.time()

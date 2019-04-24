@@ -284,7 +284,7 @@ if __name__ == '__main__':
             logging.info('END OF MPI size : %i' %mpi_size)
             logging.info(header)
             logging.info('\n\n\n')
-            #os.system('rm -r ./ '+ str(mpi_size) + '/tmp/*.pkl')
+            os.system('rm -r ./ '+ str(mpi_size) + '/tmp/*.pkl')
 
     # back to original folder
     os.chdir(curdir)

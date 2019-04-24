@@ -43,6 +43,7 @@ def exchange_info(local_var,sub_id,nei_id,tag_id=15,isnumpy=False):
         nei_var : object of the neighbor
     
     '''    
+    logging.info('Init exchange_info')
 
     if isnumpy:
         # sending message to neighbors
@@ -57,6 +58,7 @@ def exchange_info(local_var,sub_id,nei_id,tag_id=15,isnumpy=False):
         # receiving messages from neighbors
         var_nei = comm.recv(source=nei_id-1)
         
+    logging.info('End exchange_info')
     return var_nei
 
 def exchange_global_dict(local_dict,local_id,partitions_list):
@@ -149,15 +151,21 @@ class ParallelSolver():
 
         logging.info('self.assemble_local_G_GGT_and_e()')
         G_dict = exchange_global_dict(self.course_problem.G_dict,self.obj_id,self.partitions_list)
+        logging.info('G_dict')
+
         e_dict = exchange_global_dict(self.course_problem.e_dict,self.obj_id,self.partitions_list)
+        logging.info('e_dict')
+
         self.course_problem.G_dict = G_dict
         self.course_problem.e_dict = e_dict
         
 
         self._exchange_global_size()
+        logging.info('self._exchange_global_size()')
 
         self.assemble_cross_GGT()
         logging.info('self.assemble_cross_GGT()')
+
         self.GGT_dict = self.course_problem.GGT_dict
         
         GGT_dict = exchange_global_dict(self.GGT_dict,self.obj_id,self.partitions_list)

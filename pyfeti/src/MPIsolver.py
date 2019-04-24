@@ -43,8 +43,9 @@ def exchange_info(local_var,sub_id,nei_id,tag_id=15,isnumpy=False):
         nei_var : object of the neighbor
     
     '''    
-    logging.info('Init exchange_info')
+    logging.debug('Init exchange_info')
 
+    #checking data type
     if isnumpy:
         # sending message to neighbors
         comm.Send(local_var, dest = nei_id-1)
@@ -60,22 +61,22 @@ def exchange_info(local_var,sub_id,nei_id,tag_id=15,isnumpy=False):
         
         var_nei  = comm.sendrecv(local_var,dest=nei_id-1,source=nei_id-1)
 
-    logging.info('End exchange_info')
+    logging.debug('End exchange_info')
     return var_nei
 
 def exchange_global_dict(local_dict,local_id,partitions_list):
     
-    logging.info('Init exchange_global_dict')
-    logging.info(('local_id =' ,local_id))
-    logging.info(('partitions_list =' ,partitions_list))
-    logging.info(('local_dict =' ,local_dict))
+    logging.debug('Init exchange_global_dict')
+    logging.debug(('local_id =' ,local_id))
+    logging.debug(('partitions_list =' ,partitions_list))
+    logging.debug(('local_dict =' ,local_dict))
     for global_id in partitions_list:
         if global_id!=local_id:
             nei_dict =  exchange_info(local_dict,local_id,global_id)
             if nei_dict:
                 local_dict.update(nei_dict)
 
-    logging.info('End exchange_global_dict')
+    logging.debug('End exchange_global_dict')
     return local_dict
 
 
@@ -154,40 +155,33 @@ class ParallelSolver():
 
         start_time = time.time()
 
-        logging.info('self.assemble_local_G_GGT_and_e()')
+        logging.info('Assembling  local G, GGT, and e')
         self.assemble_local_G_GGT_and_e()
 
-        logging.info('G_dict')
-        G_dict = exchange_global_dict(self.course_problem.G_dict,self.obj_id,self.partitions_list)
         
-        logging.info('e_dict')
+        G_dict = exchange_global_dict(self.course_problem.G_dict,self.obj_id,self.partitions_list)
         e_dict = exchange_global_dict(self.course_problem.e_dict,self.obj_id,self.partitions_list)
         
-
         self.course_problem.G_dict = G_dict
         self.course_problem.e_dict = e_dict
         
-
+        logging.info('Exchange global size')
         self._exchange_global_size()
-        logging.info('self._exchange_global_size()')
+        
 
         self.assemble_cross_GGT()
-        logging.info('self.assemble_cross_GGT()')
-
+        
         self.GGT_dict = self.course_problem.GGT_dict
         
         GGT_dict = exchange_global_dict(self.GGT_dict,self.obj_id,self.partitions_list)
 
-        logging.info('GGT_dict ')
+        
         self.course_problem.GGT_dict = GGT_dict
         
         self.build_local_to_global_mapping()
-        logging.info('build_local_to_global_mapping()')
-
-
+        
         build_local_matrix_time = time.time() - start_time
 
-        
         GGT = self.assemble_GGT()
         logging.info('GGT size = %i' %GGT.shape[0])
         logging.debug(('GGT = ', GGT))
@@ -195,6 +189,7 @@ class ParallelSolver():
         e = self.assemble_e()
         
         comm.Barrier()
+
         start_time = time.time()
         lambda_sol,alpha_sol, rk, proj_r_hist, lambda_hist = self.solve_dual_interface_problem()
         elaspsed_time_PCPG = time.time() - start_time

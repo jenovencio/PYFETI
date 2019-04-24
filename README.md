@@ -7,7 +7,7 @@ Coverage Report for Refactoring 2018:
 [![coverage report](https://gitlab.lrz.de/AM/pyfeti/badges/master/coverage.svg)](https://gitlab.lrz.de/AM/pyfeti/commits/master)
 
 Pipeline Status:
-[![pipeline status](https://gitlab.lrz.de/AM/pyfeti/badges/pipeline.svg)](https://gitlab.lrz.de/AM/pyfeti/commits/master)
+[![pipeline status](https://gitlab.lrz.de/AM/pyfeti/badges/master/pipeline.svg)](https://gitlab.lrz.de/AM/pyfeti/commits/master)
 
 # Dependecies
 * NumPy

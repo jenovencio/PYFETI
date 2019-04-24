@@ -53,11 +53,13 @@ def exchange_info(local_var,sub_id,nei_id,tag_id=15,isnumpy=False):
         comm.Recv(var_nei,source=nei_id-1)
     else:
         # sending message to neighbors
-        tag_num = nei_id + sub_id + tag_id + nei_id*sub_id
-        comm.send(local_var, dest = nei_id-1)
+        #tag_num = nei_id + sub_id + tag_id + nei_id*sub_id
+        #comm.send(local_var, dest = nei_id-1)
         # receiving messages from neighbors
-        var_nei = comm.recv(source=nei_id-1)
+        #var_nei = comm.recv(source=nei_id-1)
         
+        var_nei  = comm.sendrecv(local_var,dest=nei_id-1,source=nei_id-1)
+
     logging.info('End exchange_info')
     return var_nei
 
@@ -151,14 +153,16 @@ class ParallelSolver():
         '''
 
         start_time = time.time()
-        self.assemble_local_G_GGT_and_e()
 
         logging.info('self.assemble_local_G_GGT_and_e()')
-        G_dict = exchange_global_dict(self.course_problem.G_dict,self.obj_id,self.partitions_list)
-        logging.info('G_dict')
+        self.assemble_local_G_GGT_and_e()
 
-        e_dict = exchange_global_dict(self.course_problem.e_dict,self.obj_id,self.partitions_list)
+        logging.info('G_dict')
+        G_dict = exchange_global_dict(self.course_problem.G_dict,self.obj_id,self.partitions_list)
+        
         logging.info('e_dict')
+        e_dict = exchange_global_dict(self.course_problem.e_dict,self.obj_id,self.partitions_list)
+        
 
         self.course_problem.G_dict = G_dict
         self.course_problem.e_dict = e_dict

@@ -4,10 +4,10 @@
 PYFETI is a standalone Python Library to solve and implemented parallel FETI-Like solvers using mpi4py.
 
 Coverage Report for Refactoring 2018:
-[![coverage report](https://gitlab.lrz.de/AMCode/pyfeti/badges/coverage.svg)](https://gitlab.lrz.de/AMCode/pyfeti/commits/master)
+[![coverage report](https://gitlab.lrz.de/AM/pyfeti/badges/master/coverage.svg)](https://gitlab.lrz.de/AM/pyfeti/commits/master)
 
 Pipeline Status:
-[![pipeline status](https://gitlab.lrz.de/AMCode/pyfeti/badges/pipeline.svg)](https://gitlab.lrz.de/AMCode/pyfeti/commits/master)
+[![pipeline status](https://gitlab.lrz.de/AM/pyfeti/badges/pipeline.svg)](https://gitlab.lrz.de/AM/pyfeti/commits/master)
 
 # Dependecies
 * NumPy

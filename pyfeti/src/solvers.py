@@ -4,7 +4,7 @@ from scipy import sparse
 from pyfeti.src.linalg import ProjectorOperator
 import logging
 from mpi4py import MPI
-
+import time
 
 def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
         Precondicioner_action=None,tolerance=1.e-10,max_int=500):
@@ -69,6 +69,7 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
         F = F_action
 
         # initialize variables
+        start_time = time.time()
         beta = 0.0
         yk1 = np.zeros(interface_size)
         wk1 = np.zeros(interface_size)
@@ -80,16 +81,17 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
             
             norm_wk = np.linalg.norm(wk)
             proj_r_hist.append(norm_wk)
-            logging.info('Iteration = %i, Norm of project residual wk = %2.5e!' %(k,norm_wk))
+            elapsed_time = time.time() - start_time
+            logging.info('Time Duration %4.2e (s), Iteration = %i, Norm of project residual wk = %2.5e!' %(elapsed_time,k,norm_wk))
             
-            try:
-                # exchange info through MPI
-                sendbuf = np.array([norm_wk])
-                recvbuf, best_rank = comm.allreduce(sendobj=(sendbuf,rank), op=MPI.MINLOC)
-                norm_wk = recvbuf
-                logging.info('Min Norm of project residual wk = %2.5e at rank = %i ' %(norm_wk,best_rank))
-            except:
-                pass
+            #try:
+            #    # exchange info through MPI
+            #    sendbuf = np.array([norm_wk])
+            #    recvbuf, best_rank = comm.allreduce(sendobj=(sendbuf,rank), op=MPI.MINLOC)
+            #    norm_wk = recvbuf
+            #    logging.info('Min Norm of project residual wk = %2.5e at rank = %i ' %(norm_wk,best_rank))
+            #except:
+            #    pass
 
             if norm_wk<tolerance:
                 logging.info('PCG has converged after %i' %(k+1))
@@ -118,18 +120,20 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
             pk1 = pk[:]
             wk1 = wk[:]
 
+            start_time = time.time()
+
         if k==(max_int-1):
             logging.warning('Maximum iteration was reached, MAX_INT = %i, without converging!' %k)
             logging.warning('Projected norm = %2.5e , where the PCPG tolerance is set to %2.5e' %(norm_wk,tolerance))
 
 
         #update residual and projected residual
-        try:
-            if rank!=best_rank:
-                lampda_pcpg = 0.0*lampda_pcpg
-            comm.Bcast([lampda_pcpg,MPI.DOUBLE], root=best_rank)
-        except:
-            pass
+        #try:
+        #    if rank!=best_rank:
+        #        lampda_pcpg = 0.0*lampda_pcpg
+        #    comm.Bcast([lampda_pcpg,MPI.DOUBLE], root=best_rank)
+        #except:
+        #    pass
 
         return lampda_pcpg, rk, proj_r_hist, lambda_hist
 

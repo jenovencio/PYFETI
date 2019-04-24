@@ -125,14 +125,12 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
 
         #update residual and projected residual
         try:
-            #if rank!=best_rank:
-            #    lampda_pcpg = None
-            #comm.Bcast(lampda_pcpg, root=best_rank)
-            #lampda_pcpg = comm.bcast(obj=lampda_pcpg, root=best_rank)
-            pass
+            if rank!=best_rank:
+                lampda_pcpg = 0.0*lampda_pcpg
+            comm.Bcast([lampda_pcpg,MPI.DOUBLE], root=best_rank)
         except:
             pass
-        
+
         return lampda_pcpg, rk, proj_r_hist, lambda_hist
 
 

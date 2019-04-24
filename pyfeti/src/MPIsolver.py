@@ -305,14 +305,18 @@ class ParallelSolver():
                 self.global2local_alpha_dofs[tuple(global_alpha_index)] = {local_id:local_alpha_dofs}
                     
         dof_lambda_init = 0
-        for local_id,nei_id in self.local_lambda_length_dict:
-            if nei_id>local_id:
-                local_lambda_length = self.local_lambda_length_dict[local_id,nei_id]
-                local_dofs = np.arange(local_lambda_length) 
-                global_index = dof_lambda_init + local_dofs
-                dof_lambda_init+=local_lambda_length
-                self.local2global_lambda_dofs[local_id,nei_id] = global_index 
-                self.global2local_lambda_dofs[tuple(global_index)] = {(local_id,nei_id):local_dofs}
+        for local_id in self.partitions_list:
+            for nei_id in self.partitions_list:
+                if nei_id>local_id:
+                    try:
+                        local_lambda_length = self.local_lambda_length_dict[local_id,nei_id]
+                        local_dofs = np.arange(local_lambda_length) 
+                        global_index = dof_lambda_init + local_dofs
+                        dof_lambda_init+=local_lambda_length
+                        self.local2global_lambda_dofs[local_id,nei_id] = global_index 
+                        self.global2local_lambda_dofs[tuple(global_index)] = {(local_id,nei_id):local_dofs}
+                    except:
+                        pass
 
         self.lambda_size = dof_lambda_init
         self.alpha_size = dof_alpha_init
@@ -390,10 +394,14 @@ class ParallelSolver():
                                                          Precondicioner_action=None,
                                                          tolerance=self.tolerance,max_int=n_int)
 
-        #logging.info(('lambda_ker = ',lambda_ker))
+        
+
+        
 
         lambda_sol = lambda_im + lambda_ker
-
+        logging.debug(('lambda_im=',lambda_im))
+        logging.debug(('lambda_sol=',lambda_sol))
+        
         alpha_sol = GGT_inv.dot(G.dot(residual - self.apply_F(lambda_ker)))
 
         return lambda_sol,alpha_sol, rk, proj_r_hist, lambda_hist

@@ -23,6 +23,7 @@ from scipy import sparse
 from scipy.sparse import csc_matrix, issparse, lil_matrix, linalg as sla
 from scipy import linalg
 from scipy.sparse.linalg import LinearOperator
+from scipy.sparse.linalg import inv as sparseinv
 
 import sys
 sys.path.append('../..')
@@ -308,6 +309,11 @@ def is_null_space(K,v, tol=1.0E-3):
     else:
         return False
 
+def cal_schur_complement(K_ii, K_ib, K_bb):
+    K_ii_inv = SparseMatrix(K_ii.inverse())
+    K_bi = SparseMatrix(K_ib.data.T)
+    K_help = K_ii_inv.dot(K_ib.data)
+    return K_bb.data - K_bi.dot(K_help)
 
 class LinearSys():
     def __init__(self,A,M,alg='splu'):
@@ -929,10 +935,10 @@ class Matrix():
         return np.sort(w)[::-1]
 
     def dot(self,x):
-        return K.dot(x)
+        return np.dot(self.data, x)
         
     def inverse(self):
-        pass
+        return np.inv(self.data)
         
     @property
     def kernel(self):
@@ -1003,6 +1009,13 @@ class SparseMatrix(Matrix):
     '''
     def __init__(self,K,key_dict={}):
         super().__init__(K,key_dict={})
+        if not issparse(K):
+            self.data = csc_matrix(K)
+
+    def inverse(self):
+        return sparseinv(self.data)
+
+
 
 
 class Vector():

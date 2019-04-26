@@ -5,7 +5,7 @@ import pandas as pd
 import os
 from scipy import sparse
 from scipy.sparse.linalg import LinearOperator
-from scipy.sparse import csc_matrix, issparse
+from scipy.sparse import csc_matrix, csr_matrix, lil_matrix, issparse
 from unittest import TestCase, main
 import logging
 import time
@@ -17,6 +17,7 @@ from pyfeti.src.utils import OrderedSet, Get_dofs, save_object, load_object, pyf
 from pyfeti.src.linalg import Matrix, Vector, elimination_matrix_from_map_dofs, \
                               expansion_matrix_from_map_dofs, ProjLinearSys, ProjPrecondLinearSys
 from pyfeti.src import solvers
+from pyfeti.src.preconditioner import *
 
 
 # geting path of MPI executable
@@ -70,6 +71,8 @@ class SerialFETIsolver(FETIsolver):
        G = manager.assemble_G()
        GGT = manager.assemble_GGT()
        e = manager.assemble_e()
+
+       manager.assemble_preconditioner()
        
        lambda_sol,alpha_sol, rk, proj_r_hist, lambda_hist = manager.solve_dual_interface_problem()
        u_dict, lambda_dict, alpha_dict = manager.assemble_solution_dict(lambda_sol,alpha_sol)
@@ -79,7 +82,7 @@ class SerialFETIsolver(FETIsolver):
                        alpha_size=self.manager.alpha_size)
         
 class SolverManager():
-    def __init__(self,K_dict,B_dict,f_dict,pseudoinverse_kargs={'method':'svd','tolerance':1.0E-8},dual_interface_algorithm='PCPG'):
+    def __init__(self,K_dict,B_dict,f_dict,pseudoinverse_kargs={'method':'svd','tolerance':1.0E-8},dual_interface_algorithm={'method':'PCPG', 'preconditioner': 'assembled', 'local_preconditioner': 'None'}):
         self.local_problem_dict = {}
         self.course_problem = CourseProblem()
         self.local2global_lambda_dofs = {}
@@ -99,30 +102,56 @@ class SolverManager():
         self.G = None
         self.e = None
         self.GGT = None
-        self.num_partitions =  len(K_dict.keys())
+        self.num_partitions = len(K_dict.keys())
         self.map_dofs = None
         self.tolerance = 1.e-10
         self.pseudoinverse_kargs = pseudoinverse_kargs
-        self.dual_interface_algorithm = dual_interface_algorithm
+        self.dual_interface_algorithm = dual_interface_algorithm['method']
         self.is_local_G_GGT_and_e_computed = False
-        self._create_local_problems(K_dict,B_dict,f_dict)
-        
 
+        if 'preconditioner' not in dual_interface_algorithm or dual_interface_algorithm['preconditioner'] is 'assembled':
+            self.preconditioner = PreconditionerAssembler()
+        else:
+            print('WARNING: Global preconditioner ', dual_interface_algorithm['preconditioner'], ' not implemented and set to default assembler.')
+            self.preconditioner = PreconditionerAssembler()
+
+        if 'local_preconditioner' in dual_interface_algorithm:
+            self.preconditioner_type_local = dual_interface_algorithm['local_preconditioner']
+        else:
+            self.preconditioner_type_local = 'None'
+
+        self._create_local_problems(K_dict, B_dict, f_dict)
 
     @property
     def GGT_inv(self):
         return self.course_problem.compute_GGT_inv()
 
     def _create_local_problems(self,K_dict,B_dict,f_dict):
-        
+
         for key, obj in K_dict.items():
             B_local_dict = B_dict[key]
             self.local_problem_id_list.append(key)
-            self.local_problem_dict[key] = LocalProblem(obj,B_local_dict,f_dict[key],id=key,pseudoinverse_kargs=self.pseudoinverse_kargs)
+            self.local_problem_dict[key] = LocalProblem(obj,B_local_dict,f_dict[key],id=key,pseudoinverse_kargs=self.pseudoinverse_kargs, preconditioner_type_local = self.preconditioner_type_local)
             for interface_id, B in B_local_dict.items():
                 self.local_lambda_length_dict[interface_id] = B.shape[0]
         
         self.local_problem_id_list.sort()
+
+    def assemble_preconditioner(self):
+
+        self.preconditioner.preallocate(self.lambda_size)
+        for problem_id, local_problem in self.local_problem_dict.items():
+            local_precond_dict = local_problem.preconditioner_local
+
+            for interface_id, local_precond in local_precond_dict.items():
+                if interface_id[1] > interface_id[0]:
+                    global_indices = self.local2global_lambda_dofs[interface_id]
+                else:
+                    global_indices = self.local2global_lambda_dofs[(interface_id[1], interface_id[0])]
+
+                local_precond_expanded = lil_matrix((self.lambda_size, self.lambda_size))
+                local_precond_expanded[np.ix_(global_indices, global_indices)] = local_precond
+                self.preconditioner.assemble(local_precond_expanded)
 
     def assemble_local_G_GGT_and_e(self):
         
@@ -212,13 +241,14 @@ class SolverManager():
         I = np.eye(self.lambda_size)
         Projection_action = lambda r : (I - G.T.dot(GGT_inv.dot(G))).dot(r)
         F_action = lambda lambda_ker : self.apply_F(lambda_ker)
+        precondition = lambda search_dirs : self.preconditioner.precondition(search_dirs)
         residual = -self.apply_F(lambda_im, external_force=True)
 
         method_to_call = getattr(solvers, algorithm)
 
         lambda_ker, rk, proj_r_hist, lambda_hist = method_to_call(F_action,residual,Projection_action=Projection_action,
                                                          lambda_init=None,
-                                                         Precondicioner_action=None,
+                                                         Precondicioner_action=precondition,
                                                          tolerance=self.tolerance,max_int=max(self.lambda_size*4,10))
 
         lambda_sol = lambda_im + lambda_ker
@@ -512,14 +542,14 @@ class SolverManager():
 
 
 class ParallelSolverManager(SolverManager):
-    def __init__(self,K_dict,B_dict,f_dict,pseudoinverse_kargs={'method':'svd','tolerance':1.0E-8},temp_folder='temp',**kwargs):
+    def __init__(self,K_dict,B_dict,f_dict,pseudoinverse_kargs={'method':'svd','tolerance':1.0E-8},dual_interface_algorithm={'method':'PCPG', 'preconditioner': 'assembled', 'local_preconditioner': 'Dirichlet'}, temp_folder='temp',**kwargs):
         self.temp_folder = temp_folder
         self.local_problem_path = {}
         self.prefix = 'local_problem_'
         self.ext = '.pkl'
         self.log = True
         self.pseudoinverse_kargs = pseudoinverse_kargs
-        super().__init__(K_dict,B_dict,f_dict,**kwargs)
+        super().__init__(K_dict,B_dict,f_dict,dual_interface_algorithm=dual_interface_algorithm, **kwargs)
         
     def _create_local_problems(self,K_dict,B_dict,f_dict,temp_folder=None):
         if temp_folder is None:
@@ -606,7 +636,7 @@ class ParallelFETIsolver(FETIsolver):
 
 class LocalProblem():
     counter = 0
-    def __init__(self,K_local, B_local, f_local,id,pseudoinverse_kargs={'method':'svd','tolerance':1.0E-8}):
+    def __init__(self,K_local, B_local, f_local,id,pseudoinverse_kargs={'method':'svd','tolerance':1.0E-8}, preconditioner_type_local='None'):
         LocalProblem.counter+=1
         if isinstance(K_local,Matrix):
             self.K_local = K_local
@@ -621,12 +651,39 @@ class LocalProblem():
 
         self.B_local = B_local
         self.solution = None
-        
         self.id = id
         self.interface_size =  0
         self.neighbors_id = []
         self.crosspoints = {}
         self.get_neighbors_id()
+        self.interior_dofs = None
+        self.interface_dofs = None
+        self.initialize_local_preconditioner(preconditioner_type_local)
+
+
+    @property
+    def preconditioner_local(self):
+        preconditioner_local_dict = {}
+        for interface_id, Bij in self.B_local.items():
+            if not issparse(Bij):
+                Bij = csr_matrix(Bij)
+            preconditioner_local_dict[interface_id] = self.preconditioner_local_obj.build_local_preconditioner(Bij)
+        return preconditioner_local_dict
+
+    def initialize_local_preconditioner(self, preconditioner_type_local):
+        self.preconditioner_local_obj = self._create_preconditioner_obj(preconditioner_type_local, self.K_local, self.B_local)
+
+    def _create_preconditioner_obj(self, preconditioner_type_local, K, B):
+        if preconditioner_type_local is 'None':
+            preconditioner_local = NoPreconditioner(K, B)
+        elif preconditioner_type_local is 'Dirichlet':
+            preconditioner_local = DirichletPreconditioner(K, B)
+        elif preconditioner_type_local is 'Lumped':
+            preconditioner_local = LumpedPreconditioner(K, B)
+        else:
+            print('Wrong local preconditioner-type ', preconditioner_type_local, '. Using no preconditioner.')
+            preconditioner_local = NoPreconditioner(K, B)
+        return preconditioner_local
 
     def get_neighbors_id(self):
         for nei_id, obj in self.B_local.items():

@@ -170,7 +170,7 @@ if __name__ == '__main__':
 
 
         try: 
-            tol = keydict['tol']
+            tol = float(keydict['tol'])
         except:
             tol = 1.0E-8
         logging.info('PCPG tolerance  = %2.2e' %tol)

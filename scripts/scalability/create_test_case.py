@@ -117,7 +117,7 @@ if __name__ == '__main__':
             divX : Number of local division in the X direction, Default = 5
             method : Method to compute the local pseudoinverse, Default = svd (splusps also avaliable)
             FETI_algorithm : Type of FETI algorithm SerialFETIsolver of ParallelFETIsolver,  Default = ParallelFETIsolver
-
+            tol : tolerance of PCPG error norm, Default = 1.0E-8
             example of command call:
             > python  create_test_case.py max_mpi_size=10 divY=10 divX=10
             '''
@@ -167,6 +167,13 @@ if __name__ == '__main__':
         except:
             FETI_algorithm = 'ParallelFETIsolver'
         logging.info('Set FETI algorithm  = %s' %FETI_algorithm)
+
+
+        try: 
+            tol = keydict['tol']
+        except:
+            tol = 1.0E-8
+        logging.info('PCPG tolerance  = %2.2e' %tol)
 
         try:
             method = keydict['method']
@@ -241,7 +248,7 @@ if __name__ == '__main__':
             
 
             # solver parameters
-            pseudoinverse_kargs={'method':method,'tolerance':1.0E-8}
+            pseudoinverse_kargs={'method':method,'tolerance':tol}
             dual_interface_algorithm = 'PCPG'
 
             logging.info('{"dual_interface_algorithm" :  "%s"}' %dual_interface_algorithm)

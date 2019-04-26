@@ -389,7 +389,7 @@ class  Test_FETIsolver(TestCase):
                     print('Number of Subdomain in Y direction : %i ' %ny)
                     K_dict, B_dict, f_dict = create_FETI_case(case_id,nx,ny)
                     
-                    solver_obj = algorithm(K_dict,B_dict,f_dict,dual_interface_algorithm='PCPG')
+                    solver_obj = algorithm(K_dict,B_dict,f_dict,dual_interface_algorithm={'method':'PCPG'})
                     start_time = time.time()
                     sol_obj = solver_obj.solve()
                     elapsed_time = time.time() - start_time

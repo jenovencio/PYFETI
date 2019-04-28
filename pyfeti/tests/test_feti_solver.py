@@ -281,7 +281,7 @@ class  Test_FETIsolver(TestCase):
         u_dual_calc = Lexp@u_primal
         norm1 = np.linalg.norm(u_dual)
         norm2 = np.linalg.norm(u_dual_calc)
-        np.testing.assert_almost_equal(u_dual/norm1,u_dual_calc/norm2,decimal=8)
+        np.testing.assert_almost_equal(u_dual/norm2,u_dual_calc/norm2,decimal=8)
         return u_primal
 
     def postproc(self,sol_obj):
@@ -289,14 +289,14 @@ class  Test_FETIsolver(TestCase):
         domain_list = self.domain_list
         L = self.L
         Lexp = self.Lexp
-        u_dual = np.array([])
+    
         u_dict  = sol_obj.u_dict
         lambda_dict = sol_obj.lambda_dict
         alpha_dict = sol_obj.alpha_dict
         
-        for domain_id in domain_list:
-            u_dual = np.append(u_dual,u_dict[domain_id])
+        
 
+        u_dual = sol_obj.displacement
         u_global = self.u_global
         u_primal = L.dot(u_dual)
         u_dual_calc = Lexp.dot(u_global)
@@ -316,9 +316,21 @@ class  Test_FETIsolver(TestCase):
                         + B_dict[nei_id][nei_id,domain_id]*u_dict[nei_id]
                     np.testing.assert_almost_equal(interface_gap,0*interface_gap,decimal=10)
 
-    def test_serial_solver(self):
+    def test_serial_preconditioner(self):
+
+        u_dual, sol_obj_1 = self.test_serial_solver(precond_type=None)
+        u_dual_lumped, sol_obj_2 = self.test_serial_solver(precond_type='Lumped')
+        u_dual_dir, sol_obj_3 = self.test_serial_solver(precond_type='Dirichlet')
+
+        np.testing.assert_almost_equal( u_dual, u_dual_lumped,decimal=10)
+        np.testing.assert_almost_equal( u_dual, u_dual_dir,decimal=10)
+
+        self.assertTrue(sol_obj_1.PCGP_iterations>=sol_obj_2.PCGP_iterations)
+        self.assertTrue(sol_obj_2.PCGP_iterations>=sol_obj_3.PCGP_iterations)
+
+    def test_serial_solver(self,precond_type=None):
         print('Testing Serial FETI solver ..........\n\n')
-        solver_obj = SerialFETIsolver(self.K_dict,self.B_dict,self.f_dict)
+        solver_obj = SerialFETIsolver(self.K_dict,self.B_dict,self.f_dict,precond_type=precond_type,tolerance=1E-11)
         sol_obj = solver_obj.solve()
         self.postproc(sol_obj)
 
@@ -331,6 +343,8 @@ class  Test_FETIsolver(TestCase):
         np.testing.assert_almost_equal( self.u_global,u_primal,decimal=10)
 
         print('end Serial FETI solver ..........\n\n')
+        return u_dual, sol_obj
+
 
     def test_elimination_matrix(self):
 
@@ -367,7 +381,7 @@ class  Test_FETIsolver(TestCase):
         print('end Parallel FETI solver ..........\n\n')
 
     def test_parallel_solver_cases(self):
-        solver_obj = self.run_solver_cases(algorithm=ParallelFETIsolver)
+        solver_obj,sol_obj = self.run_solver_cases(algorithm=ParallelFETIsolver)
         try:
             solver_obj.manager.delete()
         except:
@@ -376,10 +390,22 @@ class  Test_FETIsolver(TestCase):
     def test_serial_solver_cases(self):
         self.run_solver_cases(algorithm=SerialFETIsolver)
 
-    def run_solver_cases(self,algorithm=SerialFETIsolver):
+    def test_serial_solver_cases_precond(self):
+        solver_obj,sol_obj_1 = self.run_solver_cases(algorithm=SerialFETIsolver,precond_type=None)
+        solver_obj,sol_obj_2 = self.run_solver_cases(algorithm=SerialFETIsolver,precond_type="Lumped")
+        solver_obj,sol_obj_3 = self.run_solver_cases(algorithm=SerialFETIsolver,precond_type="Dirichlet")
+        solver_obj,sol_obj_4 = self.run_solver_cases(algorithm=SerialFETIsolver,precond_type="LumpedDirichlet")
 
-        domin_list_x = [1,2,] 
-        domin_list_y = [1,2] 
+        np.testing.assert_almost_equal( sol_obj_1.displacement, sol_obj_2.displacement,decimal=10)
+        np.testing.assert_almost_equal( sol_obj_1.displacement, sol_obj_3.displacement,decimal=10)
+
+        self.assertTrue(sol_obj_1.PCGP_iterations>=sol_obj_2.PCGP_iterations)
+        self.assertTrue(sol_obj_2.PCGP_iterations>=sol_obj_3.PCGP_iterations)
+
+    def run_solver_cases(self,algorithm=SerialFETIsolver,precond_type=None):
+
+        domin_list_x = [4] 
+        domin_list_y = [4] 
         case_id_list = [1,2] 
         for case_id in case_id_list:
             for ny in domin_list_y:
@@ -389,7 +415,7 @@ class  Test_FETIsolver(TestCase):
                     print('Number of Subdomain in Y direction : %i ' %ny)
                     K_dict, B_dict, f_dict = create_FETI_case(case_id,nx,ny)
                     
-                    solver_obj = algorithm(K_dict,B_dict,f_dict,dual_interface_algorithm='PCPG')
+                    solver_obj = algorithm(K_dict,B_dict,f_dict,dual_interface_algorithm='PCPG',precond_type=precond_type)
                     start_time = time.time()
                     sol_obj = solver_obj.solve()
                     elapsed_time = time.time() - start_time
@@ -397,7 +423,7 @@ class  Test_FETIsolver(TestCase):
                     u_dual,lambda_,alpha = self.postprocessing(sol_obj,solver_obj)
                     print('end %s ..........\n\n\n' %algorithm.__name__)
 
-        return solver_obj
+        return solver_obj,sol_obj
       
     def test_compare_serial_and_parallel_solver_slusps(self):
         pseudoinverse_kargs={'method':'splusps','tolerance':1.0E-8}
@@ -584,10 +610,12 @@ class  Test_FETIsolver(TestCase):
 
 if __name__=='__main__':
 
-    main()
-    #test_obj = Test_FETIsolver()
+    #main()
+    test_obj = Test_FETIsolver()
     #test_obj.setUp()
     #test_obj.test_serial_solver()
+    #test_obj.test_serial_preconditioner()
+    test_obj.test_serial_solver_cases_precond()
     #test_obj.test_parallel_solver()
     #test_obj.test_parallel_solver_cases()
     #test_obj.test_serial_solver_cases()

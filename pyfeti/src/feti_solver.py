@@ -218,6 +218,28 @@ class SolverManager():
 
         return gap_dict
 
+    def solve_interface_force(self,gap_dict,**kwargs):
+        gap_f_dict = {}
+        for problem_id, local_problem in self.local_problem_dict.items():
+            f_dict_local = local_problem.apply_schur_complement(gap_dict,**kwargs)
+            gap_f_dict.update(f_dict_local)
+
+
+        # compute interface force avg
+        f_dict = {}
+        for interface_id in gap_dict:
+            local_id, nei_id = interface_id
+            if nei_id>local_id:
+                gap = gap_f_dict[local_id,nei_id] + gap_f_dict[nei_id,local_id]
+                f_dict [local_id, nei_id] = gap
+                f_dict [nei_id, local_id] = gap
+            elif nei_id==local_id:
+                gap = u_dict[local_id,nei_id] 
+                f_dict[local_id, nei_id] = gap
+
+
+        return f_dict
+
     def solve_dual_interface_problem(self,algorithm=None):
         
         if algorithm is None:
@@ -229,6 +251,17 @@ class SolverManager():
         I = np.eye(self.lambda_size)
         Projection_action = lambda r : (I - G.T.dot(GGT_inv.dot(G))).dot(r)
         F_action = lambda lambda_ker : self.apply_F(lambda_ker)
+
+        Precondicioner_action = None
+        try:
+            precond_type = self.precond_type
+            if self.precond_type is not None:
+                Precondicioner_action = lambda gap_u : self.apply_F_inv(gap_u,precond_type=precond_type )
+        except:
+            pass
+            
+
+
         residual = -self.apply_F(lambda_im, external_force=True)
         d = -self.apply_F(0.0*lambda_im, external_force=True)
         norm_d = np.linalg.norm(d)
@@ -247,7 +280,7 @@ class SolverManager():
 
         lambda_ker, rk, proj_r_hist, lambda_hist = method_to_call(F_action,residual,Projection_action=Projection_action,
                                                          lambda_init=None,
-                                                         Precondicioner_action=None,
+                                                         Precondicioner_action=Precondicioner_action,
                                                          tolerance=tolerance,max_int=max_int)
 
         lambda_sol = lambda_im + lambda_ker
@@ -274,6 +307,16 @@ class SolverManager():
             d[global_index] += gap_dict[interface_id]
 
         return -d
+
+    def apply_F_inv(self,v,**kwargs):
+        v_dict = self.vector2localdict(v, self.global2local_lambda_dofs)
+        gap_dict = self.solve_interface_force(v_dict,**kwargs)
+
+        d = np.zeros(self.lambda_size)
+        for interface_id,global_index in self.local2global_lambda_dofs.items():
+            d[global_index] += gap_dict[interface_id]
+
+        return d
 
     def build_local_to_global_mapping(self):
         ''' This method create maps between local domain and the global
@@ -679,7 +722,11 @@ class LocalProblem():
         self.crosspoints = {}
         self.interface_set = set()
         self.interior_set = set()
+        self.scalling = None
         self.get_neighbors_id()
+        self.compute_interface_dof_set()
+        self.compute_interior_dof_set()
+        self.compute_neighbor_scalling_array()
 
     def get_neighbors_id(self):
         for nei_id, obj in self.B_local.items():
@@ -705,6 +752,92 @@ class LocalProblem():
         
         self.interior_set.update(set(list(range(self.length)))-self.interface_set)
         return self.interior_set
+
+    def compute_neighbor_scalling_array(self):
+        ''' This method compute an array with dimension
+        equal to the self.length size, and values equal 
+        to number of neighbors + 1
+        '''
+        
+        scalling = np.ones(self.length, dtype=np.int)
+        for key, B in self.B_local.items():
+            scalling[B.nonzero()[1]] += 1 
+
+        self.scalling = scalling
+        return self.scalling
+
+    def expand_interface_gap(self,gap_dict):
+        ''' This method expands a u gap_dict given at the interface
+        pairs to the whole domain, named [ub, ui] based on 
+        scalling B.T expation.
+        
+        u = scalling sum [B i u ij]
+
+        ub_dict = self.get_interface(u)
+
+        returns:
+            u : np.array
+                array with primal variables 
+        '''
+        u = np.zeros(self.length)
+        for interface_id, B in self.B_local.items():
+                (local_id,nei_id) = interface_id
+                if local_id>nei_id:
+                    interface_id = (nei_id,local_id) 
+                u += B.T.dot(gap_dict[interface_id])
+
+        # scalling gap
+        u = sparse.diags(1.0/self.scalling).dot(u)
+        
+        return u
+
+    def apply_schur_complement(self,gap_dict,precond_type='Lumped'):
+        ''' This method computes the force at the interface, 
+        such that produces the gap at the interface given by te gap_dict
+        which is defined as the primal variable at the interface given
+        the interface pair dictionary
+        '''
+
+        
+        
+        interface_id = list(self.interface_set)
+        interior_id = list(self.interior_set)
+        f = np.zeros(self.length)
+        u = self.expand_interface_gap(gap_dict)
+        ub = u[interface_id]
+        K = self.K_local.data
+        Kbb = K[np.ix_(interface_id,interface_id)]
+        if precond_type=='Lumped':
+            f[interface_id] += Kbb.dot(ub)
+
+        elif precond_type=='SuperLumped':
+            f[interface_id] += np.diag(Kbb.diagonal()).dot(ub)
+
+        elif precond_type=='LumpedDirichlet':
+            Kib = self.K_local.data[np.ix_(interior_id,interface_id)]
+            Kii_inv = np.diag(1.0/(K[np.ix_(interior_id,interior_id)].diagonal()))
+            f_exp = Kib.dot(ub)
+            ui = Kii_inv.dot(f_exp)
+            f[interface_id] += Kbb.dot(ub) - Kib.T.dot(ui)
+        
+        elif precond_type=='Dirichlet':
+            
+            Kib = self.K_local.data[np.ix_(interior_id,interface_id)]
+            f_exp = np.zeros(self.length)
+            f_exp[interior_id] += Kib.dot(ub)
+            Kii = K[np.ix_(interior_id,interior_id)]
+            ui = sparse.linalg.spsolve(Kii,f_exp[interior_id])
+            #ui = self.K_local.apply_inverse(f_exp)[interior_id]
+            f[interface_id] += Kbb.dot(ub) - Kib.T.dot(ui)
+
+        else:
+            logging.error('Schur complement type not supported!')
+
+        
+        f_scalling = sparse.diags(1/self.scalling).dot(f)
+
+        return self.get_interface_dict(f_scalling)
+
 
     def crosspoints_dectection(self):
         ''' This function detects cross points based on local 
@@ -1112,16 +1245,23 @@ class  Test_FETIsolver(TestCase):
 
 
         # Using PyFETI to solve the probrem described above
-        K_dict = {1:K1,2:K2, 3:K3, 4:K4}
+        K1 = sparse.csc_matrix(K1)
+        K2 = sparse.csc_matrix(K2)
+        K_dict = {1:K1,2:K2, 3:K2, 4:K2}
         B_dict = {1 : {(1,2) : B12, (1,3) : B13, (1,4) : B14}, 
                   2 : {(2,1) : B21, (2,4) : B24,(2,3) : B23}, 
                   3 : {(3,1) : B31, (3,4) : B34, (3,2) : B32}, 
                   4 : {(4,2) : B42, (4,3) : B43, (4,1) : B41}}
 
         q_dict = {1:q1 ,2:q2, 3:q3, 4:q4}
+
+        #solver_obj = FETIManager(K_dict,B_dict,q_dict)
+
+        #nc = FETIManager.lambda_size
+        #solver_obj.apply_F(np.ones(nc))
+
         crosspoints_global_dict = {}
 
-        
         interface_dofs_target = {1: [1,2,3],
                                  2 : [0,2,3],
                                  3 : [0,1,2],
@@ -1131,7 +1271,14 @@ class  Test_FETIsolver(TestCase):
                                  2 : [1],
                                  3 : [3],
                                  4 : [2]}
-                        
+
+
+        import copy   
+        gap_dict = copy.deepcopy(B_dict)
+        for i,B in gap_dict.items():
+            for key, item in B.items():
+                B[key] = np.ones(item.shape[0])
+
         for i in range(1,5):
             local_obj = LocalProblem(K_dict[i], B_dict[i],q_dict[i],id=i)
             interface_dofs = local_obj.compute_interface_dof_set()
@@ -1140,9 +1287,21 @@ class  Test_FETIsolver(TestCase):
             interior_dofs = local_obj.compute_interior_dof_set()
             np.testing.assert_equal(interior_dofs_target[i], list(interior_dofs))
 
+            scalling = local_obj.compute_neighbor_scalling_array()
+            #u =  local_obj.expand_interface_gap(gap_dict[i])
+            force_dict = local_obj.apply_schur_complement(gap_dict[i])
+            force_dict = local_obj.apply_schur_complement(gap_dict[i],precond_type='SuperLumped')
+            force_dict = local_obj.apply_schur_complement(gap_dict[i],precond_type='Dirichlet')
+            force_dict = local_obj.apply_schur_complement(gap_dict[i],precond_type='LumpedDirichlet')
+            
             crosspoints_global_dict[i] = local_obj.crosspoints_dectection()
 
         crosspoints_global_dict
+
+
+        # test expansion
+
+        
 
 
 

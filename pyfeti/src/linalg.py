@@ -884,6 +884,8 @@ class Matrix():
         '''
         Matrix.counter+=1
         self.id = Matrix.counter
+        if isinstance(K,np.matrix):
+            K = np.array(K)
         self.data = K
         self.key_dict = key_dict
         self.type = None

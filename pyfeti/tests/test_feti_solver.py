@@ -534,13 +534,58 @@ class  Test_FETIsolver(TestCase):
         
         return u_dual,lambda_,alpha
 
+    def test_total_FETI_approach(self):
+        ''' This test incorporate Dirichlet constraint in the Bollean matrix
+        The constraint are considered the 0-th Neighbor
+                                           F->
+        |>0   0-----0-----0    0-----0-----0
+        Dir        D1                D2 
+        '''
+        
+
+        K1 = np.array([[1,-1],[-1,1]])
+        K2 = np.array([[1,-1],[-1,1]])
+        B0 = np.array([[-1,0]])
+        B1 = np.array([[0,1]]) 
+        B2 = np.array([[-1,0]]) 
+
+        f1 = np.array([0.,0.])                
+        f2 = np.array([0.,1.])                
+               
+        # Using PyFETI to solve the probrem described above
+        K_dict = {1:K1,2:K2}
+        B_dict = {1 : {(1,2) : B1, (1,1): B0}, 2 : {(2,1) : B2}}
+        f_dict = {1:f1,2:f2}
+
+        solver_obj = SerialFETIsolver(K_dict,B_dict,f_dict)
+
+        solution_obj = solver_obj.solve()
+
+        u_dual = solution_obj.displacement
+        lambda_ = solution_obj.interface_lambda
+        alpha =  solution_obj.alpha
+        
+
+        solver_obj = ParallelFETIsolver(K_dict,B_dict,f_dict)
+
+        solution_obj = solver_obj.solve()
+
+        solver_obj.manager.delete()
+
+        u_dual_par = solution_obj.displacement
+        lambda_par = solution_obj.interface_lambda
+        alpha_par =  solution_obj.alpha
+
+        np.testing.assert_almost_equal(u_dual,u_dual_par,decimal=10)
+        np.testing.assert_almost_equal(lambda_,lambda_par,decimal=10)
+        np.testing.assert_almost_equal(alpha,alpha_par,decimal=10)
         
         
 
 if __name__=='__main__':
 
-    main()
-    #test_obj = Test_FETIsolver()
+    #main()
+    test_obj = Test_FETIsolver()
     #test_obj.setUp()
     #test_obj.test_serial_solver()
     #test_obj.test_parallel_solver()
@@ -554,3 +599,4 @@ if __name__=='__main__':
     #test_obj.test_verify_F_operator()
     #test_obj.test_compare_serial_and_parallel_solver_slusps()
     #test_obj.test_compare_svd_splusps()
+    test_obj.test_total_FETI_approach()

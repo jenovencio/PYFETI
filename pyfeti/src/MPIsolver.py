@@ -255,21 +255,21 @@ class ParallelSolver():
         GGT_local_dict = {}
         for key in local_problem.B_local:
             local_id, nei_id = key
-
-            if local_id not in self.local_alpha_length_dict:
-                Gi = np.array([])
-            else:
-                Gi = self.course_problem.G_dict[local_id,nei_id]
-                    
-            logging.debug(('interface pair = ' + str(local_id) + ',' + str(nei_id)))
-            logging.debug(('Gi = ', Gi))
-            Gj = exchange_info(Gi,local_id,nei_id)
-            logging.debug(('Gj = ', Gj))
-            
-            try:
-                GGT_local_dict[local_id,nei_id] = Gi.dot(Gj.T)
-            except:
-                GGT_local_dict[local_id,nei_id] = np.array([])
+            if local_id!=nei_id:
+                if local_id not in self.local_alpha_length_dict:
+                    Gi = np.array([])
+                else:
+                    Gi = self.course_problem.G_dict[local_id,nei_id]
+                        
+                logging.debug(('interface pair = ' + str(local_id) + ',' + str(nei_id)))
+                logging.debug(('Gi = ', Gi))
+                Gj = exchange_info(Gi,local_id,nei_id)
+                logging.debug(('Gj = ', Gj))
+                
+                try:
+                    GGT_local_dict[local_id,nei_id] = Gi.dot(Gj.T)
+                except:
+                    GGT_local_dict[local_id,nei_id] = np.array([])
 
             self.course_problem.update_GGT_dict(GGT_local_dict)
 
@@ -311,7 +311,7 @@ class ParallelSolver():
         dof_lambda_init = 0
         for local_id in self.partitions_list:
             for nei_id in self.partitions_list:
-                if nei_id>local_id:
+                if nei_id>=local_id:
                     try:
                         local_lambda_length = self.local_lambda_length_dict[local_id,nei_id]
                         local_dofs = np.arange(local_lambda_length) 
@@ -436,6 +436,12 @@ class ParallelSolver():
                 gap = u_dict[local_id,nei_id] + u_dict[nei_id,local_id]
                 gap_dict[local_id, nei_id] = gap
                 gap_dict[nei_id, local_id] = -gap
+            
+            elif nei_id==local_id:
+                logging.warning('Dirichlet contions = 0!')
+                gap = u_dict[local_id,nei_id] 
+                gap_dict[local_id, nei_id] = gap
+
         logging.debug(('gap_dict', gap_dict))
         return gap_dict
     

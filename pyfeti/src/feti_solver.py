@@ -164,7 +164,7 @@ class SolverManager():
         GGT_local_dict = {}
         for (local_i, nei_i) , Gi in self.course_problem.G_dict.items():
             for (local_j, nei_j), Gj in self.course_problem.G_dict.items():
-                if local_i==nei_j and nei_i==local_j:
+                if local_i!=local_j and local_i==nei_j and nei_i==local_j:
                     try:
                         if Gi.shape[0]>0 and Gj.shape[0]>0:
                             GGT_local_dict[local_i,local_j] = Gi.dot(Gj.T)
@@ -194,7 +194,7 @@ class SolverManager():
             raise('Build local to global mapping before calling this function')
     
     def compute_lambda_im(self):
-        return  self.G.T.dot((self.GGT_inv).dot(self.e))
+        return  self.G.T.dot(self.GGT_inv.dot(self.e))
         
     def solve_interface_gap(self,v_dict=None, external_force=False):
         u_dict = {}
@@ -211,6 +211,11 @@ class SolverManager():
                 gap = u_dict[local_id,nei_id] + u_dict[nei_id,local_id]
                 gap_dict[local_id, nei_id] = gap
                 gap_dict[nei_id, local_id] = -gap
+            elif nei_id==local_id:
+                logging.warning('Dirichlet contions = 0!')
+                gap = u_dict[local_id,nei_id] 
+                gap_dict[local_id, nei_id] = gap
+
         return gap_dict
 
     def solve_dual_interface_problem(self,algorithm=None):
@@ -225,6 +230,8 @@ class SolverManager():
         Projection_action = lambda r : (I - G.T.dot(GGT_inv.dot(G))).dot(r)
         F_action = lambda lambda_ker : self.apply_F(lambda_ker)
         residual = -self.apply_F(lambda_im, external_force=True)
+        d = -self.apply_F(0.0*lambda_im, external_force=True)
+        norm_d = np.linalg.norm(d)
 
         method_to_call = getattr(solvers, algorithm)
 
@@ -309,7 +316,8 @@ class SolverManager():
                 self.global2local_alpha_dofs[tuple(global_alpha_index)] = {local_id:local_alpha_dofs}
                     
             for nei_id in local_problem.neighbors_id:
-                if nei_id>local_id:
+                # nei_id==local_id represents non-physical domains, e.g. Boundary conditions
+                if nei_id>=local_id:
                     try:
                         local_lambda_length = self.local_lambda_length_dict[local_id,nei_id]
                         local_dofs = np.arange(local_lambda_length) 
@@ -922,7 +930,7 @@ class Solution():
         try:
             for key, interface_dict in self.lambda_dict.items():
                 for (dom_id,nei_id),values in interface_dict.items():
-                    if nei_id>dom_id:
+                    if nei_id>=dom_id:
                          local_dict[dom_id,nei_id] = values
             self.lambda_dict = local_dict
         except:

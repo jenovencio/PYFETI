@@ -677,6 +677,8 @@ class LocalProblem():
         self.interface_size =  0
         self.neighbors_id = []
         self.crosspoints = {}
+        self.interface_set = set()
+        self.interior_set = set()
         self.get_neighbors_id()
 
     def get_neighbors_id(self):
@@ -684,6 +686,25 @@ class LocalProblem():
             self.neighbors_id.append(nei_id[1])
             self.interface_size += obj.shape[0]
         self.neighbors_id.sort()
+
+    def compute_interface_dof_set(self):
+        ''' This function compute the set of dofs at the 
+        interface based on local B matrices
+        '''
+        for key, B in self.B_local.items():
+            self.interface_set.update(B.nonzero()[1])
+            
+        return self.interface_set
+
+    def compute_interior_dof_set(self):
+        ''' This function compute the set of dofs at the 
+        interior based on interface set dofs
+        '''
+        if not self.interface_set:
+            self.compute_interface_dof_set()
+        
+        self.interior_set.update(set(list(range(self.length)))-self.interface_set)
+        return self.interior_set
 
     def crosspoints_dectection(self):
         ''' This function detects cross points based on local 
@@ -1099,13 +1120,31 @@ class  Test_FETIsolver(TestCase):
 
         q_dict = {1:q1 ,2:q2, 3:q3, 4:q4}
         crosspoints_global_dict = {}
+
+        
+        interface_dofs_target = {1: [1,2,3],
+                                 2 : [0,2,3],
+                                 3 : [0,1,2],
+                                 4 : [0,1,3]}
+        
+        interior_dofs_target = {1: [0],
+                                 2 : [1],
+                                 3 : [3],
+                                 4 : [2]}
+                        
         for i in range(1,5):
             local_obj = LocalProblem(K_dict[i], B_dict[i],q_dict[i],id=i)
+            interface_dofs = local_obj.compute_interface_dof_set()
+            np.testing.assert_equal(interface_dofs_target[i], list(interface_dofs))
+
+            interior_dofs = local_obj.compute_interior_dof_set()
+            np.testing.assert_equal(interior_dofs_target[i], list(interior_dofs))
+
             crosspoints_global_dict[i] = local_obj.crosspoints_dectection()
 
         crosspoints_global_dict
 
-        x=1
+
 
 if __name__=='__main__':
 

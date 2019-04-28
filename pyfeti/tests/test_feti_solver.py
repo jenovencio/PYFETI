@@ -584,8 +584,8 @@ class  Test_FETIsolver(TestCase):
 
 if __name__=='__main__':
 
-    #main()
-    test_obj = Test_FETIsolver()
+    main()
+    #test_obj = Test_FETIsolver()
     #test_obj.setUp()
     #test_obj.test_serial_solver()
     #test_obj.test_parallel_solver()
@@ -599,4 +599,4 @@ if __name__=='__main__':
     #test_obj.test_verify_F_operator()
     #test_obj.test_compare_serial_and_parallel_solver_slusps()
     #test_obj.test_compare_svd_splusps()
-    test_obj.test_total_FETI_approach()
+    #test_obj.test_total_FETI_approach()

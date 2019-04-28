@@ -111,10 +111,14 @@ class SolverManager():
         self.GGT = None
         self.num_partitions =  len(K_dict.keys())
         self.map_dofs = None
-        self.tolerance = 1.e-10
         self.pseudoinverse_kargs = pseudoinverse_kargs
         self.dual_interface_algorithm = dual_interface_algorithm
         self.is_local_G_GGT_and_e_computed = False
+        
+        # transform key args in object variables
+        self.__dict__.update(kwargs)
+        self.kwargs = kwargs
+
         self._create_local_problems(K_dict,B_dict,f_dict)
         
     @property
@@ -224,10 +228,20 @@ class SolverManager():
 
         method_to_call = getattr(solvers, algorithm)
 
+        try:
+            tolerance = norm_d*self.tolerance 
+        except:
+            tolerance = None # using default tolerance of the choosen interface algorithm
+           
+        try:
+            max_int = self.max_int
+        except:
+            max_int = None # using default max_int of the choosen interface algorithm
+
         lambda_ker, rk, proj_r_hist, lambda_hist = method_to_call(F_action,residual,Projection_action=Projection_action,
                                                          lambda_init=None,
                                                          Precondicioner_action=None,
-                                                         tolerance=self.tolerance,max_int=max(self.lambda_size*4,10))
+                                                         tolerance=tolerance,max_int=max_int)
 
         lambda_sol = lambda_im + lambda_ker
 
@@ -572,7 +586,8 @@ class ParallelSolverManager(SolverManager):
                               method = 'launch_ParallelSolver',
                               tmp_folder=self.temp_folder ,
                               prefix = self.prefix, 
-                              ext = self.ext)
+                              ext = self.ext,
+                              **self.kwargs)
         
         elapsed_time = time.time() - start_time
         logging.info('{"mpi_launcher" : %f} #Elapsed time (s)' %elapsed_time)
@@ -896,7 +911,10 @@ class Solution():
 
     @property
     def projected_residual(self):
-        return self.proj_r_hist[-1]
+        try:
+            return self.proj_r_hist[-1]
+        except:
+            return 0
 
     def _rebuild_lambda_map(self):
 

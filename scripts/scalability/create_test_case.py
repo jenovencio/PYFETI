@@ -248,12 +248,13 @@ if __name__ == '__main__':
             
 
             # solver parameters
-            pseudoinverse_kargs={'method':method,'tolerance':tol}
+            pseudoinverse_kargs={'method':method,'tolerance': 1.0E-8}
             dual_interface_algorithm = 'PCPG'
 
             logging.info('{"dual_interface_algorithm" :  "%s"}' %dual_interface_algorithm)
             logging.info('{"pseudoinverse_method" : "%s"}' %pseudoinverse_kargs['method'])
             logging.info('{"pseudoinverse_tolerance" : %2.2e}' %pseudoinverse_kargs['tolerance'])
+            logging.info('{"Dual interface tolerance" : %2.2e}' %tol)
 
 
             # calling parallel solver
@@ -264,7 +265,7 @@ if __name__ == '__main__':
                 FETIsolver = getattr(feti_solver, FETI_algorithm)
                 solver_obj = FETIsolver(K_dict,B_dict,f_dict,temp_folder=script_folder,
                                                 pseudoinverse_kargs=pseudoinverse_kargs,
-                                                dual_interface_algorithm=dual_interface_algorithm)
+                                                dual_interface_algorithm=dual_interface_algorithm,tolerance=tol)
                 start_time = time.time()
                 solution_obj = solver_obj.solve()
                 elapsed_time = time.time() - start_time

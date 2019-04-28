@@ -7,7 +7,7 @@ from mpi4py import MPI
 import time
 
 def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
-        Precondicioner_action=None,tolerance=1.e-10,max_int=500):
+        Precondicioner_action=None,tolerance=None,max_int=None):
         ''' This function is a general interface for PCGP algorithms
 
         argument:
@@ -27,11 +27,11 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
         callable function to atcs as a preconditioner operator
         in the array w
 
-        tolerance: float
-        convergence tolerance
+        tolerance: float, Default= None
+            convergence tolerance, if None tolerance=1.e-10
 
-        max_int = int
-        maximum number of iterations
+        max_int : int, Default= None
+            maximum number of iterations, if None max_int = int(1.2*len(residual))
 
         return 
         lampda_pcgp : np.array
@@ -51,6 +51,12 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
 
         interface_size = len(residual)
          
+        if tolerance is None:
+            tolerance=1.e-10
+
+        if max_int is None:
+            max_int = int(1.2*interface_size)
+
         if lambda_init is None:
             lampda_pcpg = np.zeros(interface_size)
         else:
@@ -68,6 +74,10 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
             
         F = F_action
 
+
+        logging.info('Setting PCPG tolerance = %4.2e' %tolerance)
+        logging.info('Setting PCPG max number of iterations = %i' %max_int)
+
         # initialize variables
         start_time = time.time()
         beta = 0.0
@@ -76,6 +86,7 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
         proj_r_hist = []
         lambda_hist = []
         rk = residual
+        k=0
         for k in range(max_int):
             wk = P(rk)  # projection action
             
@@ -122,7 +133,7 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
 
             start_time = time.time()
 
-        if k==(max_int-1):
+        if (k>0) and k==(max_int-1):
             logging.warning('Maximum iteration was reached, MAX_INT = %i, without converging!' %k)
             logging.warning('Projected norm = %2.5e , where the PCPG tolerance is set to %2.5e' %(norm_wk,tolerance))
 

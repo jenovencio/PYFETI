@@ -210,32 +210,27 @@ def calc_null_space_of_upper_trig_matrix(U,idf=None,orthonormal=True):
     rank_null =len(idf)
     rank = n - rank_null
     
-    U[np.ix_(idf),np.ix_(idf)] = 0
-
-    # finding the null space
-    idp = set(range(n))
-    for fid in idf:
-        idp.remove(fid)
-    
-    idp = list(idp)
-
+    # finding the null space pivots
+    all = set(range(n))
+    idp = list(all - set(idf))
     R = None
     if rank_null>0:
-        Im = np.eye(rank_null)
         
-        # Applying permutation to get an echelon form
+        # changing U in the Free dofs (idf)
+        U = U.tolil()
+        U[np.ix_(idf),np.ix_(idf)] = 0.0
         
-        PA = np.zeros([n,n])
-        PA[:rank,:] = U.A[idp,:]
-        PA[rank:,:] = U.A[idf,:]
+        # Applying permutation in U to get an echelon form
+        PA = sparse.lil_matrix((n,n))
+        PA[:rank,:] = U[idp,:]
+        PA[rank:,:] = U[idf,:]
         
         # creating block matrix
-        A11 = np.zeros([rank,rank])
-        A12 = np.zeros([rank,rank_null])
+        A11 = sparse.lil_matrix([rank,rank])
+        A12 = sparse.lil_matrix([rank,rank_null])
         
         A11 = PA[:rank,idp]
         A12 = PA[:rank,idf]
-        
         
         R11 = np.zeros([rank,rank_null])
         R = np.zeros([n,rank_null])
@@ -246,10 +241,11 @@ def calc_null_space_of_upper_trig_matrix(U,idf=None,orthonormal=True):
                 if j==rank-1:
                     R11[j,i] = -A12[j,i]/A11[j,j]
                 else:
-                    R11[j,i] = (-A12[j,i] - np.dot(R11[j+1:rank,i],A11[j,j+1:rank]) )/A11[j,j]
+                    a = A11[j,j+1:rank].dot(R11[j+1:rank,i])
+                    R11[j,i] = (-A12[j,i] - a )/A11[j,j]
                 
         # back to the original bases
-        R[idf,:] = Im
+        R[idf,:] = np.eye(rank_null)
         R[idp,:] = R11
 
         if orthonormal:
@@ -754,16 +750,6 @@ class Pseudoinverse():
                 Pr = lambda x : x - R.dot(R.T.dot(x))
             else:
                 Pr = lambda x : x 
-
-            if False:
-                Kmod = K[:,:] # creating copy because np.array is a reference
-                idf_u = [np.argwhere(lu.perm_c==elem)[0][0] for elem in idf]
-                idf_l = [np.argwhere(lu.perm_r==elem)[0][0] for elem in idf]
-                Kmod[idf_u,:] = 0.0
-                Kmod[:,idf_u] = 0.0
-                Kmod[idf_u,idf_u] = K.diagonal().max()
-                lu, idf_garbage, R_garbage = sla.splu(K_mod)
-                idf = idf_u
                 
             K_pinv = lambda x : Pr(lu.solve(x))
             
@@ -1160,7 +1146,7 @@ class  Test_linalg(TestCase):
             x = pinv.apply(f)
             error = (K.dot(x) - f)/norm_f
             np.testing.assert_almost_equal(error,error_target,decimal=10)
-            np.testing.assert_almost_equal(R.T.dot(x),0.0,decimal=10)
+            np.testing.assert_almost_equal(R.T.dot(x)/np.linalg.norm(x),0.0,decimal=10)
 
     def test_splusps_and_lu_2(self):
 

@@ -45,21 +45,25 @@ def exchange_info(local_var,sub_id,nei_id,tag_id=15,isnumpy=False):
     '''    
     logging.debug('Init exchange_info')
 
-    #checking data type
-    if isnumpy:
-        # sending message to neighbors
-        comm.Send(local_var, dest = nei_id-1)
-        # receiving messages from neighbors
-        var_nei = np.empty(local_var.shape)
-        comm.Recv(var_nei,source=nei_id-1)
-    else:
-        # sending message to neighbors
-        #tag_num = nei_id + sub_id + tag_id + nei_id*sub_id
-        #comm.send(local_var, dest = nei_id-1)
-        # receiving messages from neighbors
-        #var_nei = comm.recv(source=nei_id-1)
-        
-        var_nei  = comm.sendrecv(local_var,dest=nei_id-1,source=nei_id-1)
+    #init neighbor variable
+    var_nei = None
+    if nei_id>0:
+        #checking data type
+        if isnumpy:
+            
+                # sending message to neighbors
+                comm.Send(local_var, dest = nei_id-1)
+                # receiving messages from neighbors
+                var_nei = np.empty(local_var.shape)
+                comm.Recv(var_nei,source=nei_id-1)
+        else:
+            # sending message to neighbors
+            #tag_num = nei_id + sub_id + tag_id + nei_id*sub_id
+            #comm.send(local_var, dest = nei_id-1)
+            # receiving messages from neighbors
+            #var_nei = comm.recv(source=nei_id-1)
+            
+            var_nei  = comm.sendrecv(local_var,dest=nei_id-1,source=nei_id-1)
 
     logging.debug('End exchange_info')
     return var_nei
@@ -81,7 +85,7 @@ def exchange_global_dict(local_dict,local_id,partitions_list):
 
 
 class ParallelSolver():
-    def __init__(self,obj_id, local_problem, n_int=500, pinv_tolerance=1.0E-8, **kwargs):
+    def __init__(self,obj_id, local_problem, **kwargs):
         
 
         self.obj_id = obj_id
@@ -92,9 +96,7 @@ class ParallelSolver():
         self.lampda_ker = []
         
         self.course_problem = CourseProblem(obj_id)
-        self.n_int = n_int
-        self.pinv_tolerance = pinv_tolerance
-        
+
         self.local2global_lambda_dofs = {}
         self.global2local_lambda_dofs = {}
         self.local2global_alpha_dofs = {}
@@ -126,8 +128,10 @@ class ParallelSolver():
         self.GGT_inv = None
         self.num_partitions = comm.Get_size()
         self.partitions_list = list(range(1,self.num_partitions+1))
-        self.tolerance = 1.e-10
-        self.n_int = n_int
+        
+        # transform key args in object variables
+        self.__dict__.update(kwargs)
+
         logging.info('local length = %i' %self.local_problem.length)
         
     def _exchange_global_size(self):
@@ -380,10 +384,16 @@ class ParallelSolver():
         norm_d = np.linalg.norm(d)
         
         logging.info('norm d  = %4.2e' %norm_d)
-        n_int = max(self.lambda_size,self.n_int)
-        tolerance = norm_d*self.tolerance    
-        logging.info('Setting PCPG tolerance = %4.2e' %tolerance)
-        logging.info('Setting PCPG max number of iterations = %i' %n_int)
+        try:
+            tolerance = norm_d*self.tolerance 
+        except:
+            tolerance = None # using default tolerance of the choosen interface algorithm
+           
+        try:
+            max_int = self.max_int
+        except:
+            max_int = None # using default max_int of the choosen interface algorithm
+        
         method_to_call = getattr(solvers, algorithm)
         
         logging.info('Dual Interface algorithm = %s' %algorithm)
@@ -392,12 +402,9 @@ class ParallelSolver():
         lambda_ker, rk, proj_r_hist, lambda_hist = method_to_call(F_action,residual,Projection_action=Projection_action,
                                                          lambda_init=None,
                                                          Precondicioner_action=None,
-                                                         tolerance=self.tolerance,max_int=n_int)
+                                                         tolerance=tolerance,max_int=max_int)
 
         
-
-        
-
         lambda_sol = lambda_im + lambda_ker
         logging.debug(('lambda_im=',lambda_im))
         logging.debug(('lambda_sol=',lambda_sol))
@@ -507,15 +514,13 @@ if __name__ == "__main__":
             try:
                 var, value = arg.split('=')
                 try:
-                    mpi_kwargs[var] = int(value)
+                    mpi_kwargs[var] = eval(value)
                 except:
                     mpi_kwargs[var] = value
             except:
                 logging.debug('Commnad line argument noy understood, arg = %s cannot be splited in variable name + value' %arg)
                 pass
 
-
-        
 
         
         logging.info(header)
@@ -537,7 +542,7 @@ if __name__ == "__main__":
         logging.info('{"load_object": %2.5e} # Elapsed time in seconds' %elapsed_time)
         
         start_time = time.time()
-        parsolver = ParallelSolver(obj_id,local_problem)
+        parsolver = ParallelSolver(obj_id,local_problem,**mpi_kwargs)
         u_i = parsolver.mpi_solver()
         
         comm.Barrier()

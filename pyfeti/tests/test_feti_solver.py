@@ -345,7 +345,6 @@ class  Test_FETIsolver(TestCase):
         print('end Serial FETI solver ..........\n\n')
         return u_dual, sol_obj
 
-
     def test_elimination_matrix(self):
 
         self.setUp()
@@ -391,22 +390,45 @@ class  Test_FETIsolver(TestCase):
         self.run_solver_cases(algorithm=SerialFETIsolver)
 
     def test_serial_solver_cases_precond(self):
-        solver_obj,sol_obj_1 = self.run_solver_cases(algorithm=SerialFETIsolver,precond_type=None)
-        solver_obj,sol_obj_2 = self.run_solver_cases(algorithm=SerialFETIsolver,precond_type="Lumped")
-        solver_obj,sol_obj_3 = self.run_solver_cases(algorithm=SerialFETIsolver,precond_type="Dirichlet")
-        solver_obj,sol_obj_4 = self.run_solver_cases(algorithm=SerialFETIsolver,precond_type="LumpedDirichlet")
-
-        np.testing.assert_almost_equal( sol_obj_1.displacement, sol_obj_2.displacement,decimal=10)
-        np.testing.assert_almost_equal( sol_obj_1.displacement, sol_obj_3.displacement,decimal=10)
-
-        self.assertTrue(sol_obj_1.PCGP_iterations>=sol_obj_2.PCGP_iterations)
-        self.assertTrue(sol_obj_2.PCGP_iterations>=sol_obj_3.PCGP_iterations)
-
-    def run_solver_cases(self,algorithm=SerialFETIsolver,precond_type=None):
 
         domin_list_x = [4] 
         domin_list_y = [4] 
-        case_id_list = [1,2] 
+        case_id_list = [3]
+        FETI_algorithm = SerialFETIsolver
+
+        print('Testing Preconditioner %s ..........' %'Identity')
+        solver_obj,sol_obj_1 = self.run_solver_cases(FETI_algorithm,None,domin_list_x,domin_list_y,case_id_list)
+        
+        precond="Lumped"
+        print('Testing Preconditioner %s ..........' %precond)
+        solver_obj,sol_obj_2 = self.run_solver_cases(FETI_algorithm,precond,domin_list_x,domin_list_y,case_id_list)
+        
+        precond="LumpedDirichlet"
+        print('Testing Preconditioner %s ..........' %precond)
+        solver_obj,sol_obj_3 = self.run_solver_cases(FETI_algorithm,precond,domin_list_x,domin_list_y,case_id_list)
+        
+        precond="Dirichlet"
+        print('Testing Preconditioner %s ..........' %precond)
+        solver_obj,sol_obj_4 = self.run_solver_cases(FETI_algorithm,precond,domin_list_x,domin_list_y,case_id_list)
+        
+        # comparing results with None precod, because it is the mosted tested one
+        np.testing.assert_almost_equal( sol_obj_1.displacement, sol_obj_2.displacement,decimal=10)
+        np.testing.assert_almost_equal( sol_obj_1.displacement, sol_obj_3.displacement,decimal=10)
+        np.testing.assert_almost_equal( sol_obj_1.displacement, sol_obj_4.displacement,decimal=10)
+
+        # comparing number of PCGP iterations
+        self.assertTrue(sol_obj_1.PCGP_iterations>=sol_obj_2.PCGP_iterations)
+        self.assertTrue(sol_obj_2.PCGP_iterations>=sol_obj_3.PCGP_iterations)
+        self.assertTrue(sol_obj_3.PCGP_iterations>=sol_obj_4.PCGP_iterations)
+
+        return sol_obj_1,sol_obj_2, sol_obj_3, sol_obj_4
+
+    def run_solver_cases(self,algorithm=SerialFETIsolver,precond_type=None,
+                              domin_list_x = [1,2,4], 
+                              domin_list_y = [1,2],
+                              case_id_list = [1,2] ):
+
+        
         for case_id in case_id_list:
             for ny in domin_list_y:
                 for nx in domin_list_x:
@@ -421,7 +443,8 @@ class  Test_FETIsolver(TestCase):
                     elapsed_time = time.time() - start_time
                     print('Elapsed time : %f ' %elapsed_time)
                     u_dual,lambda_,alpha = self.postprocessing(sol_obj,solver_obj)
-                    print('end %s ..........\n\n\n' %algorithm.__name__)
+                    print('Number of  PCPG iterations %i ..........\n' % sol_obj.PCGP_iterations)
+                    print('end %s ..........\n' %algorithm.__name__)
 
         return solver_obj,sol_obj
       
@@ -610,12 +633,12 @@ class  Test_FETIsolver(TestCase):
 
 if __name__=='__main__':
 
-    #main()
-    test_obj = Test_FETIsolver()
+    main()
+    #test_obj = Test_FETIsolver()
     #test_obj.setUp()
     #test_obj.test_serial_solver()
     #test_obj.test_serial_preconditioner()
-    test_obj.test_serial_solver_cases_precond()
+    #test_obj.test_serial_solver_cases_precond()
     #test_obj.test_parallel_solver()
     #test_obj.test_parallel_solver_cases()
     #test_obj.test_serial_solver_cases()

@@ -118,6 +118,7 @@ if __name__ == '__main__':
             method : Method to compute the local pseudoinverse, Default = svd (splusps also avaliable)
             FETI_algorithm : Type of FETI algorithm SerialFETIsolver of ParallelFETIsolver,  Default = ParallelFETIsolver
             tol : tolerance of PCPG error norm, Default = 1.0E-8
+            precond : Preconditioner type : Default - Identity (options: Lumped, Dirichlet, LumpedDirichlet, SuperLumped)
             example of command call:
             > python  create_test_case.py max_mpi_size=10 divY=10 divX=10
             '''
@@ -167,6 +168,14 @@ if __name__ == '__main__':
         except:
             FETI_algorithm = 'ParallelFETIsolver'
         logging.info('Set FETI algorithm  = %s' %FETI_algorithm)
+
+
+        try: 
+            precond = keydict['precond']
+            logging.info('Preconditioner type  = %s' %precond)
+        except:
+            precond = None
+            logging.info('Preconditioner type  = %s' %'Identity')
 
 
         try: 
@@ -256,16 +265,12 @@ if __name__ == '__main__':
             logging.info('{"pseudoinverse_tolerance" : %2.2e}' %pseudoinverse_kargs['tolerance'])
             logging.info('{"Dual interface tolerance" : %2.2e}' %tol)
 
-
-            # calling parallel solver
             try:
-                #solver_obj = ParallelFETIsolver(K_dict,B_dict,f_dict,temp_folder=script_folder,
-                #                                pseudoinverse_kargs=pseudoinverse_kargs,
-                #                                dual_interface_algorithm=dual_interface_algorithm)
                 FETIsolver = getattr(feti_solver, FETI_algorithm)
                 solver_obj = FETIsolver(K_dict,B_dict,f_dict,temp_folder=script_folder,
                                                 pseudoinverse_kargs=pseudoinverse_kargs,
-                                                dual_interface_algorithm=dual_interface_algorithm,tolerance=tol)
+                                                dual_interface_algorithm=dual_interface_algorithm,tolerance=tol,
+                                                precond_type=precond)
                 start_time = time.time()
                 solution_obj = solver_obj.solve()
                 elapsed_time = time.time() - start_time

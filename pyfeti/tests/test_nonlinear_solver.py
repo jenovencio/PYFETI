@@ -5,7 +5,8 @@ from unittest import TestCase, main
 from collections import OrderedDict
 from scipy import sparse
 from scipy import optimize
-from scipy.fftpack import rfft, irfft, fft, ifft
+#from scipy.fftpack import rfft, irfft, fft, ifft
+from numpy.fft import rfft, irfft, fft, ifft
 import time
 import matplotlib.pyplot as plt
 
@@ -104,7 +105,6 @@ class  Test_NonlinearSolver(TestCase):
 
         '''
 
-        nH = 3
         ndof = 2
         Z1, Z2,B1, B2, fn1_, fn2_ = self.setup_1D_linear_localproblem(nH)
 
@@ -114,18 +114,20 @@ class  Test_NonlinearSolver(TestCase):
 
         # FFT time domain to freq, iFFT freq to time
         
-        FFT = lambda u : rfft(u).T[0:nH+1].reshape((nH+1)*ndof,1).flatten()[ndof:] # removing the static part
-        iFFT = lambda u_ : 2.0*np.real(ifft(np.concatenate((np.zeros(ndof),u_)).reshape(nH+1,ndof).T, n=100))
+        mode  = 'ortho'
+        FFT = lambda u : rfft(u,norm=mode).T[0:nH+1].reshape((nH+1)*ndof,1).flatten()[ndof:] # removing the static part
+        iFFT = lambda u_ : 2.0*np.real(ifft(np.concatenate((np.zeros(ndof),u_)).reshape(nH+1,ndof).T, n=100,norm=mode))
 
         # nonlinear force in Time
-        fnl = lambda u, n=3 : np.array([u[0]**n, u[1]*0.0])
+        fnl = lambda u, n=3 : c*np.array([u[0]**n, u[1]*0.0])
         fnl_ = lambda u_, n=3 : FFT(fnl(iFFT(u_),n))
 
         u_ = np.array([1.0]*ndof*nH, dtype=np.complex)
         u_[1:] = 0.0
         #u_[3:] = 0.0
         #u_[0:2] = 0.0
-        #u = iFFT(u_)
+        
+        np.testing.assert_almost_equal(u_, FFT(iFFT(u_)), decimal=8)
 
         cfn1_ = lambda u_, w=np.zeros(nH) : -f1_ + fnl_(u_)
         
@@ -174,6 +176,13 @@ class  Test_NonlinearSolver(TestCase):
             ax.plot(np.abs(u_calc_1),'b*',label='calc')
             plt.legend()
             plt.show()
+
+    def l_array2dict(self,l):
+            nH = self.nH
+            lambda_dict = {}
+            lambda_dict[(1,2)] = np.kron(np.concatenate(([1.0,],(nH-1)*[0.0])), l)
+            lambda_dict[(2,1)] = np.kron(np.concatenate(([1.0,],(nH-1)*[0.0])), l)
+            return  lambda_dict
 
     def test_1D_linear_localproblem_2(self):
         nH = 1
@@ -249,52 +258,106 @@ class  Test_NonlinearSolver(TestCase):
     def test_1D_linear_dual_interface_problem(self):
 
         nH = 1
+        self.nH = nH
         Z1, Z2,B1, B2, fn1_, fn2_ = self.setup_1D_linear_localproblem(nH)
         length = fn1_.shape[0]
         nonlin_obj1 = NonLinearLocalProblem(Z1,B1,fn1_,length)
         nonlin_obj2 = NonLinearLocalProblem(Z2,B2,fn2_,length)
 
-        def l_array2dict(l):
-            lambda_dict = {}
-            lambda_dict[(1,2)] = np.kron(np.concatenate(([1.0,],(nH-1)*[0.0])), l)
-            lambda_dict[(2,1)] = np.kron(np.concatenate(([1.0,],(nH-1)*[0.0])), l)
-            return  lambda_dict
+        # defining the Residual at the interface
+        Rb = lambda w0 : lambda l : B1[1,2].dot(nonlin_obj1.solve(self.l_array2dict(l),w0)) + \
+                                    B2[2,1].dot(nonlin_obj2.solve(self.l_array2dict(l),w0))        
+        nc = B1[1,2].shape[0]
 
+        self.run_dual_interface_problem(Rb,nc,nH)
+
+    def test_1D_linear_dual_interface_nonlinear_problem(self):
+        
+        nH = 1
+        self.nH = nH
+        Z1, Z2,B1, B2, fn1_, fn2_ = self.setup_1D_nonlinear_localproblem(nH,c=1.0e-2)
+        length = fn1_.shape[0]
+        nonlin_obj1 = NonLinearLocalProblem(Z1,B1,fn1_,length)
+        nonlin_obj2 = NonLinearLocalProblem(Z2,B2,fn2_,length)
 
         # defining the Residual at the interface
-        Rb = lambda w0 : lambda l : B1[1,2].dot(nonlin_obj1.solve(l_array2dict(l),w0)) + \
-                                    B2[2,1].dot(nonlin_obj2.solve(l_array2dict(l),w0))
-        
+        Rb = lambda w0 : lambda l : B1[1,2].dot(nonlin_obj1.solve(self.l_array2dict(l),w0)) + \
+                                    B2[2,1].dot(nonlin_obj2.solve(self.l_array2dict(l),w0))        
+        nc = B1[1,2].shape[0]
 
+        nonlin_obj_list = [nonlin_obj1, nonlin_obj2]
+        self.run_dual_interface_problem(Rb,nc,nH, nonlin_obj_list)
+
+    def run_dual_interface_problem(self,Rb,nc,nH,nonlin_obj_list = []):
+        
+        try:
+            nonlin_obj1  = nonlin_obj_list[0]
+            nonlin_obj2 = nonlin_obj_list[1]
+        except:
+            pass
+        
         lambda_list = []
         min_r_list = []
-        freq_list = np.arange(0.0,0.5,0.02)
+        freq_list = np.arange(0.0,0.5,0.01)
         freq = freq_list[0]
+        u1_list = []
+        u2_list = []
+        l0 = np.zeros(nc, dtype=np.complex)
         for freq in freq_list:
             w = 2.0*np.pi*freq*np.arange(1,nH+1)
             tol = 1.0e-8
-            nc = B1[1,2].shape[0]
+            
             Rl = Rb(w)
-            l0 = np.zeros(nc, dtype=np.complex)
-            sol = optimize.root(Rl, l0, method='krylov', options={'fatol': tol})
+            
+            try:
+                sol = optimize.root(Rl, l0, method='krylov', options={'fatol': tol})
+            except:
+                sol.fun = 1.0e-8
+                sol.x = 0.0
 
             r = np.linalg.norm(sol.fun)
             np.testing.assert_almost_equal(r, 0.0, decimal=8)
             min_r_list.append(r)
-            lambda_list.append(sol.x)
+            lsol = sol.x
+            l0 = lsol
+            lambda_list.append(lsol)
 
+            u1 = nonlin_obj1.solve(self.l_array2dict(lsol),w)
+            u2 = nonlin_obj2.solve(self.l_array2dict(lsol),w)
 
-        if True:
-            fig, ax = plt.subplots(1,1)
-            ax.plot(freq_list,lambda_list,'--')
-            ax.set_xlabel('Frequency [Hz]')
-            ax.set_ylabel('$\lambda$ [N]')
+            u1_list.append(u1)
+            u2_list.append(u2)
 
-            fig2, ax1 = plt.subplots(1,1)
-            ax1.plot(freq_list,min_r_list,'--')
+            
+        plot_results = True
+        if plot_results:
+            fig1, ((ax1,ax2),(ax3,ax4)) = plt.subplots(2,2)
+            ax1.plot(freq_list,np.abs(lambda_list),'*--')
             ax1.set_xlabel('Frequency [Hz]')
-            ax1.set_ylabel('$\Delta u$ [mm]')
+            ax1.set_ylabel('$\lambda$ [N]')
+
+            #fig2, ax2 = plt.subplots(1,1)
+            ax2.plot(freq_list,min_r_list,'*--')
+            ax2.set_xlabel('Frequency [Hz]')
+            ax2.set_ylabel('$\Delta u$ [mm]')
+            
+
+            #fig3, ax3 = plt.subplots(1,1)
+            ax3.plot(freq_list,np.abs(u1_list),'*--')
+            ax3.set_xlabel('Frequency [Hz]')
+            ax3.set_ylabel(' u1 [mm]')
+
+            #fig4, ax4 = plt.subplots(1,1)
+            ax4.plot(freq_list,np.abs(u2_list),'*--')
+            ax4.set_xlabel('Frequency [Hz]')
+            ax4.set_ylabel(' u2 [mm]')
+            
             plt.show()
+
+
+
+        x =1
+
 
 
 if __name__=='__main__':
@@ -302,4 +365,5 @@ if __name__=='__main__':
     #main()
     testobj = Test_NonlinearSolver()
     #testobj.test_1D_linear_dual_interface_problem()
-    testobj.setup_1D_nonlinear_localproblem()
+    #testobj.setup_1D_nonlinear_localproblem()
+    testobj.test_1D_linear_dual_interface_nonlinear_problem()

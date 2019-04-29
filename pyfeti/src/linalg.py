@@ -179,7 +179,7 @@ def splusps(A,tol=1.0e-6):
     
     if len(idf)>0:
         R = calc_null_space_of_upper_trig_matrix(U,idf)
-        R = Pc.A.dot(R)
+        R = Pc.dot(R)
     else:
         R = np.array([])
 
@@ -204,7 +204,6 @@ def calc_null_space_of_upper_trig_matrix(U,idf=None,orthonormal=True):
     
     '''
 
-    
     # finding the null space
     n,n = U.shape
     rank_null =len(idf)
@@ -213,45 +212,16 @@ def calc_null_space_of_upper_trig_matrix(U,idf=None,orthonormal=True):
     # finding the null space pivots
     all = set(range(n))
     idp = list(all - set(idf))
-    R = None
+    R = np.zeros([n,rank_null])
     if rank_null>0:
-        
-        # changing U in the Free dofs (idf)
-        U = U.tolil()
-        U[np.ix_(idf),np.ix_(idf)] = 0.0
-        
-        # Applying permutation in U to get an echelon form
-        PA = sparse.lil_matrix((n,n))
-        PA[:rank,:] = U[idp,:]
-        PA[rank:,:] = U[idf,:]
-        
-        # creating block matrix
-        A11 = sparse.lil_matrix([rank,rank])
-        A12 = sparse.lil_matrix([rank,rank_null])
-        
-        A11 = PA[:rank,idp]
-        A12 = PA[:rank,idf]
-        
-        R11 = np.zeros([rank,rank_null])
-        R = np.zeros([n,rank_null])
-        
-        # backward substitution
-        for i in range(rank_null):
-            for j in range(rank-1,-1,-1):
-                if j==rank-1:
-                    R11[j,i] = -A12[j,i]/A11[j,j]
-                else:
-                    a = A11[j,j+1:rank].dot(R11[j+1:rank,i])
-                    R11[j,i] = (-A12[j,i] - a )/A11[j,j]
-                
-        # back to the original bases
         R[idf,:] = np.eye(rank_null)
-        R[idp,:] = R11
-
+        R11 = sparse.linalg.spsolve_triangular(U[np.ix_(idp,idp)], U[np.ix_(idp,idf)].A, lower=False)
+        R[idp,:] = -R11
+   
         if orthonormal:
             R = linalg.orth(R)
 
-        return R
+    return R
 
 def pinv_and_null_space_svd(K,tol=1.0E-8):
     ''' calc pseudo inverve and
@@ -1079,17 +1049,17 @@ class  Test_linalg(TestCase):
 
     def test_ProjectorOperator(self):
 
-        A = 3*np.array([[2,-1,0],[-1,2,0],[0,-1,2]])
-        P = np.array([[1,0,0],[0,1,0],[0,0,0]])
+        A = 3*np.array([[2.,-1.,0.],[-1.,2.,0.],[0.,-1.,2.]])
+        P = np.array([[1.,0.,0.],[0.,1.,0.],[0.,0.,0.]])
         PA = ProjectorOperator(A,P,shape=(3,3))
-        b = np.array([-2,4,0])
+        b = np.array([-2.,4.,0.])
         b1 = PA.dot(b)
 
         np.testing.assert_almost_equal(b1,P.dot(b1),decimal=10)
 
     def test_ProjectorOperator_with_minres(self):
-        A = 3*np.array([[2,-1,0],[-1,2,0],[0,-1,2]])
-        P = np.array([[1,0,0],[0,1,0],[0,0,0]])
+        A = 3.0*np.array([[2,-1,0],[-1,2,0],[0,-1,2]])
+        P = 1.0*np.array([[1,0,0],[0,1,0],[0,0,0]])
         PA = ProjectorOperator(A,P,shape=(3,3))
         Asingular = P.dot(A.dot(P))
         b = np.array([-2,4,0])
@@ -1153,9 +1123,9 @@ class  Test_linalg(TestCase):
     def test_splusps_and_lu_2(self):
 
         from scipy.linalg import lu_factor, lu_solve
-        A = np.array([[2, 5, 8, 7], [5, 2, 2, 8], [7, 5, 6, 6], [5, 4, 4, 8]])
+        A = 1.0*np.array([[2, 5, 8, 7], [5, 2, 2, 8], [7, 5, 6, 6], [5, 4, 4, 8]])
         lu, piv = lu_factor(A)
-        b = np.array([1, 1, 1, 1])
+        b = 1.0*np.array([1, 1, 1, 1])
 
         x = lu_solve((lu, piv), b)
 
@@ -1185,7 +1155,6 @@ class  Test_linalg(TestCase):
 
         lu, idf, R = splusps(A)
 
-        
         b1 = np.array([0., 1., 0. , 0., -1., 0.0])
         x1 = lu.solve(b1)
 
@@ -1240,6 +1209,8 @@ if __name__ == '__main__':
     main()
 
     #testobj = Test_linalg() 
+    #testobj.test_splusps_and_lu()
+    #testobj.test_splusps_and_lu_3()
     #testobj.test_slusps()
     #testobj.test_pinv_class()
     #testobj.create_pinv_matrix_and_vector_2()

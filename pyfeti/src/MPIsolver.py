@@ -17,7 +17,7 @@ import logging
 import time
 
 from pyfeti.src.utils import save_object, load_object, Log, getattr_mpi_attributes
-from pyfeti.src.feti_solver import CourseProblem, Solution
+from pyfeti.src.feti_solver import CourseProblem, Solution, SolverManager
 from pyfeti.src import solvers
 
 
@@ -84,7 +84,7 @@ def exchange_global_dict(local_dict,local_id,partitions_list):
     return local_dict
 
 
-class ParallelSolver():
+class ParallelSolver(SolverManager):
     def __init__(self,obj_id, local_problem, **kwargs):
         
 
@@ -125,15 +125,20 @@ class ParallelSolver():
         self.e = None
         self.GGT = None
         self.GGT_dict = {}
-        self.GGT_inv = None
+        #self.GGT_inv = None
         self.num_partitions = comm.Get_size()
         self.partitions_list = list(range(1,self.num_partitions+1))
-        
+        self.dual_interface_algorithm = 'PCPG'
+
         # transform key args in object variables
         self.__dict__.update(kwargs)
 
         logging.info('local length = %i' %self.local_problem.length)
         
+    @property
+    def GGT_inv(self):
+        return np.linalg.inv(self.GGT)
+
     def _exchange_global_size(self):
         local_id = self.obj_id
         for nei_id in self.local_problem.neighbors_id:
@@ -348,7 +353,6 @@ class ParallelSolver():
             raise('Build local to global mapping before calling this function')
 
     def compute_GGT_inverse(self):
-        self.GGT_inv = np.linalg.inv(self.GGT)
         return self.GGT_inv
 
     def compute_lambda_im(self):
@@ -372,7 +376,24 @@ class ParallelSolver():
         comm.Barrier()
         return -d
 
-    def solve_dual_interface_problem(self,algorithm='PCPG'):
+    def apply_F_inv(self,v,**kwargs):
+
+        # map array to domains dict and then solve force gap
+        v_dict = self.vector2localdict(v, self.global2local_lambda_dofs)
+        gap_dict = self.solve_interface_force(v_dict,**kwargs)
+        
+        #global exchange
+        all_gap_dict = exchange_global_dict(gap_dict,self.obj_id,self.partitions_list)
+        gap_dict.update(all_gap_dict)
+
+        # assemble vector based on dict
+        d = np.zeros(self.lambda_size)
+        for interface_id,global_index in self.local2global_lambda_dofs.items():
+            d[global_index] += gap_dict[interface_id]
+
+        return d
+
+    def _solve_dual_interface_problem(self,algorithm='PCPG'):
         
         lambda_im = self.compute_lambda_im()
         G = self.G
@@ -445,6 +466,35 @@ class ParallelSolver():
         logging.debug(('gap_dict', gap_dict))
         return gap_dict
     
+    def solve_interface_force(self,gap_dict,**kwargs):
+
+        local_problem = self.local_problem
+        gap_f_dict = {}
+        # solving local problem
+        f_dict_local = local_problem.apply_schur_complement(gap_dict,**kwargs)
+        gap_f_dict.update(f_dict_local)
+        
+        for nei_id in local_problem.neighbors_id:            
+            nei_dict = {}
+            nei_dict[nei_id,self.obj_id] = exchange_info(gap_f_dict[self.obj_id,nei_id],self.obj_id,nei_id)
+            gap_f_dict.update(nei_dict)
+
+
+        # compute interface force avg
+        f_dict = {}
+        for interface_id in gap_f_dict:
+            local_id, nei_id = interface_id
+            if nei_id>local_id:
+                gap = gap_f_dict[local_id,nei_id] + gap_f_dict[nei_id,local_id]
+                f_dict [local_id, nei_id] = gap
+                f_dict [nei_id, local_id] = gap
+            elif nei_id==local_id:
+                gap = u_dict[local_id,nei_id] 
+                f_dict[local_id, nei_id] = gap
+
+
+        return f_dict
+
     def vector2localdict(self,v,map_dict):
         v_dict = {}
         for global_index, local_info in map_dict.items():
@@ -486,21 +536,6 @@ class ParallelSolver():
         return u_dict, lambda_dict, alpha_dict 
 
 
-def launch_ParallelSolver(rank, tmp_folder='temp' ,  prefix='local_problem_', ext='.pkl',**kwargs):
-
-
-    obj_id = rank + 1
-    case_path = prefix + str(obj_id) + ext
-
-    logging.info('Local problem ID = %s' %obj_id)
-    logging.info('Local object name passed to MPI solver = %s' %case_path)
-
-    local_problem = load_object(case_path)
-    logging.info(('local_problem obj = ', local_problem))
-    parsolver = ParallelSolver(obj_id,local_problem)
-    u_i = parsolver.mpi_solver()
-    return u_i
-
 
 if __name__ == "__main__":
 
@@ -538,7 +573,6 @@ if __name__ == "__main__":
         logging.info(header)
     
 
-        
         case_path = mpi_kwargs['prefix'] + str(obj_id) + mpi_kwargs['ext']
         logging.info('Local object name passed to MPI solver = %s' %case_path)
     
@@ -560,5 +594,5 @@ if __name__ == "__main__":
         logging.info('Time at end: %s' %localtime)
         logging.info(header)
     else:
-        print('/n WARNING. No system argument were passed to the MPIsolver. Nothing to do! /n')
+        print('/n WARNING. No system argument were passed to the MPIsolver. Nothing to do! \n')
         pass

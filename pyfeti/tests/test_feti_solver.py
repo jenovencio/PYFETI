@@ -389,13 +389,38 @@ class  Test_FETIsolver(TestCase):
     def test_serial_solver_cases(self):
         self.run_solver_cases(algorithm=SerialFETIsolver)
 
-    def test_serial_solver_cases_precond(self):
+    def test_parallel_solver_cases_precond(self):
+        FETI_algorithm = ParallelFETIsolver
+        self.run_solver_cases_precond(FETI_algorithm)
 
-        domin_list_x = [4] 
-        domin_list_y = [4] 
-        case_id_list = [3]
+    def test_serial_solver_cases_precond(self):    
         FETI_algorithm = SerialFETIsolver
+        self.run_solver_cases_precond(FETI_algorithm)
 
+    def test_compare_serial_and_parallel_precond(self):
+        
+        print('Comparing Serial and Parallel precond ... ..........')
+        print('Running Serial precond ... .........................')
+        FETI_algorithm = SerialFETIsolver
+        sol_obj_1,sol_obj_2, sol_obj_3, sol_obj_4 = self.run_solver_cases_precond(FETI_algorithm)
+
+        print('Running Parallel precond ... .........................')
+        FETI_algorithm = ParallelFETIsolver
+        sol_obj_par_1,sol_obj_par_2, sol_obj_par_3, sol_obj_par_4 = self.run_solver_cases_precond(FETI_algorithm)
+
+        self.assertTrue(sol_obj_1.PCGP_iterations==sol_obj_par_1.PCGP_iterations)
+        self.assertTrue(sol_obj_2.PCGP_iterations==sol_obj_par_2.PCGP_iterations)
+        self.assertTrue(sol_obj_3.PCGP_iterations==sol_obj_par_3.PCGP_iterations)
+        self.assertTrue(sol_obj_4.PCGP_iterations==sol_obj_par_4.PCGP_iterations)
+
+        print('End Serial and Parallel precond ... ........../n')
+
+    def run_solver_cases_precond(self,FETI_algorithm = SerialFETIsolver):
+
+        domin_list_x = [3] 
+        domin_list_y = [3] 
+        case_id_list = [3]
+        
         print('Testing Preconditioner %s ..........' %'Identity')
         solver_obj,sol_obj_1 = self.run_solver_cases(FETI_algorithm,None,domin_list_x,domin_list_y,case_id_list)
         
@@ -591,7 +616,7 @@ class  Test_FETIsolver(TestCase):
         Dir        D1                D2 
         '''
         
-
+        print('Test Total FETI solver ..........')
         K1 = np.array([[1,-1],[-1,1]])
         K2 = np.array([[1,-1],[-1,1]])
         B0 = np.array([[-1,0]])
@@ -629,6 +654,7 @@ class  Test_FETIsolver(TestCase):
         np.testing.assert_almost_equal(lambda_,lambda_par,decimal=10)
         np.testing.assert_almost_equal(alpha,alpha_par,decimal=10)
         
+        print('End Total FETI solver ..........')
         
 
 if __name__=='__main__':
@@ -639,6 +665,8 @@ if __name__=='__main__':
     #test_obj.test_serial_solver()
     #test_obj.test_serial_preconditioner()
     #test_obj.test_serial_solver_cases_precond()
+    #test_obj.test_parallel_solver_cases_precond()
+    #test_obj.test_compare_serial_and_parallel_precond()
     #test_obj.test_parallel_solver()
     #test_obj.test_parallel_solver_cases()
     #test_obj.test_serial_solver_cases()

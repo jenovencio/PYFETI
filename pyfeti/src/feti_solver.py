@@ -261,11 +261,11 @@ class SolverManager():
             pass
             
 
-
         residual = -self.apply_F(lambda_im, external_force=True)
         d = -self.apply_F(0.0*lambda_im, external_force=True)
         norm_d = np.linalg.norm(d)
 
+        logging.info('Dual Interface algorithm = %s' %algorithm)
         method_to_call = getattr(solvers, algorithm)
 
         try:
@@ -284,6 +284,8 @@ class SolverManager():
                                                          tolerance=tolerance,max_int=max_int)
 
         lambda_sol = lambda_im + lambda_ker
+        logging.debug(('lambda_im=',lambda_im))
+        logging.debug(('lambda_sol=',lambda_sol))
 
         alpha_sol = GGT_inv.dot(G.dot(residual - self.apply_F(lambda_ker)))
 
@@ -309,9 +311,11 @@ class SolverManager():
         return -d
 
     def apply_F_inv(self,v,**kwargs):
+        # map array to domains dict and then solve force gap
         v_dict = self.vector2localdict(v, self.global2local_lambda_dofs)
         gap_dict = self.solve_interface_force(v_dict,**kwargs)
 
+        # assemble vector based on dict
         d = np.zeros(self.lambda_size)
         for interface_id,global_index in self.local2global_lambda_dofs.items():
             d[global_index] += gap_dict[interface_id]
@@ -799,7 +803,6 @@ class LocalProblem():
         '''
 
         
-        
         interface_id = list(self.interface_set)
         interior_id = list(self.interior_set)
         f = np.zeros(self.length)
@@ -834,10 +837,9 @@ class LocalProblem():
             logging.error('Schur complement type not supported!')
 
         
-        f_scalling = sparse.diags(1/self.scalling).dot(f)
+        f_scalling = sparse.diags(1.0/self.scalling).dot(f)
 
         return self.get_interface_dict(f_scalling)
-
 
     def crosspoints_dectection(self):
         ''' This function detects cross points based on local 

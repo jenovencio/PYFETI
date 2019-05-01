@@ -955,14 +955,19 @@ class Matrix():
         if list(dofs)[0] is None:
             return 
         
-        self.data = self.data.tolil()
+        if issparse(self.data):
+            self.data = self.data.tolil()
         dirichlet_stiffness = self.trace/self.shape[0]       
         self.data[dofs,:] = 0.0
         self.data[:,dofs] = 0.0
         self.data[dofs,dofs] = dirichlet_stiffness
         self.eliminated_id.update(dofs)
-        return self.data.tocsr()
-        
+
+        if issparse(self.data):
+            return self.data.tocsr()
+        else:
+            return self.data
+
     def save_to_file(self,filename=None):
         if filename is None:
             filename = self.name + '.pkl'

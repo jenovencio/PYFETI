@@ -225,7 +225,7 @@ def parallel_matvec(tmp_dir='tmp',prefix_matrix='A_',ext_matrix= 'npz',prefix_ar
         np.save(prefix_array, y)
        
 
-    
+
 class  Test_Parallel(TestCase):
     def test_parallel_matvec(self):
 

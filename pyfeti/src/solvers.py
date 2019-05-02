@@ -7,7 +7,8 @@ from mpi4py import MPI
 import time
 
 def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
-        Precondicioner_action=None,tolerance=None,max_int=None):
+        Precondicioner_action=None,tolerance=None,max_int=None,
+        callback=None,vdot= None):
         ''' This function is a general interface for PCGP algorithms
 
         argument:
@@ -32,6 +33,13 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
 
         max_int : int, Default= None
             maximum number of iterations, if None max_int = int(1.2*len(residual))
+
+        callback : callable, Default None
+            function to be callabe at the and of each iteration
+
+        vdot : allable, Default None
+            function with the dot product of vdot(v,w) if none 
+            then, np.dot(v,w)
 
         return 
         lampda_pcgp : np.array
@@ -72,6 +80,12 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
         else:
             P = Projection_action
             
+        if vdot is None:
+            vdot = lambda v,w : np.dot(v,w)
+
+        # defining a norm based on vdot function
+        norm_func =  lambda v : np.sqrt(vdot(v,v))
+
         F = F_action
 
 
@@ -90,36 +104,28 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
         for k in range(max_int):
             wk = P(rk)  # projection action
             
-            norm_wk = np.linalg.norm(wk)
+            norm_wk = norm_func(wk)
             proj_r_hist.append(norm_wk)
             elapsed_time = time.time() - start_time
             logging.info('Time Duration %4.2e (s), Iteration = %i, Norm of project residual wk = %2.5e!' %(elapsed_time,k,norm_wk))
             
-            #try:
-            #    # exchange info through MPI
-            #    sendbuf = np.array([norm_wk])
-            #    recvbuf, best_rank = comm.allreduce(sendobj=(sendbuf,rank), op=MPI.MINLOC)
-            #    norm_wk = recvbuf
-            #    logging.info('Min Norm of project residual wk = %2.5e at rank = %i ' %(norm_wk,best_rank))
-            #except:
-            #    pass
-
             if norm_wk<tolerance:
                 logging.info('PCG has converged after %i' %(k+1))
                 break
 
-           
             zk = Precond(wk)
             yk = P(zk)
 
             if k>1:
-                beta = yk.T.dot(wk)/yk1.T.dot(wk1)
+                vn = vdot(yk,wk)
+                vn1 = vdot(yk1,wk1)
+                beta = vn/vn1
             else:
                 pk1 = yk
 
             pk = yk + beta*pk1
             Fpk = F(pk)
-            alpha_k = alpha_calc(yk,wk,pk,Fpk)
+            alpha_k = alpha_calc(yk,wk,pk,Fpk,vdot)
             
             lampda_pcpg = lampda_pcpg + alpha_k*pk
             lambda_hist.append(lampda_pcpg)
@@ -131,6 +137,9 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
             pk1 = pk[:]
             wk1 = wk[:]
 
+            if callback is not None:
+                callback(lampda_pcpg)
+
             start_time = time.time()
 
         if (k>0) and k==(max_int-1):
@@ -138,23 +147,16 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
             logging.warning('Projected norm = %2.5e , where the PCPG tolerance is set to %2.5e' %(norm_wk,tolerance))
 
 
-        #update residual and projected residual
-        #try:
-        #    if rank!=best_rank:
-        #        lampda_pcpg = 0.0*lampda_pcpg
-        #    comm.Bcast([lampda_pcpg,MPI.DOUBLE], root=best_rank)
-        #except:
-        #    pass
-
         return lampda_pcpg, rk, proj_r_hist, lambda_hist
 
 
-def alpha_calc(yk,wk,pk,Fpk):
-    aux1 = yk.T.dot(wk)
-    aux2 = pk.T.dot(Fpk)
-    
+def alpha_calc(yk,wk,pk,Fpk,vdot=None):
+    if vdot is None:
+        vdot = lambda v,w : np.dot(v,w)
+
+    aux1 = vdot(yk,wk)
+    aux2 = vdot(pk,Fpk)
     alpha = float(aux1/aux2)
-    
     return alpha
 
 def pminres(F_action,residual,Projection_action=None,lambda_init=None,

@@ -37,6 +37,14 @@ except:
     python_path = None
     python_exec = 'python'
 
+def vector2localdict(v,map_dict):
+    v_dict = {}
+    for global_index, local_info in map_dict.items():
+        for interface_id in local_info:
+            v_dict[interface_id] = v[np.ix_(global_index)]
+
+    return v_dict
+
 class FETIsolver():
     def __init__(self,K_dict,B_dict,f_dict,**kwargs):
         self.K_dict = K_dict
@@ -196,6 +204,9 @@ class SolverManager():
     def compute_lambda_im(self):
         return  self.G.T.dot(self.GGT_inv.dot(self.e))
         
+    def get_vdot(self):
+        return lambda v,w : np.dot(v,w)
+
     def solve_interface_gap(self,v_dict=None, external_force=False):
         u_dict = {}
         for problem_id, local_problem in self.local_problem_dict.items():
@@ -251,6 +262,7 @@ class SolverManager():
         I = np.eye(self.lambda_size)
         Projection_action = lambda r : (I - G.T.dot(GGT_inv.dot(G))).dot(r)
         F_action = lambda lambda_ker : self.apply_F(lambda_ker)
+        vdot = self.get_vdot()
 
         Precondicioner_action = None
         try:
@@ -281,7 +293,7 @@ class SolverManager():
         lambda_ker, rk, proj_r_hist, lambda_hist = method_to_call(F_action,residual,Projection_action=Projection_action,
                                                          lambda_init=None,
                                                          Precondicioner_action=Precondicioner_action,
-                                                         tolerance=tolerance,max_int=max_int)
+                                                         tolerance=tolerance,max_int=max_int,vdot=vdot)
 
         lambda_sol = lambda_im + lambda_ker
         logging.debug(('lambda_im=',lambda_im))
@@ -292,12 +304,7 @@ class SolverManager():
         return lambda_sol,alpha_sol, rk, proj_r_hist, lambda_hist
 
     def vector2localdict(self,v,map_dict):
-        v_dict = {}
-        for global_index, local_info in map_dict.items():
-            for interface_id in local_info:
-                v_dict[interface_id] = v[np.ix_(global_index)]
-
-        return v_dict
+        return vector2localdict(v,map_dict)
 
     def apply_F(self, v,  external_force=False):
        

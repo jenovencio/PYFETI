@@ -17,7 +17,7 @@ import logging
 import time
 
 from pyfeti.src.utils import save_object, load_object, Log, getattr_mpi_attributes
-from pyfeti.src.feti_solver import CourseProblem, Solution, SolverManager
+from pyfeti.src.feti_solver import CourseProblem, Solution, SolverManager, vector2localdict
 from pyfeti.src import solvers
 
 
@@ -83,6 +83,66 @@ def exchange_global_dict(local_dict,local_id,partitions_list):
     logging.debug('End exchange_global_dict')
     return local_dict
 
+def pardot(v,w,local_id,neighbors_id,global2local_map,partitions_list=None):
+    ''' This function computes a parallel dot product v * w
+    based on mpi operations
+
+    parameters:
+        v : np.array
+            array to perform v.dot(w)
+        w : np.array
+            array to perform w.dot(v)
+        local_id : int
+            id of local problem
+        neighbors_id : list
+            list of neighbor ids
+        global2local_map : callable
+            function to convert array to dict of arrays
+        partitions_list: list, Default=None
+            list of all the mpi
+        
+
+    '''
+
+    if partitions_list:
+        size = comm.Get_size()
+        partitions_list = list(range(1,size+1))
+
+    partial_norm_dict = {}
+    logging.info('pardot')
+    logging.info(neighbors_id)
+    v_dict = vector2localdict(v, global2local_map)
+    w_dict = vector2localdict(w, global2local_map)
+    logging.info(v_dict)
+    logging.info(w_dict)
+    
+    for nei_id in neighbors_id:
+        if nei_id>local_id:
+            key_pair = (local_id,nei_id)
+        else:
+            key_pair = (nei_id,local_id)
+
+        local_v = v_dict[key_pair]
+        local_w = w_dict[key_pair]
+
+        if type(local_w) is not np.ndarray:
+            logging.error('pardot method received a variable that is not a np.array!')
+            return None
+
+        partial_norm_dict[key_pair] = local_v.dot(local_w)
+        logging.info(partial_norm_dict)
+
+    # global exchange with scalars
+    partial_norm_dict = exchange_global_dict(partial_norm_dict,local_id,partitions_list)
+
+    v_dot_w = 0.0
+    for (i_id,j_id) , item in partial_norm_dict.items():
+        if j_id>i_id:
+            v_dot_w+=item
+    
+    return v_dot_w
+
+
 
 class ParallelSolver(SolverManager):
     def __init__(self,obj_id, local_problem, **kwargs):
@@ -128,6 +188,7 @@ class ParallelSolver(SolverManager):
         #self.GGT_inv = None
         self.num_partitions = comm.Get_size()
         self.partitions_list = list(range(1,self.num_partitions+1))
+        self.neighbors_id = self.local_problem.neighbors_id
         self.dual_interface_algorithm = 'PCPG'
 
         # transform key args in object variables
@@ -392,47 +453,9 @@ class ParallelSolver(SolverManager):
             d[global_index] += gap_dict[interface_id]
 
         return d
-
-    def _solve_dual_interface_problem(self,algorithm='PCPG'):
-        
-        lambda_im = self.compute_lambda_im()
-        G = self.G
-        GGT_inv = self.GGT_inv
-        Projection_action = lambda r : r - G.T.dot(GGT_inv.dot(G.dot(r)))
-        F_action = lambda lambda_ker : self.apply_F(lambda_ker)
-        residual = -self.apply_F(lambda_im, external_force=True)
-        d = -self.apply_F(0.0*lambda_im, external_force=True)
-        norm_d = np.linalg.norm(d)
-        
-        logging.info('norm d  = %4.2e' %norm_d)
-        try:
-            tolerance = norm_d*self.tolerance 
-        except:
-            tolerance = None # using default tolerance of the choosen interface algorithm
-           
-        try:
-            max_int = self.max_int
-        except:
-            max_int = None # using default max_int of the choosen interface algorithm
-        
-        method_to_call = getattr(solvers, algorithm)
-        
-        logging.info('Dual Interface algorithm = %s' %algorithm)
-
-        
-        lambda_ker, rk, proj_r_hist, lambda_hist = method_to_call(F_action,residual,Projection_action=Projection_action,
-                                                         lambda_init=None,
-                                                         Precondicioner_action=None,
-                                                         tolerance=tolerance,max_int=max_int)
-
-        
-        lambda_sol = lambda_im + lambda_ker
-        logging.debug(('lambda_im=',lambda_im))
-        logging.debug(('lambda_sol=',lambda_sol))
-        
-        alpha_sol = GGT_inv.dot(G.dot(residual - self.apply_F(lambda_ker)))
-
-        return lambda_sol,alpha_sol, rk, proj_r_hist, lambda_hist
+    
+    def get_vdot(self):
+        return lambda v,w : pardot(v,w,self.obj_id,self.neighbors_id, self.global2local_lambda_dofs,self.partitions_list)
 
     def solve_interface_gap(self,v_dict=None, external_force=False):
         local_problem = self.local_problem
@@ -494,14 +517,6 @@ class ParallelSolver(SolverManager):
 
 
         return f_dict
-
-    def vector2localdict(self,v,map_dict):
-        v_dict = {}
-        for global_index, local_info in map_dict.items():
-            for interface_id in local_info:
-                v_dict[interface_id] = v[np.ix_(global_index)]
-
-        return v_dict
         
     def assemble_solution_dict(self,lambda_sol,alpha_sol):
         ''' This function creates a solution dict for interface

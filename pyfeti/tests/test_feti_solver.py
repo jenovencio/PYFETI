@@ -408,10 +408,11 @@ class  Test_FETIsolver(TestCase):
         FETI_algorithm = ParallelFETIsolver
         sol_obj_par_1,sol_obj_par_2, sol_obj_par_3, sol_obj_par_4 = self.run_solver_cases_precond(FETI_algorithm)
 
-        self.assertTrue(sol_obj_1.PCGP_iterations==sol_obj_par_1.PCGP_iterations)
-        self.assertTrue(sol_obj_2.PCGP_iterations==sol_obj_par_2.PCGP_iterations)
-        self.assertTrue(sol_obj_3.PCGP_iterations==sol_obj_par_3.PCGP_iterations)
-        self.assertTrue(sol_obj_4.PCGP_iterations==sol_obj_par_4.PCGP_iterations)
+        tol = 1
+        self.assertTrue(np.abs(sol_obj_1.PCGP_iterations - sol_obj_par_1.PCGP_iterations)<=tol)
+        self.assertTrue(np.abs(sol_obj_2.PCGP_iterations - sol_obj_par_2.PCGP_iterations)<=tol)
+        self.assertTrue(np.abs(sol_obj_3.PCGP_iterations - sol_obj_par_3.PCGP_iterations)<=tol)
+        self.assertTrue(np.abs(sol_obj_4.PCGP_iterations - sol_obj_par_4.PCGP_iterations)<=tol)
 
         print('End Serial and Parallel precond ... ........../n')
 

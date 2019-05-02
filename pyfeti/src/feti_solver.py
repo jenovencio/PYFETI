@@ -212,7 +212,7 @@ class SolverManager():
                 gap_dict[local_id, nei_id] = gap
                 gap_dict[nei_id, local_id] = -gap
             elif nei_id==local_id:
-                logging.warning('Dirichlet contions = 0!')
+                logging.warning('Dirichlet B.C set to 0!')
                 gap = u_dict[local_id,nei_id] 
                 gap_dict[local_id, nei_id] = gap
 

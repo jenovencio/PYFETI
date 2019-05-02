@@ -128,6 +128,7 @@ def cholsps(A, tol=1.0e-8):
             
     return U, idf, R   
 
+#@profile
 def splusps(A,tol=1.0e-6):
     ''' This method return the upper traingular matrix based on superLU of A.
     This function works for positive semi-definite matrix. 
@@ -185,6 +186,7 @@ def splusps(A,tol=1.0e-6):
 
     return  lu, idf, R
 
+#@profile
 def calc_null_space_of_upper_trig_matrix(U,idf=None,orthonormal=True):
     ''' This function computer the Null space of
     a Upper Triangule matrix which is can be a singular
@@ -204,20 +206,29 @@ def calc_null_space_of_upper_trig_matrix(U,idf=None,orthonormal=True):
     
     '''
 
-    # finding the null space
+    # finding the null space pivots
     n,n = U.shape
     rank_null =len(idf)
-    rank = n - rank_null
-    
-    # finding the null space pivots
     all = set(range(n))
     idp = list(all - set(idf))
     R = np.zeros([n,rank_null])
     if rank_null>0:
-        R[idf,:] = np.eye(rank_null)
-        R11 = sparse.linalg.spsolve_triangular(U[np.ix_(idp,idp)], U[np.ix_(idp,idf)].A, lower=False)
-        R[idp,:] = -R11
-   
+        U_lil = U.tolil()
+
+        Ur = U_lil[:,idf].A
+        Ur[idf,:] = -np.eye(rank_null,rank_null)
+        
+        U_lil[idf,:] = 0.0
+        U_lil[:,idf] = 0.0
+        U_lil[idf,idf] = 1.0
+        U_csr = U_lil.tocsr()
+        R = -sla.spsolve_triangular(U_csr ,Ur, lower=False)
+
+        # free space im memory
+        del U_csr
+        del U_lil
+        del Ur
+
         if orthonormal:
             R = linalg.orth(R)
 

@@ -6,7 +6,7 @@ from unittest import TestCase, main
 import logging
 import time
 from mpi4py import MPI
-from utils import MPILauncher, getattr_mpi_attributes, pyfeti_dir
+from .utils import MPILauncher, getattr_mpi_attributes, pyfeti_dir
 
 def get_chunks(number_of_chuncks,size):
     ''' create chuncks based on number of mpi process

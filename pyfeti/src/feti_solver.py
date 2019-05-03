@@ -15,7 +15,9 @@ import shutil
 sys.path.append('../..')
 from pyfeti.src.utils import OrderedSet, Get_dofs, save_object, load_object, pyfeti_dir, MPILauncher
 from pyfeti.src.linalg import Matrix, Vector, elimination_matrix_from_map_dofs, \
-                              expansion_matrix_from_map_dofs, ProjLinearSys, ProjPrecondLinearSys
+                              expansion_matrix_from_map_dofs, ProjLinearSys, ProjPrecondLinearSys, \
+                              vector2localdict
+
 from pyfeti.src import solvers
 
 
@@ -37,13 +39,6 @@ except:
     python_path = None
     python_exec = 'python'
 
-def vector2localdict(v,map_dict):
-    v_dict = {}
-    for global_index, local_info in map_dict.items():
-        for interface_id in local_info:
-            v_dict[interface_id] = v[np.ix_(global_index)]
-
-    return v_dict
 
 class FETIsolver():
     def __init__(self,K_dict,B_dict,f_dict,**kwargs):
@@ -207,6 +202,12 @@ class SolverManager():
     def get_vdot(self):
         return lambda v,w : np.dot(v,w)
 
+    def get_projection(self):
+        G = self.G
+        GGT_inv = self.GGT_inv
+
+        return lambda r : r - G.T.dot(GGT_inv.dot(G.dot(r)))
+
     def solve_interface_gap(self,v_dict=None, external_force=False):
         u_dict = {}
         for problem_id, local_problem in self.local_problem_dict.items():
@@ -257,10 +258,7 @@ class SolverManager():
             algorithm = self.dual_interface_algorithm
 
         lambda_im = self.compute_lambda_im()
-        G = self.G
-        GGT_inv = self.GGT_inv
-        I = np.eye(self.lambda_size)
-        Projection_action = lambda r : (I - G.T.dot(GGT_inv.dot(G))).dot(r)
+        Projection_action = self.get_projection()
         F_action = lambda lambda_ker : self.apply_F(lambda_ker)
         vdot = self.get_vdot()
 
@@ -269,12 +267,15 @@ class SolverManager():
             precond_type = self.precond_type
             if self.precond_type is not None:
                 Precondicioner_action = lambda gap_u : self.apply_F_inv(gap_u,precond_type=precond_type )
+                looging.info('Preconditioner type = %s' %precond_type)
+            else:
+                looging.info('Preconditioner type = Identity')
         except:
             pass
             
 
-        residual = -self.apply_F(lambda_im, external_force=True)
-        d = -self.apply_F(0.0*lambda_im, external_force=True)
+        residual = -self.apply_F(lambda_im, external_force=True,global_exchange=True)
+        d = -self.apply_F(0.0*lambda_im, external_force=True,global_exchange=True)
         norm_d = np.linalg.norm(d)
 
         logging.info('Dual Interface algorithm = %s' %algorithm)
@@ -299,14 +300,17 @@ class SolverManager():
         logging.debug(('lambda_im=',lambda_im))
         logging.debug(('lambda_sol=',lambda_sol))
 
-        alpha_sol = GGT_inv.dot(G.dot(residual - self.apply_F(lambda_ker)))
+        G = self.G
+        GGT_inv = self.GGT_inv
+        Fdot_lambda_ker = self.apply_F(lambda_ker, external_force=False,global_exchange=True)
+        alpha_sol = GGT_inv.dot(G.dot(residual - Fdot_lambda_ker))
 
         return lambda_sol,alpha_sol, rk, proj_r_hist, lambda_hist
 
     def vector2localdict(self,v,map_dict):
         return vector2localdict(v,map_dict)
 
-    def apply_F(self, v,  external_force=False):
+    def apply_F(self, v,  external_force=False, **kwargs):
        
         v_dict = self.vector2localdict(v, self.global2local_lambda_dofs)
         gap_dict = self.solve_interface_gap(v_dict,external_force)

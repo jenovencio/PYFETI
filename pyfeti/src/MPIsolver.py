@@ -19,129 +19,10 @@ import time
 from pyfeti.src.utils import save_object, load_object, Log, getattr_mpi_attributes
 from pyfeti.src.feti_solver import CourseProblem, Solution, SolverManager, vector2localdict
 from pyfeti.src import solvers
-
+from pyfeti.src.MPIlinalg import exchange_info, exchange_global_dict, pardot, RetangularLinearOperator, ParallelRetangularLinearOperator
 
 from mpi4py import MPI
 import os
-
-
-def exchange_info(local_var,sub_id,nei_id,tag_id=15,isnumpy=False):
-    ''' This function exchange info (lists, dicts, arrays, etc) with the 
-    neighbors subdomains. Every subdomain has a master objective which receives 
-    the info and do some calculations based on it.
-    
-    Inpus:
-        local_var  : python obj
-            local object to send and receive
-        sub_id: int
-            id of the subdomain
-        nei_id : int
-            neighbor subdomain to send and receive
-        isnumpy : Boolean
-            sending numpy arrays
-    returns
-        nei_var : object of the neighbor
-    
-    '''    
-    logging.debug('Init exchange_info')
-
-    #init neighbor variable
-    var_nei = None
-    if nei_id>0:
-        #checking data type
-        if isnumpy:
-            
-                # sending message to neighbors
-                comm.Send(local_var, dest = nei_id-1)
-                # receiving messages from neighbors
-                var_nei = np.empty(local_var.shape)
-                comm.Recv(var_nei,source=nei_id-1)
-        else:
-            # sending message to neighbors
-            #tag_num = nei_id + sub_id + tag_id + nei_id*sub_id
-            #comm.send(local_var, dest = nei_id-1)
-            # receiving messages from neighbors
-            #var_nei = comm.recv(source=nei_id-1)
-            
-            var_nei  = comm.sendrecv(local_var,dest=nei_id-1,source=nei_id-1)
-
-    logging.debug('End exchange_info')
-    return var_nei
-
-def exchange_global_dict(local_dict,local_id,partitions_list):
-    
-    logging.debug('Init exchange_global_dict')
-    logging.debug(('local_id =' ,local_id))
-    logging.debug(('partitions_list =' ,partitions_list))
-    logging.debug(('local_dict =' ,local_dict))
-    for global_id in partitions_list:
-        if global_id!=local_id:
-            nei_dict =  exchange_info(local_dict,local_id,global_id)
-            if nei_dict:
-                local_dict.update(nei_dict)
-
-    logging.debug('End exchange_global_dict')
-    return local_dict
-
-def pardot(v,w,local_id,neighbors_id,global2local_map,partitions_list=None):
-    ''' This function computes a parallel dot product v * w
-    based on mpi operations
-
-    parameters:
-        v : np.array
-            array to perform v.dot(w)
-        w : np.array
-            array to perform w.dot(v)
-        local_id : int
-            id of local problem
-        neighbors_id : list
-            list of neighbor ids
-        global2local_map : callable
-            function to convert array to dict of arrays
-        partitions_list: list, Default=None
-            list of all the mpi
-        
-
-    '''
-
-    if partitions_list:
-        size = comm.Get_size()
-        partitions_list = list(range(1,size+1))
-
-    partial_norm_dict = {}
-    logging.info('pardot')
-    logging.info(neighbors_id)
-    v_dict = vector2localdict(v, global2local_map)
-    w_dict = vector2localdict(w, global2local_map)
-    logging.info(v_dict)
-    logging.info(w_dict)
-    
-    for nei_id in neighbors_id:
-        if nei_id>local_id:
-            key_pair = (local_id,nei_id)
-        else:
-            key_pair = (nei_id,local_id)
-
-        local_v = v_dict[key_pair]
-        local_w = w_dict[key_pair]
-
-        if type(local_w) is not np.ndarray:
-            logging.error('pardot method received a variable that is not a np.array!')
-            return None
-
-        partial_norm_dict[key_pair] = local_v.dot(local_w)
-        logging.info(partial_norm_dict)
-
-    # global exchange with scalars
-    partial_norm_dict = exchange_global_dict(partial_norm_dict,local_id,partitions_list)
-
-    v_dot_w = 0.0
-    for (i_id,j_id) , item in partial_norm_dict.items():
-        if j_id>i_id:
-            v_dot_w+=item
-    
-    return v_dot_w
-
 
 
 class ParallelSolver(SolverManager):
@@ -190,7 +71,6 @@ class ParallelSolver(SolverManager):
         self.partitions_list = list(range(1,self.num_partitions+1))
         self.neighbors_id = self.local_problem.neighbors_id
         self.dual_interface_algorithm = 'PCPG'
-
         # transform key args in object variables
         self.__dict__.update(kwargs)
 
@@ -406,33 +286,38 @@ class ParallelSolver(SolverManager):
         except:
             raise('Build local to global mapping before calling this function')
             
-    def assemble_e(self):
-        try:
-            self.e = self.course_problem.assemble_e(self.local2global_alpha_dofs,self.alpha_size)
-            return self.e
-        except:
-            raise('Build local to global mapping before calling this function')
-
     def compute_GGT_inverse(self):
         return self.GGT_inv
+
+    def get_projection(self):
+        G = ParallelRetangularLinearOperator(self.course_problem.G_dict,
+        self.local2global_alpha_dofs,self.local2global_lambda_dofs,
+        shape=(self.alpha_size , self.lambda_size), neighbors_id = self.neighbors_id)
+        GGT_inv = self.GGT_inv
+        GT = self.G.T
+        return lambda r : r - GT.dot(GGT_inv.dot(G.dot(r)))
 
     def compute_lambda_im(self):
         GGT_inv = self.compute_GGT_inverse()
         return  self.G.T.dot((GGT_inv).dot(self.e))
 
-    def apply_F(self, v,  external_force=False):
+    def apply_F(self, v,  external_force=False, global_exchange=False):
        
         logging.debug(('global2local_lambda_dofs ', self.global2local_lambda_dofs))
         v_dict = self.vector2localdict(v, self.global2local_lambda_dofs)
         gap_dict = self.solve_interface_gap(v_dict,external_force)
         
         #global exchange
-        all_gap_dict = exchange_global_dict(gap_dict,self.obj_id,self.partitions_list)
-        gap_dict.update(all_gap_dict)
+        if global_exchange:
+            all_gap_dict = exchange_global_dict(gap_dict,self.obj_id,self.partitions_list)
+            gap_dict.update(all_gap_dict)
 
         d = np.zeros(self.lambda_size)
         for interface_id,global_index in self.local2global_lambda_dofs.items():
-            d[global_index] += gap_dict[interface_id]
+            try:
+                d[global_index] += gap_dict[interface_id]
+            except:
+                pass
 
         comm.Barrier()
         return -d
@@ -455,6 +340,9 @@ class ParallelSolver(SolverManager):
         return d
     
     def get_vdot(self):
+        ''' This function wraps the parallel dot product
+        of to arrays based on PyFETI data structure.
+        '''
         return lambda v,w : pardot(v,w,self.obj_id,self.neighbors_id, self.global2local_lambda_dofs,self.partitions_list)
 
     def solve_interface_gap(self,v_dict=None, external_force=False):
@@ -559,7 +447,7 @@ if __name__ == "__main__":
     size = comm.Get_size()
 
     obj_id = rank + 1
-    logging.basicConfig(level=logging.INFO,filename='domain_' + str(obj_id) + '.log')
+    logging.basicConfig(level=logging.INFO,filename='domain_' + str(obj_id) + '.log', filemode='w')
     
     header ='###################################################################'
     system_argument = sys.argv

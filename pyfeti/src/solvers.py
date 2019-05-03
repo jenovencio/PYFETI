@@ -102,9 +102,11 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
         rk = residual
         k=0
         for k in range(max_int):
+
             wk = P(rk)  # projection action
-            
+
             norm_wk = norm_func(wk)
+            #logging.info(('norm_wk =', norm_wk ))
             proj_r_hist.append(norm_wk)
             elapsed_time = time.time() - start_time
             logging.info('Time Duration %4.2e (s), Iteration = %i, Norm of project residual wk = %2.5e!' %(elapsed_time,k,norm_wk))
@@ -115,7 +117,7 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
 
             zk = Precond(wk)
             yk = P(zk)
-
+            
             if k>1:
                 vn = vdot(yk,wk)
                 vn1 = vdot(yk1,wk1)
@@ -123,8 +125,11 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
             else:
                 pk1 = yk
 
+            
             pk = yk + beta*pk1
             Fpk = F(pk)
+            #logging.info(('pk =', pk ))
+            #logging.info(('Fpk =', Fpk ))
             alpha_k = alpha_calc(yk,wk,pk,Fpk,vdot)
             
             lampda_pcpg = lampda_pcpg + alpha_k*pk

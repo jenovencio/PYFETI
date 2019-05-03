@@ -10,6 +10,8 @@ from pyfeti.src.utils import OrderedSet, Get_dofs, save_object, MapDofs
 from pyfeti.src.linalg import Matrix, Vector,  elimination_matrix_from_map_dofs, expansion_matrix_from_map_dofs
 from pyfeti.src.feti_solver import ParallelFETIsolver, SerialFETIsolver
 from pyfeti.src.solvers import PCPG
+from pyfeti.src.MPIlinalg import ParallelRetangularLinearOperator
+from pyfeti.src.linalg import RetangularLinearOperator
 from pyfeti.cases.case_generator import create_FETI_case
 
 
@@ -418,9 +420,9 @@ class  Test_FETIsolver(TestCase):
 
     def run_solver_cases_precond(self,FETI_algorithm = SerialFETIsolver):
 
-        domin_list_x = [3] 
-        domin_list_y = [3] 
-        case_id_list = [3]
+        domin_list_x = [4] 
+        domin_list_y = [4] 
+        case_id_list = [4]
         
         print('Testing Preconditioner %s ..........' %'Identity')
         solver_obj,sol_obj_1 = self.run_solver_cases(FETI_algorithm,None,domin_list_x,domin_list_y,case_id_list)
@@ -610,7 +612,7 @@ class  Test_FETIsolver(TestCase):
         return u_dual,lambda_,alpha
 
     def test_total_FETI_approach(self):
-        ''' This test incorporate Dirichlet constraint in the Bollean matrix
+        ''' This test incorporate Dirichlet constraint in the Boolean matrix
         The constraint are considered the 0-th Neighbor
                                            F->
         |>0   0-----0-----0    0-----0-----0
@@ -657,12 +659,50 @@ class  Test_FETIsolver(TestCase):
         
         print('End Total FETI solver ..........')
         
+    def test_ParallelRetangularLinearOperator(self):
+
+        print('Test RetangularLinearOperator')
+        algorithm = SerialFETIsolver
+        case_id,nx,ny = 1,3,2
+        K_dict, B_dict, f_dict = create_FETI_case(case_id,nx,ny)
+        solver_obj = algorithm(K_dict,B_dict,f_dict,dual_interface_algorithm='PCPG',precond_type=None)
+        manager = solver_obj.manager 
+        manager.assemble_local_G_GGT_and_e()
+        manager.assemble_cross_GGT()
+        manager.build_local_to_global_mapping()
+
+        G_dict = manager.course_problem.G_dict
+        G = manager.assemble_G()
+        local2global_alpha_dofs = manager.local2global_alpha_dofs 
+        local2global_lambda_dofs = manager.local2global_lambda_dofs
+        alpha_size = manager.alpha_size
+        lambda_size = manager.lambda_size
+
+        LO = RetangularLinearOperator(G_dict,local2global_alpha_dofs,local2global_lambda_dofs,(alpha_size , lambda_size))
+
+        v = np.ones(lambda_size)
+        np.random.seed(seed=1)
+        v = 30.0*np.random.rand(lambda_size)
+        
+        a = LO.dot(v)
+        a_target = G.dot(v)
+        np.testing.assert_almost_equal(a,a_target,decimal=12)
+        
+        f_target = G.T.dot(a)
+        f = LO.T.dot(a)
+        np.testing.assert_almost_equal(f,f_target,decimal=12)
+
+        #LO.dict2vec( v_dict= {} ,10 ,map_dict=local2global_alpha_dofs)
+
+        
+
 
 if __name__=='__main__':
 
     main()
     #test_obj = Test_FETIsolver()
     #test_obj.setUp()
+    #test_obj.test_ParallelRetangularLinearOperator()
     #test_obj.test_serial_solver()
     #test_obj.test_serial_preconditioner()
     #test_obj.test_serial_solver_cases_precond()

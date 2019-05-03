@@ -293,6 +293,82 @@ def is_null_space(K,v, tol=1.0E-3):
         return False
 
 
+def vector2localdict(v,map_dict):
+    ''' converts an array to a dict
+    based on map_dict such that map_dict[global_index] = key
+    '''
+    v_dict = {}
+    for global_index, local_info in map_dict.items():
+        for interface_id in local_info:
+            v_dict[interface_id] = v[np.ix_(global_index)]
+
+    return v_dict
+
+def array2localdict(v,map_dict):
+    ''' converts an array to a dict
+    based on map_dict such that map_dict[key] = global_index
+    '''
+    v_dict = {}
+    for interface_id, global_index in map_dict.items():
+        v_dict[interface_id] = v[np.ix_(global_index)]
+
+    return v_dict
+
+def localdict2array(v_dict,length,map_dict):
+    ''' converts an array to a dict
+    based on map_dict such that map_dict[key] = global_index
+    '''
+    v = np.zeros(length)
+    for interface_id, global_index in map_dict.items():
+        v[global_index] += v_dict[interface_id]
+
+    return v
+
+
+class RetangularLinearOperator(LinearOperator):
+    def __init__(self,A_dict,row_map_dict,column_map_dict,shape=(0,0),dtype=np.float):
+
+        super().__init__(dtype=dtype,shape=shape)
+
+        self.A_dict = A_dict
+        self.row_map_dict = row_map_dict
+        self.column_map_dict = column_map_dict
+
+    def vec2dict(self,v,**kwargs) :
+        return array2localdict(v, self.column_map_dict)
+
+    def dict2vec(self,v_dict,length,map_dict):
+        return localdict2array(v_dict,length,map_dict)
+
+    def _callback(self,a):
+        return a
+    
+    def _matvec(self,v, **kwargs):
+
+        logging.info(('v = ', v))
+        # convert vector to dict    
+        v_dict = self.vec2dict(v, **kwargs)
+
+        a = np.zeros(self.shape[0])
+        for (i,j), A in self.A_dict.items():
+            if j>=i:
+                pair = (i,j)
+            else:
+                pair = (j,i)
+
+            # transpose multiplication
+            try:
+                a[self.row_map_dict[i]] += A.dot(v_dict[pair])
+            except:
+                a[self.row_map_dict[pair]] += A.T.dot(v_dict[i])
+
+        
+        return self._callback(a)
+
+    def _transpose(self):
+        return RetangularLinearOperator(self.A_dict,self.column_map_dict,self.row_map_dict,
+                                        shape=(self.shape[1],self.shape[0]),dtype=self.dtype)
+
 class LinearSys():
     def __init__(self,A,M,alg='splu'):
         self.A = A
@@ -385,7 +461,6 @@ class ProjectorOperator(LinearOperator):
     def _matvec(self,v):
         return self.PAP.dot(v)
         
-
 class DualLinearSys():      
     def __init__(self,A,B,nc,sigma=0.0,precond=None, projection=None):
         ''' Creates a linear operator such as

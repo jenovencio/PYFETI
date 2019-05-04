@@ -290,10 +290,13 @@ class ParallelSolver(SolverManager):
         return self.GGT_inv
 
     def get_projection(self):
+        # instantiating parallel retangular matrix operator to compute G.dot(v)
         G = ParallelRetangularLinearOperator(self.course_problem.G_dict,
         self.local2global_alpha_dofs,self.local2global_lambda_dofs,
         shape=(self.alpha_size , self.lambda_size), neighbors_id = self.neighbors_id)
         GGT_inv = self.GGT_inv
+
+        # G.T.dot(v) is performed locally, without mpi communication
         GT = self.G.T
         return lambda r : r - GT.dot(GGT_inv.dot(G.dot(r)))
 

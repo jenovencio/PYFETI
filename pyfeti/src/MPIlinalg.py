@@ -250,12 +250,10 @@ class ParallelRetangularLinearOperator(RetangularLinearOperator):
         self.__dict__.update(kwargs)
 
     def _matvec(self,v, **kwargs):
+
         local_id = self.local_id
-        #logging.info(('v = ', v))
         # convert vector to dict    
         v_dict = self.vec2dict(v, **kwargs)
-        #logging.info(('vec2dict = ',v_dict ))
-
         a = np.zeros(self.shape[0])
         for nei_id in self.neighbors_id:
             if nei_id>=local_id:
@@ -263,13 +261,17 @@ class ParallelRetangularLinearOperator(RetangularLinearOperator):
             else:
                 pair = (nei_id,local_id)
             
-            # Try matvec except Transpose multiplication
+            # Try matvec, except is the Transpose multiplication
             if (self.local_id,nei_id) in self.A_dict:
                 A = self.A_dict[self.local_id,nei_id]
                 try:
+                    # A.dot(x) implementation
                     a[self.row_map_dict[self.local_id]] += A.dot(v_dict[pair])
                 except:
+                    # A.T.dot(x) implementation
                     a[self.row_map_dict[pair]] += A.T.dot(v_dict[self.local_id])
+            else:
+                pass
 
         return self._callback(a)
 
@@ -285,19 +287,25 @@ class ParallelRetangularLinearOperator(RetangularLinearOperator):
                 a = self.dict2vec(vec2dict,a.shape[0],self.row_map_dict)
                 
             else:
+                
                 vec2dict = array2localdict(a, self.row_map_dict)
                 for nei_id in self.neighbors_id:
-                    if nei_id>=local_id:
-                        pair = (local_id,nei_id)
+                    if nei_id!=local_id:
+                        if nei_id>local_id:
+                            pair = (local_id,nei_id)
+                        else:
+                            pair = (nei_id,local_id)
+
+                        local_var = vec2dict[pair]
+                        nei_var = exchange_info(local_var,rank+1,nei_id,isnumpy=True)    
+                        vec2dict[pair] = local_var + nei_var
                     else:
-                        pair = (nei_id,local_id)
-                    local_var = vec2dict[pair]
-                    nei_var = exchange_info(local_var,rank+1,nei_id)
-                vec2dict[pair] = 0.5*(local_var+nei_var)
+                        pass
+                
                 a = self.dict2vec(vec2dict,a.shape[0],self.row_map_dict)
         except:
             pass
-        #logging.info(('a = ', a))
+
         return a 
 
     def _transpose(self):

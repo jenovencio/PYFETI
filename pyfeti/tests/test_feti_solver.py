@@ -153,8 +153,8 @@ class  Test_FETIsolver(TestCase):
         '''
         A simple example with Reduntant Constraints Positive Define Domains
         '''
-        K1 = np.array([[2,-1],[-1,1]])
-        K2 = np.array([[1,-1],[-1,2]])
+        K1 = np.array([[2.,-1.],[-1.,1.]])
+        K2 = np.array([[1.,-1.],[-1.,2.]])
         B1 = np.array([[0,1],[0,1],[0,1]]) 
         B2 = np.array([[-1,0],[-1,0],[-1,0]]) 
         f1 = np.array([0.,0.])                

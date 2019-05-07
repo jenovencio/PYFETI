@@ -10,6 +10,7 @@ PYFETI is a standalone Python Library to solve and implemented parallel FETI-Lik
 * Dill
 * Pandas
 * Matplotlib
+* Numdifftools
 
 # Installing PyFETI
 Before installing PyFETI we stronly recommend the use of [ANACONDA](https://www.anaconda.com/distribution/) and [git](https://git-scm.com/downloads).

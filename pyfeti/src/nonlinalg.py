@@ -3,11 +3,16 @@ from unittest import TestCase, main
 
 
 class NonLinearOperator():
-    def __init__(self,callback, jac=None, shape =None):
+    def __init__(self,callback, jac=None, shape =None, dtype=None):
         self.callback = callback
         self._jac = jac
         self._shape = shape
+        self.dtype = dtype
+        self._kernel = np.array([])
        
+    def __call__(self,*args,**kargs):
+        return self.eval(*args,**kargs)
+
     @property
     def shape(self,):
         return self._shape
@@ -23,6 +28,14 @@ class NonLinearOperator():
     @jac.setter
     def jac(self,J):
         self._jac = J
+
+    @property
+    def kernel(self):
+        return self._kernel
+
+    @kernel.setter
+    def kernel(self,R):
+        self._kernel = R
 
     def eval(self,*args,**kargs):
         return self.callback(*args,**kargs)

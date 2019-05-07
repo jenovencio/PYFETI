@@ -9,9 +9,13 @@ from scipy import optimize
 from numpy.fft import rfft, irfft, fft, ifft
 import time
 import matplotlib.pyplot as plt
+import numdifftools as nd
+from scipy.sparse.linalg import LinearOperator
 
 from pyfeti.src.nonlinalg import NonLinearOperator
-from pyfeti.src.nonlinear import NonLinearLocalProblem
+from pyfeti.src.nonlinear import NonLinearLocalProblem, NonlinearSolverManager 
+from pyfeti.src.optimize import feti as FETIsolver
+from pyfeti.src.optimize import newton
 
 
 class  Test_NonlinearSolver(TestCase):
@@ -106,7 +110,7 @@ class  Test_NonlinearSolver(TestCase):
         '''
 
         ndof = 2
-        Z1, Z2,B1, B2, fn1_, fn2_ = self.setup_1D_linear_localproblem(nH)
+        Z1, Z2,B1, B2, fn1_, fn2_ = self.setup_1D_linear_localproblem(nH,beta,alpha)
 
 
         f1_ = np.kron(np.concatenate(([1.0,],(nH-1)*[0.0])), np.array([1.0,0.0]))
@@ -180,19 +184,21 @@ class  Test_NonlinearSolver(TestCase):
     def l_array2dict(self,l):
             nH = self.nH
             lambda_dict = {}
-            lambda_dict[(1,2)] = np.kron(np.concatenate(([1.0,],(nH-1)*[0.0])), l)
-            lambda_dict[(2,1)] = np.kron(np.concatenate(([1.0,],(nH-1)*[0.0])), l)
+            #lambda_dict[(1,2)] = np.kron(np.concatenate(([1.0,],(nH-1)*[0.0])), l)
+            #lambda_dict[(2,1)] = np.kron(np.concatenate(([1.0,],(nH-1)*[0.0])), l)
+            lambda_dict[(1,2)] = l
+            lambda_dict[(2,1)] = l
             return  lambda_dict
 
     def test_1D_linear_localproblem_2(self):
         nH = 1
-        Z1, Z2,B1, B2, fn1_, fn2_ = self.setup_1D_linear_localproblem(nH)
+        Z1, Z2,B1, B2, fn1_, fn2_ = self.setup_1D_linear_localproblem(nH,beta=0.1)
         length = fn1_.shape[0]
         nonlin_obj1 = NonLinearLocalProblem(Z1,B1,fn1_,length)
         nonlin_obj2 = NonLinearLocalProblem(Z2,B2,fn2_,length)
 
 
-        int_force_list = np.arange(0.0,1.0,0.05)
+        int_force_list = np.arange(0.0,1.0,1.0)
         freq_list = np.arange(0.0,0.5,0.02)
         u_calc_list = []
         u_calc_list_2 = []
@@ -212,12 +218,16 @@ class  Test_NonlinearSolver(TestCase):
                 # using nonlinear solver 
                 ui_calc = nonlin_obj1.solve(lambda_dict,w)
                 uj_calc = nonlin_obj2.solve(lambda_dict,w)
-                u_calc_1.append(ui_calc[1])
-                u_calc_2.append(uj_calc[0])
-                r_calc.append(np.linalg.norm(B1[1,2].dot(ui_calc) + B2[2,1].dot(uj_calc)))
-            u_calc_list.append(u_calc_1)
-            u_calc_list_2.append(u_calc_2)
-            r_list.append(r_calc)
+                if (ui_calc is not None) and (uj_calc is not None):
+                    u_calc_1.append(ui_calc[1])
+                    u_calc_2.append(uj_calc[0])
+                    r_calc.append(np.linalg.norm(B1[1,2].dot(ui_calc) + B2[2,1].dot(uj_calc)))
+                #else:
+                #    u_calc_1, u_calc_2, r_calc = None, None, None
+
+                u_calc_list.append(u_calc_1)
+                u_calc_list_2.append(u_calc_2)
+                r_list.append(r_calc)
 
         # plotting forced responde varing interface force (lambda)                        
         if False:            
@@ -256,40 +266,90 @@ class  Test_NonlinearSolver(TestCase):
             plt.show()
 
     def test_1D_linear_dual_interface_problem(self):
-
-        nH = 1
-        self.nH = nH
-        Z1, Z2,B1, B2, fn1_, fn2_ = self.setup_1D_linear_localproblem(nH)
-        length = fn1_.shape[0]
-        nonlin_obj1 = NonLinearLocalProblem(Z1,B1,fn1_,length)
-        nonlin_obj2 = NonLinearLocalProblem(Z2,B2,fn2_,length)
-
-        # defining the Residual at the interface
-        Rb = lambda w0 : lambda l : B1[1,2].dot(nonlin_obj1.solve(self.l_array2dict(l),w0)) + \
-                                    B2[2,1].dot(nonlin_obj2.solve(self.l_array2dict(l),w0))        
-        nc = B1[1,2].shape[0]
-
-        self.run_dual_interface_problem(Rb,nc,nH)
+        ''' Test linear problem with no Damping
+        '''
+        nH,c,beta,alpha = 1, 0.0, 0.0, 0.0
+        Rb,nc,nH, nonlin_obj_list,JRb = self.setup_nonlinear_problem(nH,c,beta,alpha) 
+        self.run_dual_interface_problem(Rb,nc,nH, nonlin_obj_list,jac=JRb)
 
     def test_1D_linear_dual_interface_nonlinear_problem(self):
+        ''' Test nonlinear problem with Damping
+        '''
+        nH,c,beta,alpha = 1, 3.0, 1.8, 0.0
+        Rb,nc,nH, nonlin_obj_list,JRb = self.setup_nonlinear_problem(nH,c,beta,alpha) 
+        self.run_dual_interface_problem(Rb,nc,nH, nonlin_obj_list,jac=JRb)
+  
+    def setup_nonlinear_problem(self,nH=1,c=0.0,beta=0.18,alpha=0.0):
         
-        nH = 1
+       
         self.nH = nH
-        Z1, Z2,B1, B2, fn1_, fn2_ = self.setup_1D_nonlinear_localproblem(nH,c=1.0e-2)
+        Z1, Z2,B1, B2, fn1_, fn2_ = self.setup_1D_nonlinear_localproblem(nH,c=c, beta = beta, alpha=alpha)
         length = fn1_.shape[0]
         nonlin_obj1 = NonLinearLocalProblem(Z1,B1,fn1_,length)
         nonlin_obj2 = NonLinearLocalProblem(Z2,B2,fn2_,length)
 
         # defining the Residual at the interface
-        Rb = lambda w0 : lambda l : B1[1,2].dot(nonlin_obj1.solve(self.l_array2dict(l),w0)) + \
+        Rb_ = lambda w0 : lambda l : B1[1,2].dot(nonlin_obj1.solve(self.l_array2dict(l),w0)) + \
                                     B2[2,1].dot(nonlin_obj2.solve(self.l_array2dict(l),w0))        
+
+        Rb = lambda w0 : lambda l : nonlin_obj1.solve_interface_displacement(self.l_array2dict(l),w0)[1,2] + \
+                                    nonlin_obj2.solve_interface_displacement(self.l_array2dict(l),w0)[2,1]
+
+        JRb = lambda w0 : lambda l : nonlin_obj1.derivative_u_over_lambda(w0)[1,2] + \
+                                    nonlin_obj2.derivative_u_over_lambda(w0)[2,1]
+
+        w = 0.0
+        Rl= Rb(w)
+        Rl_= Rb_(w)
         nc = B1[1,2].shape[0]
-
-        nonlin_obj_list = [nonlin_obj1, nonlin_obj2]
-        self.run_dual_interface_problem(Rb,nc,nH, nonlin_obj_list)
-
-    def run_dual_interface_problem(self,Rb,nc,nH,nonlin_obj_list = []):
+        Rb = Rb_
+        l0 = np.ones(nc, dtype=np.complex)
+        l0 = np.kron(np.concatenate(([1.0,],(nH-1)*[0.0])), l0)
         
+        nonlin_obj_list = [nonlin_obj1, nonlin_obj2]
+    
+        return Rb,nc,nH, nonlin_obj_list,JRb
+
+    def test_compare_FETI_vs_explicit_inverse(self):
+        ''' The Dual Nonlinear problem need to solve the linear system of the newton iteration
+
+        F * delta_l = error
+
+        F can be explicit assembled, but it needs a matrix mpi communication
+        otherwise, a FETI solver can be use to solve Newton iteration
+
+        '''
+        nH,c,beta,alpha = 1, 3.0, 1.8, 0.0
+        Rb,nc,nH, nonlin_obj_list,JRb = self.setup_nonlinear_problem(nH,c,beta,alpha) 
+        
+
+        f = 0.0
+        w0 = w = 2.0*np.pi*f*np.arange(1,nH+1)
+        tol = 1.0e-8
+        Rl= Rb(w)
+        JRl = JRb(w)
+        l0 = np.ones(nc, dtype=np.complex)
+
+
+        lambda_dict = self.l_array2dict(l0)
+        nonlinear_problem_dict = {}
+        nonlinear_problem_dict[1] = nonlin_obj_list[0]
+        nonlinear_problem_dict[2] = nonlin_obj_list[1]
+        local_problem_dict = {}
+        for key, nonlinear_obj in nonlinear_problem_dict.items():
+            local_problem_dict[key] = nonlinear_obj.build_linear_problem(lambda_dict,w0,u=None)
+
+        r0 = Rl(l0)
+        x_target = np.linalg.solve(JRl(l0),r0)
+        x = FETIsolver(local_problem_dict)
+
+        e = np.abs(x - x_target)
+        np.testing.assert_array_almost_equal(x,x_target,decimal=10)
+        
+        x=1
+            
+    def run_dual_interface_problem(self,Rb,nc,nH, nonlin_obj_list = [],jac=None):
+
         try:
             nonlin_obj1  = nonlin_obj_list[0]
             nonlin_obj2 = nonlin_obj_list[1]
@@ -298,38 +358,98 @@ class  Test_NonlinearSolver(TestCase):
         
         lambda_list = []
         min_r_list = []
-        freq_list = np.arange(0.0,0.5,0.01)
-        freq = freq_list[0]
+        freq_list = []
         u1_list = []
         u2_list = []
         l0 = np.zeros(nc, dtype=np.complex)
-        for freq in freq_list:
+        freq_init = 0.0
+        delta_freq = 0.01
+        n_int = 150
+        default_scalling = 1
+        scalling = 1
+        factor = 0.9
+        freq = freq_init
+        count = 0
+        forward = True
+        jump = True
+        for n in range(n_int):
             w = 2.0*np.pi*freq*np.arange(1,nH+1)
             tol = 1.0e-8
+        
+            Rl= Rb(w)
             
-            Rl = Rb(w)
-            
+            sol = None
             try:
-                sol = optimize.root(Rl, l0, method='krylov', options={'fatol': tol})
+
+                #sol = optimize.root(Rl, l0, method='lm', jac=JRl_num, options={'fatol': tol, 'maxiter' : 20})
+                #sol = optimize.root(Rl, l0, method='krylov', options={'fatol': tol, 'maxiter' : 20})
+                JRl = jac(w)
+                sol = newton(Rl,JRl,l0)
+                #sol = optimize.root(Rl, l0, method='lm', options={'fatol': tol, 'maxiter' : 20})
+                print('Number of iterations %i' %sol.nit)
+                if sol.success:
+                    # restart success counter
+                    count = 0
+                    scalling = default_scalling
+                    l0 =  sol.x
+                    r_vec = sol.fun
+                    r = np.linalg.norm(r_vec )
+                    np.testing.assert_almost_equal(r, 0.0, decimal=8)
+
+                    min_r_list.append(r)
+                    lambda_list.append(l0)
+
+                    freq_list.append(freq)
+                    u1 = nonlin_obj1.u_init
+                    u2 = nonlin_obj2.u_init
+
+                    u1_list.append(u1)
+                    u2_list.append(u2)
+
+                    
+                    JLO = lambda l : LinearOperator(shape=(1,1), dtype=np.complex, matvec = lambda v : JRl(l).dot(v))
+                    #JRl_num = nd.Jacobian(Rl,n=1)
+
+                    JRl_eval = JRl(l0)
+                    #JRl_num_eval = JRl_num(l0)
+                    #np.testing.assert_array_almost_equal(JRl_eval,JRl_num_eval,decimal=10)
+                else:
+                    raise Exception
             except:
-                sol.fun = 1.0e-8
-                sol.x = 0.0
+                count +=1
+                 
+                print('Interface Problem did not converge! Try number %i' %count)
+                if count>3:
+                    # jump
+                    if jump:
+                        freq += 15*delta_freq*default_scalling
+                        freq_jump = freq
+                        jump=False
+                    else:
+                        freq = freq_jump
+                        jump = True
 
-            r = np.linalg.norm(sol.fun)
-            np.testing.assert_almost_equal(r, 0.0, decimal=8)
-            min_r_list.append(r)
-            lsol = sol.x
-            l0 = lsol
-            lambda_list.append(lsol)
+                    print('Frequency jump = %2.2e' %freq_jump)
+                    # go backwards
+                    if forward:
+                        factor=0.9
+                        scalling = -default_scalling
+                        forward=False
+                    #go forward again
+                    else:
+                        factor = 1.0
+                        scalling = default_scalling
+                        forward=True
+                    count = 0
+                    
+                else:
+                    freq = freq_list[-1]
+                scalling = scalling*factor
 
-            u1 = nonlin_obj1.solve(self.l_array2dict(lsol),w)
-            u2 = nonlin_obj2.solve(self.l_array2dict(lsol),w)
 
-            u1_list.append(u1)
-            u2_list.append(u2)
-
+            freq += delta_freq*scalling
             
-        plot_results = True
+        plot_results = False
         if plot_results:
             fig1, ((ax1,ax2),(ax3,ax4)) = plt.subplots(2,2)
             ax1.plot(freq_list,np.abs(lambda_list),'*--')
@@ -354,9 +474,36 @@ class  Test_NonlinearSolver(TestCase):
             
             plt.show()
 
+    def Test_NonlinearSolverManager(self):
+        nH,c,beta,alpha = 1, 0.0, 1.0, 0.0
+        Z1, Z2,B1, B2, fn1_, fn2_ = self.setup_1D_nonlinear_localproblem(nH,c=c, beta = beta, alpha=alpha)
+        Z_dict = {1:Z1,2:Z2}
+        B_dict = {1:B1,2:B2}
+        f_dict = {1:fn1_,2:fn2_}
+        manager = NonlinearSolverManager(Z_dict,B_dict,f_dict)
+        manager.build_local_to_global_mapping()
+        manager.lambda_init = np.zeros(manager.lambda_size, dtype=manager.dtype)
+        
 
+        freq_list = np.arange(0,0.5,0.01)
+        lambda_list = []
+        for freq in freq_list:
+            w0 = 2.0*np.pi*freq
+            try:
+                sol = manager.solve_dual_interface_problem(w0=np.array([w0]))
+                lambda_sol = sol.x
+                manager.lambda_init = lambda_sol
+            except:
+                sol = manager.solve_dual_interface_problem(w0=np.array([w0]))
+                lambda_sol = 0.0
+            lambda_list.append(lambda_sol)
+            
 
-        x =1
+        plt.plot(freq_list,np.abs(lambda_list),'o')
+        plt.show()
+        
+        x=1
+
 
 
 
@@ -364,6 +511,10 @@ if __name__=='__main__':
 
     #main()
     testobj = Test_NonlinearSolver()
+    #testobj.test_1D_linear_localproblem()
     #testobj.test_1D_linear_dual_interface_problem()
     #testobj.setup_1D_nonlinear_localproblem()
-    testobj.test_1D_linear_dual_interface_nonlinear_problem()
+    #testobj.test_1D_linear_dual_interface_nonlinear_problem()
+    #testobj.test_compare_FETI_vs_explicit_inverse()
+    #testobj.test_1D_linear_localproblem_2()
+    testobj.Test_NonlinearSolverManager()

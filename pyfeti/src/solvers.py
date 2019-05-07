@@ -52,7 +52,7 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
         interface_size = len(residual)
          
         if lambda_init is None:
-            lampda_pcpg = np.zeros(interface_size)
+            lampda_pcpg = np.zeros(interface_size, dtype=residual.dtype)
         else:
             lampda_pcpg = lambda_init
          
@@ -71,8 +71,8 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
         # initialize variables
         start_time = time.time()
         beta = 0.0
-        yk1 = np.zeros(interface_size)
-        wk1 = np.zeros(interface_size)
+        yk1 = np.zeros(interface_size,dtype=residual.dtype)
+        wk1 = np.zeros(interface_size,dtype=residual.dtype)
         proj_r_hist = []
         lambda_hist = []
         rk = residual

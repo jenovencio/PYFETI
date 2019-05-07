@@ -89,7 +89,7 @@ class SerialFETIsolver(FETIsolver):
                        time_PCPG = elaspsed_time_PCPG)
         
 class SolverManager():
-    def __init__(self,K_dict,B_dict,f_dict,pseudoinverse_kargs={'method':'svd','tolerance':1.0E-8},dual_interface_algorithm='PCPG',**kwargs):
+    def __init__(self,K_dict={},B_dict={},f_dict={},pseudoinverse_kargs={'method':'svd','tolerance':1.0E-8},dual_interface_algorithm='PCPG',**kwargs):
         self.local_problem_dict = {}
         self.course_problem = CourseProblem()
         self.local2global_lambda_dofs = {}
@@ -115,22 +115,40 @@ class SolverManager():
         self.pseudoinverse_kargs = pseudoinverse_kargs
         self.dual_interface_algorithm = dual_interface_algorithm
         self.is_local_G_GGT_and_e_computed = False
-        self._create_local_problems(K_dict,B_dict,f_dict)
+        if K_dict:
+            self._create_local_problems(K_dict,B_dict,f_dict)
         
     @property
     def GGT_inv(self):
         return self.course_problem.compute_GGT_inv()
 
     def _create_local_problems(self,K_dict,B_dict,f_dict):
+        ''' Create dict of local problem, based on 
+        K_dict,B_dict,f_dict dictionaries of arrays
+        '''
         
         for key, obj in K_dict.items():
             B_local_dict = B_dict[key]
-            self.local_problem_id_list.append(key)
-            self.local_problem_dict[key] = LocalProblem(obj,B_local_dict,f_dict[key],id=key,pseudoinverse_kargs=self.pseudoinverse_kargs)
-            for interface_id, B in B_local_dict.items():
-                self.local_lambda_length_dict[interface_id] = B.shape[0]
-        
+            local_problem = LocalProblem(obj,B_local_dict,f_dict[key],id=key,pseudoinverse_kargs=self.pseudoinverse_kargs)
+            self.add_localproblem(local_problem,local_id=key)
+            
+
+    def add_localproblem(self,local_problem,local_id=None):
+        ''' add local_problem object to the local_problem_dict
+        '''
+        if local_id is None:
+            key = local_problem.id
+        else:
+            key = local_id
+        self.local_problem_id_list.append(key)
+        self.local_problem_dict[local_problem.id] = local_problem
+        self.dtype = local_problem.dtype
+        for interface_id, B in local_problem.B_local.items():
+            self.local_lambda_length_dict[interface_id] = B.shape[0]
+
         self.local_problem_id_list.sort()
+
+        return None
 
     def assemble_local_G_GGT_and_e(self):
         
@@ -248,7 +266,7 @@ class SolverManager():
         v_dict = self.vector2localdict(v, self.global2local_lambda_dofs)
         gap_dict = self.solve_interface_gap(v_dict,external_force)
         
-        d = np.zeros(self.lambda_size)
+        d = np.zeros(self.lambda_size, dtype=self.dtype )
         for interface_id,global_index in self.local2global_lambda_dofs.items():
             d[global_index] += gap_dict[interface_id]
 
@@ -650,6 +668,7 @@ class LocalProblem():
         self.B_local = B_local
         self.solution = None
         
+        self.dtype = self.K_local.data.dtype
         self.id = id
         self.interface_size =  0
         self.neighbors_id = []
@@ -713,7 +732,7 @@ class LocalProblem():
     def solve(self, lambda_dict,external_force_bool=False):
        
         if not external_force_bool:
-            f = np.zeros(self.f_local.data.shape)
+            f = np.zeros(self.f_local.data.shape,dtype=self.dtype)
         else:
             f = np.copy(self.f_local.data)
 
@@ -879,6 +898,14 @@ class Solution():
         self._rebuild_lambda_map()
         self.domain_list = None
         self.u_dict = u_dict
+        self.dtype = np.float
+        for key, values in self.u_dict.items():
+            try:
+                self.dtype = values.dtype
+                break
+            except:
+                continue
+        
         self.__dict__.update(kwargs)
 
     @property
@@ -912,7 +939,7 @@ class Solution():
 
     @property
     def displacement(self):
-        u = np.array([])
+        u = np.array([], dtype=self.dtype)
         for key in self.domain_list:
             u = np.append(u,self.u_dict[key])
         
@@ -931,7 +958,7 @@ class Solution():
         return self.assemble_vector(self.alpha_dict,self.alpha_size,self.alpha_map)
 
     def assemble_vector(self,v_dict,vector_length,map_dict):
-        v = np.zeros(vector_length)
+        v = np.zeros(vector_length,dtype=self.dtype)
         for map_index,row_dofs in map_dict.items():
             v[np.ix_(row_dofs)] += v_dict[map_index]
         return v

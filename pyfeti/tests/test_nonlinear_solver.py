@@ -11,15 +11,95 @@ import time
 import matplotlib.pyplot as plt
 import numdifftools as nd
 from scipy.sparse.linalg import LinearOperator
+from scipy import interpolate 
 
 from pyfeti.src.nonlinalg import NonLinearOperator
 from pyfeti.src.nonlinear import NonLinearLocalProblem, NonlinearSolverManager 
 from pyfeti.src.optimize import feti as FETIsolver
 from pyfeti.src.optimize import newton
 
+class intercont():
+    p_array = np.array([])
+    yn_array = np.array([])
+    dpn_init = 0.05
+
+    def __init__(self):
+        pass
+        self.forward = True
+        
+
+    def __call__(self,pn,yn):
+        ''' this function updates
+        a parameter variable p, based on
+        previous pair values (pn,yn)  
+        '''
+        self.append(pn,yn)
+        if len(intercont.p_array)<2:
+            dpn = self.point()
+        elif len(intercont.p_array)<4:
+            dpn = self.secant()
+        else:
+            dpn = self.interpolate()
+        
+        return dpn
+
+    def append(self,pn,yn):
+        try:
+            intercont.yn_array = np.vstack((intercont.yn_array,yn))
+        except:
+            intercont.yn_array = yn
+        try:
+            intercont.p_array = np.concatenate((intercont.p_array,np.array([pn])))
+        except:
+            intercont.p_array = np.concatenate((intercont.p_array,pn))
+
+    def point(self):
+        
+        self.y_update = 0.0*intercont.yn_array
+        return intercont.dpn_init
+
+    def interpolate(self):
+        #cs = interpolate.CubicSpline(np.real(intercont.p_array),intercont.yn_array)
+        #dy = cs.derivative().__call__(np.real(intercont.p_array)[-1])
+
+        #sign_dy =  np.sign(intercont.yn_array[-1,:] - intercont.yn_array[-2,:])
+
+        return self.secant()
+
+    def secant(self):
+        dp = intercont.p_array[-1] - intercont.p_array[-2]
+        dy =  intercont.yn_array[-1,:] - intercont.yn_array[-2,:]
+        #dy = dy/np.linalg.norm(dy)
+        aug_v = np.concatenate((dy,np.array([dp])))
+        aug_v = aug_v/np.linalg.norm(aug_v)
+        base_vector = np.zeros(aug_v.shape,dtype =aug_v.dtype)
+        base_vector[-1] = 1.0
+        dp = np.real(intercont.dpn_init*np.dot(aug_v,base_vector))
+        sign_dy =  np.real(np.sign(dy))[0]
+
+        
+        
+        if sign_dy<1:
+            stoppp = 1
+
+        if np.abs(dp)<intercont.dpn_init*1.e-3:
+            stoppp = 1
+            if self.forward:
+                self.forward = not self.forward
+
+        if self.forward:
+            sign_dp = 1
+        else:
+            sign_dp = -1
+
+        y_update = (aug_v - base_vector)[0:-1]
+        self.y_update = y_update
+        return sign_dp*dp
+
+
 
 class  Test_NonlinearSolver(TestCase):
-    def setup_1D_linear_localproblem(self,nH = 1, beta = 0.0, alpha = 0.0):
+    def setup_1D_linear_localproblem(self,nH = 1, beta = 0.0, alpha = 0.0, fscale=1.0):
         '''
         setup a simple one 1 problem with 2
        linear domains
@@ -64,8 +144,8 @@ class  Test_NonlinearSolver(TestCase):
 
 
  
-        f1_ = np.kron(np.concatenate(([1.0,],(nH-1)*[0.0])), np.array([1.0,0.0]))
-        f2_ = np.kron(np.concatenate(([1.0,],(nH-1)*[0.0])),np.array([0.0,-1.0]))
+        f1_ = fscale*np.kron(np.concatenate(([1.0,],(nH-1)*[0.0])), np.array([1.0,0.0]))
+        f2_ = fscale*np.kron(np.concatenate(([1.0,],(nH-1)*[0.0])),np.array([0.0,-1.0]))
 
         cfn1_ = lambda u_,w=np.zeros(nH) : -f1_
         cfn2_ = lambda u_,w=np.zeros(nH) : -f2_
@@ -84,7 +164,7 @@ class  Test_NonlinearSolver(TestCase):
        
         return Z1, Z2,B1, B2, fn1_, fn2_
 
-    def setup_1D_nonlinear_localproblem(self,nH = 1, beta = 0.0, alpha = 0.0, c = 0.0):
+    def setup_1D_nonlinear_localproblem(self,nH = 1, beta = 0.0, alpha = 0.0, c = 0.0, fscale=1.0):
         '''
         setup a simple one 1 problem with 2
         linear domains
@@ -110,7 +190,7 @@ class  Test_NonlinearSolver(TestCase):
         '''
 
         ndof = 2
-        Z1, Z2,B1, B2, fn1_, fn2_ = self.setup_1D_linear_localproblem(nH,beta,alpha)
+        Z1, Z2,B1, B2, fn1_, fn2_ = self.setup_1D_linear_localproblem(nH,beta,alpha,fscale=fscale)
 
 
         f1_ = np.kron(np.concatenate(([1.0,],(nH-1)*[0.0])), np.array([1.0,0.0]))
@@ -279,11 +359,11 @@ class  Test_NonlinearSolver(TestCase):
         Rb,nc,nH, nonlin_obj_list,JRb = self.setup_nonlinear_problem(nH,c,beta,alpha) 
         self.run_dual_interface_problem(Rb,nc,nH, nonlin_obj_list,jac=JRb)
   
-    def setup_nonlinear_problem(self,nH=1,c=0.0,beta=0.18,alpha=0.0):
+    def setup_nonlinear_problem(self,nH=1,c=0.0,beta=0.18,alpha=0.0,fscale=1.0):
         
        
         self.nH = nH
-        Z1, Z2,B1, B2, fn1_, fn2_ = self.setup_1D_nonlinear_localproblem(nH,c=c, beta = beta, alpha=alpha)
+        Z1, Z2,B1, B2, fn1_, fn2_ = self.setup_1D_nonlinear_localproblem(nH,c=c, beta = beta, alpha=alpha, fscale=fscale)
         length = fn1_.shape[0]
         nonlin_obj1 = NonLinearLocalProblem(Z1,B1,fn1_,length)
         nonlin_obj2 = NonLinearLocalProblem(Z2,B2,fn2_,length)
@@ -504,6 +584,146 @@ class  Test_NonlinearSolver(TestCase):
         
         x=1
 
+    def test_intercont(self):
+        ''' test interpolation continuation
+        '''
+
+        s = 2.0*np.pi
+        f = lambda p : np.array([np.cos(s*p), np.sin(s*p)])
+
+        p = 0.0
+        dp = 0.05
+        #y_target = np.array([[]])
+        p_array = np.array([])
+        for i in range(50):
+            y = f(p)
+            try:
+                y_target = np.vstack((y_target,y))
+            except:
+                y_target = y
+            p_array = np.concatenate((p_array,np.array([p])))
+            p+=dp
+
+        cont = intercont()
+        p = 0.0
+        for i in range(50):
+            dp = cont(p,f(p))
+            p+=dp
+            
+
+
+        plt.plot(y_target.T[0,:],y_target.T[1,:],'o')
+        plt.plot(cont.yn_array.T[0,:],cont.yn_array.T[1,:],'*')
+        plt.show()
+
+        x=1
+
+    def test_intercont_1d_Duffing(self):
+
+        a = 5.e-1
+        b = 1
+        nH = 1
+        ndof = 1
+        d = 0.1
+        mode  = 'ortho'
+        FFT = lambda u : rfft(u,norm=mode).T[0:nH+1].reshape((nH+1)*ndof,1).flatten()[ndof:] # removing the static part
+        iFFT = lambda u_ : 2.0*np.real(ifft(np.concatenate((np.zeros(ndof),u_)).reshape(nH+1,ndof).T, n=100,norm=mode))
+
+        # nonlinear force in Time
+        fnl = lambda x, n=3 : a*x**n
+        fnl_ = lambda x, n = 3 : FFT(fnl(iFFT(np.array([x])),n))[0]
+        f = lambda x,w : -w**2*x[0] + x[0] + d*1J*2.0*x[0] + fnl_(x[0]) - b
+
+        x_implicit = lambda w, x_init : optimize.root(lambda x : f(x,w),x0=x_init,method='krylov').x
+
+        p = np.complex(0.01)
+        x = np.array([0.01],dtype=np.complex)
+        cont = intercont()
+        cont.dpn_init = 0.01
+        p_end = 2.
+        for i in range(500):
+            print('w = %f' %np.real(p))
+            x_sol = x_implicit(p,x)
+            dp = cont(p,x_sol)
+            p+=dp
+            x = x_sol + cont.y_update
+            #if np.real(dp)<0:
+            #    a = 1
+
+            #if np.abs(p)>1.0:
+            #    a = 1
+
+            if np.abs(p)>p_end:
+                break
+
+        plt.plot(cont.p_array,np.abs(cont.yn_array),'*')
+        plt.show()
+
+        x=1
+
+    
+    def test_linear_freq_response_cont(self):
+
+        nH,c,beta,alpha = 1, 10.e-0, 1.0, 0.0
+        fscale = 2.0
+        Rb,nc,nH, nonlin_obj_list,JRb = self.setup_nonlinear_problem(nH,c,beta,alpha,fscale=fscale) 
+        
+        
+
+        f = 0.0
+        w0 = w = 2.0*np.pi*f*np.arange(1,nH+1)
+        tol = 1.0e-8
+        scale = 0.8
+        l0 = np.ones(nc, dtype=np.complex)
+        
+        map_dict = {}
+        map_dict[(1,2)] = list(range(len(l0)))
+        map_dict[(2,1)] = list(range(len(l0)))
+        nl1 = nonlin_obj_list[0]
+        nl1.map = map_dict
+
+
+        cont = intercont()
+        for i in range(100):
+            Rl= Rb(w)
+            JRl = JRb(w)
+            sol = newton(Rl,JRl,l0)
+            #sol = optimize.root(Rl, l0, method='lm', options={'fatol': tol, 'maxiter' : 20})
+            print('Number of iterations %i' %sol.nit)
+            if sol.success:
+                l0 = sol.x
+                dw = cont(w,l0)
+                w += dw 
+            else:
+                w = w*scale
+ 
+                
+        
+    
+        u1_list = []
+        for w, l in zip(cont.p_array,cont.yn_array):
+            u1 = nl1.solve_displacement(l,np.array([w]))
+            if u1 is None:
+                u1 = 0.0*u1_list[-1]
+            
+            u1_list.append(u1)
+
+
+        plt.plot(cont.p_array, np.abs(cont.yn_array).T[0,:],'*')
+        plt.title('lambda')
+
+
+        plt.figure()
+        plt.plot(cont.p_array, np.abs(np.array(u1_list)),'*')
+        plt.title('displacement 1')
+        plt.show()
+
+        x=1
+        
+        
+
+
+
 
 
 
@@ -517,4 +737,7 @@ if __name__=='__main__':
     #testobj.test_1D_linear_dual_interface_nonlinear_problem()
     #testobj.test_compare_FETI_vs_explicit_inverse()
     #testobj.test_1D_linear_localproblem_2()
-    testobj.Test_NonlinearSolverManager()
+    #testobj.Test_NonlinearSolverManager()
+    #testobj.test_intercont()
+    #testobj.test_linear_freq_response_cont()
+    testobj.test_intercont_1d_Duffing()

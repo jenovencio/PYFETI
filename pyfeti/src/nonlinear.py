@@ -85,6 +85,14 @@ class NonLinearLocalProblem(LocalProblem):
         
         self.get_neighbors_id()
  
+    @property
+    def map(self):
+        return self._map
+    
+    @map.setter
+    def map(self,map_dict):
+        self._map = map_dict
+
     def residual(self,w0,fb=None):
         ''' return the residual function given
         a fixed parameter w0, and a fixed force at the
@@ -235,6 +243,21 @@ class NonLinearLocalProblem(LocalProblem):
             return self.u_init
         else:
             return None
+
+    def array2dict(self,v):
+        ''' map numpy array to local_dict
+        '''
+        v_dict = {}
+        for interface_id in self.B:
+                global_index = self.map[interface_id]
+                v_dict[interface_id] = v[global_index]
+
+        return v_dict
+
+    def solve_displacement(self,l,w0,u_init=None):
+        lambda_dict = self.array2dict(l)
+        return self.solve(lambda_dict,w0,u_init)
+
 
     
 

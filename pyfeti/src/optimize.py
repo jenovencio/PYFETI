@@ -42,10 +42,17 @@ def newton(f,Df,x0,epsilon=1.e-8,max_iter=30):
     '''
     sol = optimize.OptimizeResult()
     sol.success = False
+    norm_delta_x = 1.e2*epsilon
     xn = x0
     for n in range(0,max_iter):
-        fxn = f(xn)
-        if np.linalg.norm(fxn) < epsilon:
+        try:
+            fxn = f(xn)
+        except:
+            logging.error('Error evaluation the residual function. No solution found.')
+            sol.nit = n
+            return sol
+
+        if (np.linalg.norm(fxn)) < epsilon or (norm_delta_x < epsilon):
             
             sol.x = xn
             sol.fun = fxn
@@ -59,14 +66,20 @@ def newton(f,Df,x0,epsilon=1.e-8,max_iter=30):
             
             elif isinstance(Df,LinearSolver):
                 delta_x = Df.solve(-fxn)
+
+            elif callable(Df):
+                delta_x = np.linalg.solve(Df(xn),-fxn)
             else:
                 raise TypeError('Only np.arrays and LinearSolver are supported for the Jacobian')
+            norm_delta_x = np.linalg.norm(delta_x)
             xn = xn + delta_x
         except:
             logging.error('Jacobian is not positive definite. No solution found.')
+            sol.nit = n
             return sol
         
     logging.warning('Exceeded maximum iterations. No solution found.')
+    sol.nit = n
     return sol
 
 class LinearSolver():

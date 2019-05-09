@@ -119,6 +119,7 @@ if __name__ == '__main__':
             FETI_algorithm : Type of FETI algorithm SerialFETIsolver of ParallelFETIsolver,  Default = ParallelFETIsolver
             tol : tolerance of PCPG error norm, Default = 1.0E-8
             precond : Preconditioner type : Default - Identity (options: Lumped, Dirichlet, LumpedDirichlet, SuperLumped)
+            square : create a square of retangular domains depended on the mpi, Default : False
             example of command call:
             > python  create_test_case.py max_mpi_size=10 divY=10 divX=10
             '''
@@ -169,6 +170,11 @@ if __name__ == '__main__':
             FETI_algorithm = 'ParallelFETIsolver'
         logging.info('Set FETI algorithm  = %s' %FETI_algorithm)
 
+        try: 
+            square = keydict['square']
+        except:
+            square = False
+        logging.info('Square  = %s' %str(square ))
 
         try: 
             precond = keydict['precond']
@@ -226,8 +232,22 @@ if __name__ == '__main__':
 
         for mpi_size in range(min_mpi_size,max_mpi_size+1,mpi_step):
             max_div_x = local_div_x*max_mpi_size
-            domains_x = mpi_size
-            domains_y = 1
+            if not square:
+                domains_x = mpi_size
+                domains_y = 1
+            else:
+                factor1 = int(np.sqrt(mpi_size))
+                factor2 = int(mpi_size/factor1)
+                if factor1>=factor2:
+                    domains_x, domains_y = factor1, factor2
+                else:
+                    domains_x, domains_y = factor2, factor1
+
+                if int(factor1*factor2)!=mpi_size:
+                    logging.warning('Changing mpi size to fit the best rectangular subdomains')
+                    mpi_size = int(factor1*factor1)
+            
+
             number_of_div_x = int(max_div_x/domains_x)
             logging.info(header)
             logging.info('########################     MPI size  : %i    #####################' %mpi_size)

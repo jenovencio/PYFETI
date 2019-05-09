@@ -325,20 +325,24 @@ class ParallelSolver(SolverManager):
         comm.Barrier()
         return -d
 
-    def apply_F_inv(self,v,**kwargs):
+    def apply_F_inv(self,v,global_exchange=False,**kwargs):
 
         # map array to domains dict and then solve force gap
         v_dict = self.vector2localdict(v, self.global2local_lambda_dofs)
         gap_dict = self.solve_interface_force(v_dict,**kwargs)
         
         #global exchange
-        all_gap_dict = exchange_global_dict(gap_dict,self.obj_id,self.partitions_list)
-        gap_dict.update(all_gap_dict)
+        if global_exchange:
+            all_gap_dict = exchange_global_dict(gap_dict,self.obj_id,self.partitions_list)
+            gap_dict.update(all_gap_dict)
 
         # assemble vector based on dict
         d = np.zeros(self.lambda_size)
         for interface_id,global_index in self.local2global_lambda_dofs.items():
-            d[global_index] += gap_dict[interface_id]
+            try:
+                d[global_index] += gap_dict[interface_id]
+            except:
+                pass
 
         return d
     

@@ -420,9 +420,9 @@ class  Test_FETIsolver(TestCase):
 
     def run_solver_cases_precond(self,FETI_algorithm = SerialFETIsolver):
 
-        domin_list_x = [4] 
-        domin_list_y = [4] 
-        case_id_list = [4]
+        domin_list_x = [3] 
+        domin_list_y = [3] 
+        case_id_list = [2]
         
         print('Testing Preconditioner %s ..........' %'Identity')
         solver_obj,sol_obj_1 = self.run_solver_cases(FETI_algorithm,None,domin_list_x,domin_list_y,case_id_list)

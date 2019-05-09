@@ -1,6 +1,7 @@
 from unittest import TestCase, main
 import numpy as np
 from scipy import sparse
+from scipy.sparse.linalg import LinearOperator
 from pyfeti.src.linalg import ProjectorOperator
 import logging
 from mpi4py import MPI
@@ -58,6 +59,8 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
         size = comm.Get_size()
 
         interface_size = len(residual)
+        apply_precond = True
+        Identity = LinearOperator(dtype=residual.dtype,shape=(interface_size,interface_size), matvec = lambda x : x)
          
         if tolerance is None:
             tolerance=1.e-10
@@ -69,14 +72,17 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
             lampda_pcpg = np.zeros(interface_size)
         else:
             lampda_pcpg = lambda_init
-         
+                     
         if Precondicioner_action is None:
-            Precond = np.eye(interface_size,interface_size).dot
+            #Precond = np.eye(interface_size,interface_size).dot
+            Precond = Identity.dot
+            apply_precond = False
         else:
             Precond = Precondicioner_action
 
         if Projection_action is None:
-            P = np.eye(interface_size,interface_size).dot
+            #P = np.eye(interface_size,interface_size).dot
+            P = Identity.dot
         else:
             P = Projection_action
             
@@ -115,8 +121,13 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
                 logging.info('PCG has converged after %i' %(k+1))
                 break
 
-            zk = Precond(wk)
-            yk = P(zk)
+            # checking if precond will be applied, if not extra projection must be avoided
+            if apply_precond:
+                zk = Precond(wk)
+                yk = P(zk)
+            else:
+                zk = wk
+                yk = zk
             
             if k>1:
                 vn = vdot(yk,wk)
@@ -128,8 +139,7 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
             
             pk = yk + beta*pk1
             Fpk = F(pk)
-            #logging.info(('pk =', pk ))
-            #logging.info(('Fpk =', Fpk ))
+            
             alpha_k = alpha_calc(yk,wk,pk,Fpk,vdot)
             
             lampda_pcpg = lampda_pcpg + alpha_k*pk
@@ -148,7 +158,7 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
             start_time = time.time()
 
         if (k>0) and k==(max_int-1):
-            logging.warning('Maximum iteration was reached, MAX_INT = %i, without converging!' %k)
+            logging.warning('Maximum iteration was reached, MAX_INT = %i, without converging!' %(k+1))
             logging.warning('Projected norm = %2.5e , where the PCPG tolerance is set to %2.5e' %(norm_wk,tolerance))
 
 
@@ -254,6 +264,16 @@ class  Test_solvers(TestCase):
         x_minres, rk, proj_r_hist, lambda_hist = pminres(F_action,residual,Projection_action)
         x_svd = (np.linalg.pinv(Asingular)).dot(b)
         np.testing.assert_almost_equal(x_minres,x_svd,decimal=10)
+
+    def test_PCPG(self):
+        A = 3*np.array([[2,-1,0],[-1,2,-1],[0,-1,1]])
+        b = np.array([-2,4,0])
+
+        x_target = np.linalg.solve(A,b)
+        r = b
+        x_pcpg, rk , proj_r_hist, X_hist = PCPG(A.dot,r,max_int=6)
+        np.testing.assert_array_almost_equal(x_target,x_pcpg,decimal=10)
+
 
 if __name__ == '__main__':
     main()

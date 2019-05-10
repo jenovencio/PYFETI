@@ -7,7 +7,7 @@ from scipy import optimize, sparse
 import numpy as np
 import numdifftools as nd
 import logging
-
+from contpy import optimize as copt
 
 
 
@@ -74,6 +74,7 @@ class NonLinearLocalProblem(LocalProblem):
         self.interface_size =  0
         self.neighbors_id = []
         self.crosspoints = {}
+        self._R = None
         
         #alias variables for LocalProblem methods, 
         # it should be the Linearized version of Z and f
@@ -92,6 +93,27 @@ class NonLinearLocalProblem(LocalProblem):
     @map.setter
     def map(self,map_dict):
         self._map = map_dict
+
+    def build_jacobian_for_u(self):
+        Ru = lambda u : lambda l, w : self._R(u,l,w)
+        JRu = lambda u=None,l=None, w=None: nd.Jacobian(lambda u : Ru(l,w),n=1)
+        return NonLinearOperator(JRu, shape=(self.length,self.length))
+
+    def local_equilibrium_equation(self):
+        ''' Creating a local equilibrium equation that has the following 
+        format :
+
+            R(u=None,l=None,w=None) 
+            
+            u : numpy array
+            l : numpy array
+            w : numpy array
+
+        '''
+        fb = lambda l=None : self.assemble_right_handside(l)
+        R = lambda u=None,l=None, w=None : self.Z(u,w) + self.f(u,w) + fb(l)
+        self._R = R
+        return R
 
     def residual(self,w0,fb=None):
         ''' return the residual function given
@@ -134,7 +156,7 @@ class NonLinearLocalProblem(LocalProblem):
             self.u_linear = u
             self.w0_linear = w0
 
-        fb = self.assemble_right_hand_side(lambda_dict) 
+        fb = self.assemble_right_handside(lambda_dict) 
         f = self.residual(w0,fb).eval(u)
         
         return LocalProblem(self.K_local,self.B_local,f,self.id,**kwargs)
@@ -185,12 +207,23 @@ class NonLinearLocalProblem(LocalProblem):
         u = self.solve(lambda_dict,w0,u_init)
         return self.get_interface_dict(u)
 
-
-    def assemble_right_hand_side(self,lambda_dict):
+    def assemble_right_handside(self,lambda_):
         ''' This function assembles the 
         sum B(i,j)*lambda(i,j)
 
+        lambda_dict : dict or numpy array
+
+        return :
+            numpy array 
+                with the right handside force
+
+
+
         '''
+        if isinstance(lambda_,np.ndarray):
+            lambda_dict = self.array2dict(lambda_)
+        else:
+            lambda_dict = lambda_
         # force at the interface
         fb = np.zeros(self.length, dtype=np.complex)
         if lambda_dict is not None:
@@ -213,7 +246,7 @@ class NonLinearLocalProblem(LocalProblem):
 
         '''
         
-        fb = self.assemble_right_hand_side(lambda_dict)
+        fb = self.assemble_right_handside(lambda_dict)
 
         if u_init is None:
             u_init = self.u_init
@@ -231,10 +264,15 @@ class NonLinearLocalProblem(LocalProblem):
             return self.solution.x
 
         try:
-            solution = optimize.root(R,u_init,method=self.solver_kargs['method'], options=self.alg_kwargs)
+            #solution = optimize.root(R,u_init,method=self.solver_kargs['method'], options=self.alg_kwargs)
+            #solution = copt.root(R,u_init,method='hybr',options=self.alg_kwargs)
+            solution = copt.root(R,u_init,method='krylov',options=self.alg_kwargs)
         except ValueError:
-            logging.error('Local Problem %i did not converge!' %self.id)        
-            solution.success = False
+            try:
+                solution = copt.root(R,u_init,method='hybr',options=self.alg_kwargs)
+            except ValueError:
+                logging.error('Local Problem %i did not converge!' %self.id)        
+                solution.success = False
 
         self.solution = solution
         # update last converged solution
@@ -404,7 +442,6 @@ class NonlinearSolverManager(SolverManager):
 
         return -d
 
-
     def apply_F_inv(self,w0,method='cg'):
 
         Fdot = lambda v : self.apply_F(v,w0)
@@ -412,7 +449,6 @@ class NonlinearSolverManager(SolverManager):
 
         F_inv = lambda r : sparse.linalg.cg(F,r)[0]
         return opt.LinearSolver(solver = F_inv)
-
 
     def create_linearized_F_operator(self,r,v,w0,method='FETI',options={}):
         ''' get the linearized F action based on fixed lambda

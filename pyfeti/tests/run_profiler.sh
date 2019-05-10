@@ -1,0 +1,1 @@
+python -m cProfile -o profile.log test_nonlinear_solver.py -s cumtime

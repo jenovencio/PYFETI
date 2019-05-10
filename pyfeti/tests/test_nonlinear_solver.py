@@ -7,7 +7,7 @@ from scipy import sparse
 from scipy import optimize
 #from scipy.fftpack import rfft, irfft, fft, ifft
 from numpy.fft import rfft, irfft, fft, ifft
-import time
+import time, logging
 import matplotlib.pyplot as plt
 import numdifftools as nd
 from scipy.sparse.linalg import LinearOperator
@@ -17,6 +17,7 @@ from pyfeti.src.nonlinalg import NonLinearOperator
 from pyfeti.src.nonlinear import NonLinearLocalProblem, NonlinearSolverManager 
 from pyfeti.src.optimize import feti as FETIsolver
 from pyfeti.src.optimize import newton
+from contpy import optimize as copt
 
 class intercont():
     p_array = np.array([])
@@ -142,8 +143,6 @@ class  Test_NonlinearSolver(TestCase):
         B1 = {(1,2): np.kron(np.eye(nH),np.array([[0.0,1.0]]))}
         B2 = {(2,1): np.kron(np.eye(nH),np.array([[-1.0,0.0]]))}
 
-
- 
         f1_ = fscale*np.kron(np.concatenate(([1.0,],(nH-1)*[0.0])), np.array([1.0,0.0]))
         f2_ = fscale*np.kron(np.concatenate(([1.0,],(nH-1)*[0.0])),np.array([0.0,-1.0]))
 
@@ -620,7 +619,7 @@ class  Test_NonlinearSolver(TestCase):
 
     def test_intercont_1d_Duffing(self):
 
-        a = 5.e-1
+        a = 1.0 #5.e0
         b = 1
         nH = 1
         ndof = 1
@@ -631,47 +630,38 @@ class  Test_NonlinearSolver(TestCase):
 
         # nonlinear force in Time
         fnl = lambda x, n=3 : a*x**n
+        dfnl = lambda x, n=3 : n*a*x**(n-1)
         fnl_ = lambda x, n = 3 : FFT(fnl(iFFT(np.array([x])),n))[0]
-        f = lambda x,w : -w**2*x[0] + x[0] + d*1J*2.0*x[0] + fnl_(x[0]) - b
+        dfnl_ = lambda w : lambda x, n = 3 : np.array([[FFT(dfnl(iFFT(x),n))[0]]])
 
+        f = lambda x,w : -w**2*x[0] + x[0] + d*1J*w*x[0] + fnl_(x[0]) - b
+        dfx = lambda w : lambda x : -w**2 + 1.0 + d*1J*w +  + dfnl_(w)(x)
         x_implicit = lambda w, x_init : optimize.root(lambda x : f(x,w),x0=x_init,method='krylov').x
 
-        p = np.complex(0.01)
+        dfx_num = lambda w : lambda x : nd.Jacobian(lambda x : f(x,w),n=1)(x)
+        dfx_num_ = lambda w : lambda x : copt.complex_jacobian(lambda x : f(x,w),n=1)(x)
+
+        p = 0.01
         x = np.array([0.01],dtype=np.complex)
-        cont = intercont()
-        cont.dpn_init = 0.01
-        p_end = 2.
-        for i in range(500):
-            print('w = %f' %np.real(p))
-            x_sol = x_implicit(p,x)
-            dp = cont(p,x_sol)
-            p+=dp
-            x = x_sol + cont.y_update
-            #if np.real(dp)<0:
-            #    a = 1
 
-            #if np.abs(p)>1.0:
-            #    a = 1
-
-            if np.abs(p)>p_end:
-                break
-
-        plt.plot(cont.p_array,np.abs(cont.yn_array),'*')
+        p_range=(0.0,1.5)
+        start_time = time.time()
+        x_sol, p_sol, info_dict = copt.continuation(f,x0=x,p_range=p_range,p0=0.0, step=0.3,jacx=dfx_num_) # 
+        elapsed_time = time.time() - start_time
+        print('{"Continuation elapsed time" : %f} #Elapsed time (s)' %elapsed_time)
+        plt.plot(p_sol,np.abs(x_sol)[0,:],'o')
         plt.show()
 
-        x=1
-
-    
     def test_linear_freq_response_cont(self):
 
-        nH,c,beta,alpha = 1, 10.e-0, 1.0, 0.0
-        fscale = 2.0
+        nH,c,beta,alpha = 1, 1.0e-0, 1.0, 0.0
+        fscale = 1.0
         Rb,nc,nH, nonlin_obj_list,JRb = self.setup_nonlinear_problem(nH,c,beta,alpha,fscale=fscale) 
         
         
 
-        f = 0.0
-        w0 = w = 2.0*np.pi*f*np.arange(1,nH+1)
+        
+        
         tol = 1.0e-8
         scale = 0.8
         l0 = np.ones(nc, dtype=np.complex)
@@ -683,25 +673,18 @@ class  Test_NonlinearSolver(TestCase):
         nl1.map = map_dict
 
 
-        cont = intercont()
-        for i in range(100):
-            Rl= Rb(w)
-            JRl = JRb(w)
-            sol = newton(Rl,JRl,l0)
-            #sol = optimize.root(Rl, l0, method='lm', options={'fatol': tol, 'maxiter' : 20})
-            print('Number of iterations %i' %sol.nit)
-            if sol.success:
-                l0 = sol.x
-                dw = cont(w,l0)
-                w += dw 
-            else:
-                w = w*scale
- 
-                
+        p_range=(0.1,0.5)
+        R = lambda l, w : Rb(np.array([w]))(l)
+        JR = lambda w : lambda l : JRb(np.array([w]))(l)
+        start_time = time.time()
+        x_sol, p_sol, info_dict = copt.continuation(R,x0=l0,p_range=p_range,step=0.05,jacx=JR,correction_method='matcont')
+        elapsed_time = time.time() - start_time
+        print('{"Continuation elapsed time" : %f} #Elapsed time (s)' %elapsed_time)
         
-    
+        
+                
         u1_list = []
-        for w, l in zip(cont.p_array,cont.yn_array):
+        for w, l in zip(p_sol,x_sol.T):
             u1 = nl1.solve_displacement(l,np.array([w]))
             if u1 is None:
                 u1 = 0.0*u1_list[-1]
@@ -709,18 +692,33 @@ class  Test_NonlinearSolver(TestCase):
             u1_list.append(u1)
 
 
-        plt.plot(cont.p_array, np.abs(cont.yn_array).T[0,:],'*')
-        plt.title('lambda')
-
+        plt.plot(p_sol,np.abs(x_sol)[0,:],'o')
+        plt.title('$\lambda$')
+        
 
         plt.figure()
-        plt.plot(cont.p_array, np.abs(np.array(u1_list)),'*')
+        plt.plot(p_sol, np.abs(np.array(u1_list)),'*')
         plt.title('displacement 1')
         plt.show()
 
         x=1
         
         
+    def _test_NonLinearLocalProblem(self):
+
+        nH,c,beta,alpha = 1, 00.e-0, 1.0, 0.0
+        fscale = 1.0
+        Rb,nc,nH, nonlin_obj_list,JRb = self.setup_nonlinear_problem(nH,c,beta,alpha,fscale=fscale) 
+
+        l0 = np.ones(nc, dtype=np.complex)
+        nl1 = nonlin_obj_list[0]
+        map_dict = {}
+        map_dict[(1,2)] = list(range(len(l0)))
+        map_dict[(2,1)] = list(range(len(l0)))
+        nl1.map = map_dict
+
+        R = nl1.local_equilibrium_equation()
+       
 
 
 
@@ -741,3 +739,4 @@ if __name__=='__main__':
     #testobj.test_intercont()
     #testobj.test_linear_freq_response_cont()
     testobj.test_intercont_1d_Duffing()
+    #testobj.test_NonLinearLocalProblem()

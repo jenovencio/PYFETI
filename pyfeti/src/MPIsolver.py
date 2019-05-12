@@ -355,18 +355,14 @@ class ParallelSolver(SolverManager):
     def solve_interface_gap(self,v_dict=None, external_force=False):
         local_problem = self.local_problem
         u_dict = {}
-        logging.debug(('v_dict', v_dict))
         ui = local_problem.solve(v_dict,external_force)
         u_dict_local = local_problem.get_interface_dict(ui)
         u_dict.update(u_dict_local)
         for nei_id in local_problem.neighbors_id:
-            logging.debug(('nei_id', nei_id))
-            logging.debug(('u_dict', u_dict))
             nei_dict = {}
-            nei_dict[nei_id,self.obj_id] = exchange_info(u_dict[self.obj_id,nei_id],self.obj_id,nei_id)
+            nei_dict[nei_id,self.obj_id] = exchange_info(u_dict[self.obj_id,nei_id],self.obj_id,nei_id,isnumpy=True)
             u_dict.update(nei_dict)
         
-        logging.debug(('u_dict', u_dict))
         # compute gap
         gap_dict = {}
         for interface_id in u_dict:
@@ -394,7 +390,7 @@ class ParallelSolver(SolverManager):
         
         for nei_id in local_problem.neighbors_id:            
             nei_dict = {}
-            nei_dict[nei_id,self.obj_id] = exchange_info(gap_f_dict[self.obj_id,nei_id],self.obj_id,nei_id)
+            nei_dict[nei_id,self.obj_id] = exchange_info(gap_f_dict[self.obj_id,nei_id],self.obj_id,nei_id,isnumpy=True)
             gap_f_dict.update(nei_dict)
 
 

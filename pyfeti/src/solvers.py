@@ -109,7 +109,10 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
         k=0
         for k in range(max_int):
 
+            proj_start = time.time()
             wk = P(rk)  # projection action
+            proj_elapsed_time = time.time() - proj_start
+            logging.info('Time Duration  of Projection action = %4.2e (s), Iteration = %i!' %(proj_elapsed_time,k))
 
             norm_wk = norm_func(wk)
             #logging.info(('norm_wk =', norm_wk ))
@@ -129,18 +132,28 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
                 zk = wk
                 yk = zk
             
+            beta_start = time.time()
             if k>1:
                 vn = vdot(yk,wk)
                 vn1 = vdot(yk1,wk1)
                 beta = vn/vn1
             else:
                 pk1 = yk
+            beta_elapsed_time = time.time() - beta_start
+            logging.info('Time Duration  of beta computation = %4.2e (s), Iteration = %i!' %(beta_elapsed_time,k))
 
             
             pk = yk + beta*pk1
+
+            F_start = time.time()
             Fpk = F(pk)
-            
+            F_elapsed_time = time.time() - F_start
+            logging.info('Time Duration  of F action = %4.2e (s), Iteration = %i!' %(F_elapsed_time,k))
+
+            alpha_start = time.time()
             alpha_k = alpha_calc(yk,wk,pk,Fpk,vdot)
+            alpha_elapsed_time = time.time() - alpha_start
+            logging.info('Time Duration  of alpha computation = %4.2e (s), Iteration = %i!' %(alpha_elapsed_time,k))
             
             lampda_pcpg = lampda_pcpg + alpha_k*pk
             lambda_hist.append(lampda_pcpg)

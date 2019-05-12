@@ -120,6 +120,7 @@ if __name__ == '__main__':
             tol : tolerance of PCPG error norm, Default = 1.0E-8
             precond : Preconditioner type : Default - Identity (options: Lumped, Dirichlet, LumpedDirichlet, SuperLumped)
             square : create a square of retangular domains depended on the mpi, Default : False
+            BC_type : type of Neumman B.C, Defult = RX, options {RX,G} RX is force in x at the right domains, G is gravity in Y
             example of command call:
             > python  create_test_case.py max_mpi_size=10 divY=10 divX=10
             '''
@@ -175,6 +176,13 @@ if __name__ == '__main__':
         except:
             square = False
         logging.info('Square  = %s' %str(square ))
+
+        try: 
+            BC_type = keydict['BC_type']
+        except:
+            BC_type = 'RX'
+        logging.info('Neumann B.C type  = %s' %BC_type)
+
 
         try: 
             precond = keydict['precond']
@@ -264,7 +272,7 @@ if __name__ == '__main__':
             logging.info('# AMFE log : Assembling local matrices')            
             K, f, B_dict, s = create_case(number_of_div = number_of_div_x, number_of_div_y=number_of_div_y , case_id=mpi_size)
             ndof = K.shape[0]
-            case_obj = case_generator.FETIcase_builder(domains_x,domains_y, K, f, B_dict, s)
+            case_obj = case_generator.FETIcase_builder(domains_x,domains_y, K, f, B_dict, s,BC_type=BC_type)
             K_dict, B_dict, f_dict = case_obj.build_subdomain_matrices()
             logging.info('# END AMFE log')    
             logging.info(header)

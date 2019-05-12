@@ -67,7 +67,7 @@ config = {
     'description': 'Python FETI standalone library .',
     'long_description': 'Python FETI standalone library which provides data structure to solve Dual Domain Decompositon methods and implement new versions ',
     'author': 'Guilherme Jenovencio',
-    'url': 'https://github.com/jenovencio/contpy',
+    'url': 'https://gitlab.lrz.de/AM/pyfeti',
     'download_url': 'Where to download it.',
     'author_email': 'guilherme.jenovencio@tum.de',
     'maintainer': 'Guilherme Jenovencio',

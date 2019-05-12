@@ -4,6 +4,8 @@ import numpy as np
 from unittest import TestCase, main
 import logging
 from pyfeti.src.feti_solver import SolverManager, SerialFETIsolver
+from pyfeti.src import optimize as opt
+import numdifftools as nd
 
 def newton(f,Df,x0,epsilon=1.e-8,max_iter=30):
     '''Approximate solution of f(x)=0 by Newton's method.
@@ -52,11 +54,11 @@ def newton(f,Df,x0,epsilon=1.e-8,max_iter=30):
             sol.nit = n
             return sol
 
-        if (np.linalg.norm(fxn)) < epsilon or (norm_delta_x < epsilon):
+        norm_f = np.linalg.norm(fxn)
+        print('norm F = %2.4e' %norm_f)
+        if (norm_f) < epsilon or (norm_delta_x < epsilon):
             
-            sol.x = xn
             sol.fun = fxn
-            sol.nit = n
             sol.success = True
             return sol
 
@@ -65,7 +67,7 @@ def newton(f,Df,x0,epsilon=1.e-8,max_iter=30):
                 delta_x = np.linalg.solve(Df,-fxn)
             
             elif isinstance(Df,LinearSolver):
-                delta_x = Df.solve(-fxn)
+                delta_x = Df.solve(xn,-fxn)
 
             elif callable(Df):
                 delta_x = np.linalg.solve(Df(xn),-fxn)
@@ -73,14 +75,186 @@ def newton(f,Df,x0,epsilon=1.e-8,max_iter=30):
                 raise TypeError('Only np.arrays and LinearSolver are supported for the Jacobian')
             norm_delta_x = np.linalg.norm(delta_x)
             xn = xn + delta_x
+            sol.x = xn
+            sol.nit = n
+
         except:
             logging.error('Jacobian is not positive definite. No solution found.')
-            sol.nit = n
             return sol
         
     logging.warning('Exceeded maximum iterations. No solution found.')
-    sol.nit = n
     return sol
+
+
+def newton_krylov_cont(fun,x0,p_range,p0=None, jacx=None, jacp=None ,step=1.0,max_int=500,max_int_corr=50,tol=1.0E-6,max_dp=1.0,
+                       correction_method='cg',print_mode=False):
+    ''' This function applies a continuation technique
+    in the fun(x,p) which 
+
+    Parameters:
+    ------------
+        fun : callable
+            callable function with two parameters x and p
+        x0 : np.array
+            initial guess for the initial point
+        p_range : tuple 
+            tuple with lower and upper limit for the p parameter
+
+    
+    '''
+
+    y_list = [] # store coverged points
+    p_list = [] # store coverged parameters
+    info_dict = {'success' : False} # store algorithm infos
+
+    if not isinstance(x0, np.ndarray):
+        x0 = np.array([x0])
+
+    if p0 is None:
+        p0 = p_range[0]
+
+    if not isinstance(p0, np.ndarray):
+        p0 = np.array([p0])
+
+    x_size = len(x0)
+    p_size = len(p0)
+
+    if p_size>1:
+        raise NotImplementedError('Not implemented!')
+
+    fx = lambda p : lambda x : fun(x,p)
+    fp = lambda x : lambda p : fun(x,p)
+
+    if jacp==None:
+        jacp = lambda x, p : nd.Jacobian(fp(x),n=1)(p)
+
+    if jacx==None:        
+        jacx = lambda x, p : nd.Jacobian(fx(p),n=1)(x)
+
+    krylov_solver = getattr( sparse.linalg,correction_method)
+    
+
+
+
+    J_inv_func = lambda p : lambda x, r : krylov_solver(jacx(x,p),r)[0]
+    Jinv = lambda p : opt.LinearSolver(solver = J_inv_func(p))
+    sol = lambda xn, pn : newton(fx(pn),Jinv(pn),xn,epsilon=tol,max_iter=max_int_corr)
+    newton_sol = sol(x0,p0)
+    
+    #
+    #jac = lambda x_aug : linalg.block_diag(*([Gy(x_aug[:n],x_aug[n:])]*2))
+
+    if newton_sol.success:
+        xn,pn = newton_sol.x,p0
+    else:
+        raise ValueError('Initial solution did not converge.')
+
+    b = jacp(xn,pn)
+    A = jacx(xn,pn)
+    sub_kernel = krylov_solver(A,-b)[0]
+    tn = np.concatenate((sub_kernel,np.array([1.0])))
+    tn /= np.linalg.norm(tn)
+
+    #tn = np.zeros(x_size+p_size,dtype=np.complex)
+    #tn[-1] = 1.0
+    #t0 = tn[:]
+    x_aug_n = np.concatenate((xn,pn))
+    par2aug =  lambda x_aug : (x_aug[:x_size],x_aug[x_size:x_size+p_size])
+    
+    #R_aug = lambda x_aug : np.vstack(( fun(*par2aug(x_aug)),
+    #                                   tn.dot(x_aug.conj())))
+
+    real_p = lambda x_aug : np.abs(x_aug[-1].imag)/np.abs(x_aug[-1].real)
+    R_aug = lambda x_aug : np.concatenate( (fun(*par2aug(x_aug)),
+                                       np.array([tn.conj().dot(x_aug) + real_p(x_aug)  ])))
+
+    C_aug = lambda x_aug, tn : np.block([np.block([jacx(*par2aug(x_aug_n)),jacp(*par2aug(x_aug_n))]).dot(tn),np.array([[0.0]])]).T
+
+    Jac_aug = lambda x_aug : np.block( [[ jacx(*par2aug(x_aug)),jacp(*par2aug(x_aug))],[tn.conj()]])
+
+    J_num =lambda x_aug : nd.Jacobian(R_aug,n=1)(x_aug)
+                                     
+    Df = lambda x_aug, tn :  Jac_aug(x_aug)
+
+    r = lambda x_aug, tn : np.block([R_aug(x_aug),C_aug(x_aug, tn)])
+
+    J_inv_func = lambda x_aug, tn, r : krylov_solver(Jac_aug(x_aug),r)[0]
+
+    Jinv = opt.LinearSolver(solver = J_inv_func)
+
+    pn += step*tn[-1].real
+    xn += step*tn[:-1]
+    x_aug_n = np.concatenate((xn,pn))
+    for i in range(max_int):
+        
+        newton_sol = newton(R_aug,J_num,x_aug_n,epsilon=1.0e-12,max_iter=20)
+        #newton_sol = newton(r,Df,(x_aug_n,tn),epsilon=tol,max_iter=2)
+
+        x_aug_n = newton_sol.x
+        xn, pn = par2aug(x_aug_n)
+        pn = pn.real
+
+        if newton_sol.success:
+            
+            y_list.append(xn)
+            p_list.append(pn[0])
+
+        
+
+        x_aug_n = np.concatenate((xn,pn))   
+        
+        # find tangent dx/dp
+        #b = Jac_aug(x_aug_n).dot(tn)
+        #b[-1] = 0.0
+
+        #delta_tn = Jinv.solve(x_aug_n,-b)
+        #tn += delta_tn
+
+        #k = Jinv.solve(x_aug_n,t0)
+        tn = np.linalg.solve(Jac_aug(x_aug_n),tn)
+
+
+        #b = jacp(xn,pn)
+        #b += Jac_aug(x_aug_n).dot(tn)[:-1]
+        #A = jacx(xn,pn)
+        #sub_kernel = krylov_solver(A,-b)[0]
+        #sub_kernel /= np.linalg.norm(sub_kernel)
+        #kernel = np.concatenate((sub_kernel,np.array([1.0])))
+
+        if np.abs(Jac_aug(x_aug_n).dot(tn)[0])>tol:
+            print('Kernel not orthogonal to the Jacobian')
+            #raise ValueError('Not orthogonal')
+
+        tn /= np.linalg.norm(tn)
+        #kernel /= np.linalg.norm(kernel)
+
+        #tn = np.dot(tn,kernel)*kernel
+        #tn /= np.linalg.norm(tn)
+        #tn *= step
+
+        #update parameters
+        
+        if step*tn[-1].real>3*step:
+            pn += step
+            xn = xn
+        else:
+            pn += step*tn[-1].real
+            xn += step*tn[:-1]
+        x_aug_n = np.concatenate((xn,pn))
+
+        if np.real(tn[-1])<=0.0:
+            stopp = 1
+
+         
+
+        if not (p_range[0]<=pn[0]<=p_range[1]):
+            break
+
+    return np.array(y_list).T, np.array(p_list), info_dict
+
+
+
+
 
 class LinearSolver():
     ''' Provides and interface for 
@@ -148,8 +322,8 @@ class LinearSolver():
     def local_problem(self,local_problems_dict):
         self._local_problems = local_problems_dict
 
-    def solve(self,r):
-        return self.solver(r)
+    def solve(self,*args):
+        return self.solver(*args)
 
 
 class FETI(LinearSolver):

@@ -16,7 +16,7 @@ from scipy import interpolate
 from pyfeti.src.nonlinalg import NonLinearOperator
 from pyfeti.src.nonlinear import NonLinearLocalProblem, NonlinearSolverManager 
 from pyfeti.src.optimize import feti as FETIsolver
-from pyfeti.src.optimize import newton
+from pyfeti.src.optimize import newton, newton_krylov_cont
 from contpy import optimize as copt
 
 class intercont():
@@ -623,7 +623,7 @@ class  Test_NonlinearSolver(TestCase):
         b = 1
         nH = 1
         ndof = 1
-        d = 0.1
+        d = 0.01
         mode  = 'ortho'
         FFT = lambda u : rfft(u,norm=mode).T[0:nH+1].reshape((nH+1)*ndof,1).flatten()[ndof:] # removing the static part
         iFFT = lambda u_ : 2.0*np.real(ifft(np.concatenate((np.zeros(ndof),u_)).reshape(nH+1,ndof).T, n=100,norm=mode))
@@ -634,19 +634,50 @@ class  Test_NonlinearSolver(TestCase):
         fnl_ = lambda x, n = 3 : FFT(fnl(iFFT(np.array([x])),n))[0]
         dfnl_ = lambda w : lambda x, n = 3 : np.array([[FFT(dfnl(iFFT(x),n))[0]]])
 
+        dfnl_num = lambda w : lambda x : copt.complex_jacobian(lambda x : fnl_(x),n=1)(x)
+
+
         f = lambda x,w : -w**2*x[0] + x[0] + d*1J*w*x[0] + fnl_(x[0]) - b
-        dfx = lambda w : lambda x : -w**2 + 1.0 + d*1J*w +  + dfnl_(w)(x)
-        x_implicit = lambda w, x_init : optimize.root(lambda x : f(x,w),x0=x_init,method='krylov').x
+        dfx = lambda w : lambda x : -w**2 + 1.0 - d*1J*w +  dfnl_(w)(x)
+        
 
         dfx_num = lambda w : lambda x : nd.Jacobian(lambda x : f(x,w),n=1)(x)
         dfx_num_ = lambda w : lambda x : copt.complex_jacobian(lambda x : f(x,w),n=1)(x)
+        dfx_conj_num_ = lambda w : lambda x : copt.complex_jacobian(lambda x : f(x,w).conj(),n=1)(x)
 
-        p = 0.01
-        x = np.array([0.01],dtype=np.complex)
+        f_real = lambda x,w : copt.func_wrapper(f,copt.complex_array_to_real(x),w)
+        fr = lambda xr,w : copt.func_wrapper(f,xr,w)
+        f_real_c = lambda x,w : copt.func_wrapper(lambda x, w : f(x,w).conj(),copt.complex_array_to_real(x),w)
 
-        p_range=(0.0,1.5)
+        dfr= lambda w : lambda x : nd.Jacobian(lambda x : f_real(x,w),n=1)(x)
+        dfrc= lambda w : lambda x : nd.Jacobian(lambda x : f_real_c(x,w),n=1)(x)
+        jfr =lambda w : lambda x : nd.Jacobian(lambda x : fr(x,w),n=1)(x)
+
+        p = 0.4
+        x = np.array([1.+1J],dtype=np.complex)
+        xr = copt.complex_array_to_real(x)
+
+        d_eval = dfx_num_(p)(x)
+        dc_eval = dfx_conj_num_(p)(x)
+
+        v1 = jfr(p)(xr)
+        v2 = dfr(p)(x)
+        v3 = dfrc(p)(x)
+
+
+        p_range=(0.0,1.0)
         start_time = time.time()
-        x_sol, p_sol, info_dict = copt.continuation(f,x0=x,p_range=p_range,p0=0.0, step=0.3,jacx=dfx_num_) # 
+        
+        y_list, p_list, info_dict = newton_krylov_cont(f,x0=x,p_range=p_range,p0=0.0,step=0.05,max_int=100)
+
+        plt.plot(p_list,'o')
+
+        plt.figure()
+        plt.plot(p_list,np.abs(y_list)[0,:],'o')
+        plt.show()
+
+        x_sol, p_sol, info_dict = copt.continuation(f,x0=x,p_range=p_range,p0=0.0,
+                                                    step=0.1,correction_method='optimize_matcont',max_int_corr=10) # 
         elapsed_time = time.time() - start_time
         print('{"Continuation elapsed time" : %f} #Elapsed time (s)' %elapsed_time)
         plt.plot(p_sol,np.abs(x_sol)[0,:],'o')

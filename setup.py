@@ -65,7 +65,8 @@ config = {
     'name': 'PYFETI',
     'version': '0.1',
     'description': 'Python FETI standalone library .',
-    'long_description': 'Python FETI standalone library which provides data structure to solve Dual Domain Decompositon methods and implement new versions ',
+    'long_description': 'Python FETI standalone library which provides data structure to solve Dual Domain Decompositon'
+                        'methods and implement new versions ',
     'author': 'Guilherme Jenovencio',
     'url': 'https://gitlab.lrz.de/AM/pyfeti',
     'download_url': 'Where to download it.',
@@ -78,7 +79,7 @@ config = {
     'scripts': [],
     'entry_points': {},
     'provides': 'pyfeti',
-    'platforms': 'Windows',
+    'platforms': 'Linux, Windows',
     'license': None
 }
 

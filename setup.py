@@ -63,7 +63,7 @@ def query_yes_no(question, default="yes"):
 
 config = {
     'name': 'PYFETI',
-    'version': '0.1',
+    'version': '0.12',
     'description': 'Python FETI standalone library .',
     'long_description': 'Python FETI standalone library which provides data structure to solve Dual Domain Decompositon'
                         'methods and implement new versions ',

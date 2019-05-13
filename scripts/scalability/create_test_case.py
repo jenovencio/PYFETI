@@ -217,7 +217,7 @@ if __name__ == '__main__':
         logging.info('Set FETI algorithm  = %s' %FETI_algorithm)
 
         try: 
-            square = keydict['square']
+            square = eval(keydict['square'])
         except:
             square = False
         logging.info('Square  = %s' %str(square ))

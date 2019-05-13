@@ -196,7 +196,7 @@ if __name__ == '__main__':
         
         #Extract variables
         try: 
-            strong = keydict['strong']
+            strong = eval(keydict['strong'])
         except:
             strong = True
         if strong:
@@ -251,7 +251,7 @@ if __name__ == '__main__':
         logging.info('Set pseudoinverse method  = %s' %method)
 
         try:
-            max_mpi_size = keydict['max_mpi_size']
+            max_mpi_size = eval(keydict['max_mpi_size'])
         except:
             max_mpi_size = 5
         

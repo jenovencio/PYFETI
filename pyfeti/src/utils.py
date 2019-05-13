@@ -185,7 +185,7 @@ def sysargs2keydict(system_argument):
         try:
             var, value = arg.split('=')
             try:
-                sys_kwargs[var] = int(value)
+                sys_kwargs[var] = eval(value)
             except:
                 sys_kwargs[var] = value
         except:

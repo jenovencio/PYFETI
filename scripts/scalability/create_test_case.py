@@ -192,13 +192,12 @@ if __name__ == '__main__':
         logging.info(header)
         logging.info(datetime.now().strftime('%Y-%m-%d  %H:%M:%S'))
         
-
-        
         #Extract variables
         try: 
-            strong = eval(keydict['strong'])
+            strong = keydict['strong']
         except:
             strong = True
+
         if strong:
             logging.info('Perform STRONG parallel scalability.')
         else:
@@ -217,7 +216,7 @@ if __name__ == '__main__':
         logging.info('Set FETI algorithm  = %s' %FETI_algorithm)
 
         try: 
-            square = eval(keydict['square'])
+            square = keydict['square']
         except:
             square = False
         logging.info('Square  = %s' %str(square ))

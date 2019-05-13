@@ -139,8 +139,9 @@ def pardot(v,w,local_id,neighbors_id,global2local_map,partitions_list=None):
 
         # averaging among neighbors
         local_var = local_v.dot(local_w)
-        nei_var = exchange_info(local_var,local_id,nei_id,isnumpy=True)
-        partial_norm_dict[key_pair] = 0.5*(local_var + nei_var)
+        #nei_var = exchange_info(local_var,local_id,nei_id,isnumpy=True)
+        #partial_norm_dict[key_pair] = 0.5*(local_var + nei_var)
+        partial_norm_dict[key_pair] = local_var
 
     # global exchange with scalars
     partial_norm_dict = exchange_global_dict(partial_norm_dict,local_id,partitions_list)

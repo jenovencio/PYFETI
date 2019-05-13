@@ -250,7 +250,7 @@ if __name__ == '__main__':
         logging.info('Set pseudoinverse method  = %s' %method)
 
         try:
-            max_mpi_size = eval(keydict['max_mpi_size'])
+            max_mpi_size = keydict['max_mpi_size']
         except:
             max_mpi_size = 5
         
@@ -281,9 +281,7 @@ if __name__ == '__main__':
     
         if not mpi_list:
             mpi_list = list(range(min_mpi_size,max_mpi_size+1,mpi_step))
-        else:
-            max_mpi_size = max(mpi_list)
-
+        
         if square:
             max_factor_x, max_factor_y, max_mpi_size = factorize_mpi(max_mpi_size)
         else:

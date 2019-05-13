@@ -11,7 +11,7 @@ from pyfeti.src import feti_solver
 import time, logging
 
 
-def create_case(number_of_div = 3, number_of_div_y=None, case_id=1):
+def create_case(number_of_div = 3, number_of_div_y=None, case_id=1,save_fig=False):
     ''' This function create a subdomain matrices based on the number of 
     divisions.
 
@@ -32,6 +32,8 @@ def create_case(number_of_div = 3, number_of_div_y=None, case_id=1):
         number_of_div_y = number_of_div
 
     creator_obj  = utils.DomainCreator(width=number_of_div,high=number_of_div_y,x_divisions=number_of_div,y_divisions=number_of_div_y)
+    logging.info('Local Domain width [m] = %2.2f' %number_of_div)
+    logging.info('Local Domain heigh [m] = %2.2f' %number_of_div_y)
     creator_obj.build_elements()
     
     script_folder = os.path.join(os.path.dirname(__file__),str(case_id))
@@ -48,13 +50,13 @@ def create_case(number_of_div = 3, number_of_div_y=None, case_id=1):
     m = amfe.Mesh()
     m.import_msh(mesh_path)
 
-
-    ax = amfe.plot2Dmesh(m)
-    ax.set_xlim([0,number_of_div])
-    ax.set_ylim([0,number_of_div_y])
-    ax.set_aspect('equal')
-    plt.legend('off')
-    plt.savefig(os.path.join(mesh_folder,'mesh.png'))
+    if save_fig:
+        ax = amfe.plot2Dmesh(m)
+        ax.set_xlim([0,number_of_div])
+        ax.set_ylim([0,number_of_div_y])
+        ax.set_aspect('equal')
+        plt.legend('off')
+        plt.savefig(os.path.join(mesh_folder,'mesh.png'))
 
     # creating material
     my_material = amfe.KirchhoffMaterial(E=210E9, nu=0.3, rho=7.86E3, plane_stress=True, thickness=1.0)
@@ -101,6 +103,33 @@ def create_case(number_of_div = 3, number_of_div_y=None, case_id=1):
     return K, fext, B_dict, s
 
 
+def factorize_mpi(mpi_size):
+    ''' Factorize mpi in the multiplication of
+    the biggest interger numbers
+
+    e.g   9 -> 3*3
+          6 -> 3*2
+          4 -> 2*2
+          5 -> 2*2 and change mpi size
+    Parameters:
+        mpi_size : int
+
+    reuturn 
+        factor1 : int
+        factor2 : int
+        mpi_size : int
+            as factor1*factor2
+    ''' 
+    factor1 = int(np.sqrt(mpi_size))
+    factor2 = int(mpi_size/factor1)
+    if not factor1>=factor2:
+        factor1,factor2 = factor2, factor1
+
+    if int(factor1*factor2)!=mpi_size:
+        logging.warning('Changing mpi size to fit the best rectangular subdomains')
+        mpi_size = int(factor1*factor1)
+    return factor1,factor2,mpi_size
+
 if __name__ == '__main__':
     help_doc = ''' 
             This python script runs a scalility test based on ParallelFETIsolver
@@ -121,6 +150,8 @@ if __name__ == '__main__':
             precond : Preconditioner type : Default - Identity (options: Lumped, Dirichlet, LumpedDirichlet, SuperLumped)
             square : create a square of retangular domains depended on the mpi, Default : False
             BC_type : type of Neumman B.C, Defult = RX, options {RX,G} RX is force in x at the right domains, G is gravity in Y
+            strong : Boolean variable, if True perform strong scalability, if False, perform weak scalability, Default = True
+            mpi_list : List of MPI number to be tested : Default = list(range(min_mpi_size,max_mpi_size+1,mpi_step))
             example of command call:
             > python  create_test_case.py max_mpi_size=10 divY=10 divX=10
             '''
@@ -157,13 +188,27 @@ if __name__ == '__main__':
         log_level = getattr(logging,loglevel)
         logging.basicConfig(level=log_level ,filename='master_' + date_str  + '.log')
         logging.info(header)
-        logging.info('#####################    SCALABILITY TEST #######################')
+        logging.info('#####################    SCALABILITY TEST  #######################')
         logging.info(header)
         logging.info(datetime.now().strftime('%Y-%m-%d  %H:%M:%S'))
         
 
         
-        #variables
+        #Extract variables
+        try: 
+            strong = keydict['strong']
+        except:
+            strong = True
+        if strong:
+            logging.info('Perform STRONG parallel scalability.')
+        else:
+            logging.info('Perform WEAK parallel scalability.')
+
+        try: 
+            mpi_list = keydict['mpi_list']
+        except:
+            mpi_list = []
+
 
         try: 
             FETI_algorithm = keydict['FETI_algorithm']
@@ -183,7 +228,8 @@ if __name__ == '__main__':
             BC_type = 'RX'
         logging.info('Neumann B.C type  = %s' %BC_type)
 
-
+        
+        
         try: 
             precond = keydict['precond']
             logging.info('Preconditioner type  = %s' %precond)
@@ -208,8 +254,7 @@ if __name__ == '__main__':
             max_mpi_size = keydict['max_mpi_size']
         except:
             max_mpi_size = 5
-        logging.info('Set max_mpi_size = %i' %max_mpi_size)
-
+        
         try:
             number_of_div_y = keydict['divY']
         except:
@@ -235,28 +280,51 @@ if __name__ == '__main__':
         logging.info('Set mpi_step = %i' %mpi_step )
 
     
-        domain_size = max_mpi_size*local_div_x*number_of_div_y*2
-        logging.info('Domain size (%i,%i)' %(domain_size,domain_size))
 
-        for mpi_size in range(min_mpi_size,max_mpi_size+1,mpi_step):
-            max_div_x = local_div_x*max_mpi_size
+        mpi_list = [4,9]
+        square = True
+        strong = True
+        BC_type='G'
+        precond='Dirichlet'
+
+        if not mpi_list:
+            mpi_list = list(range(min_mpi_size,max_mpi_size+1,mpi_step))
+        else:
+            max_mpi_size = max(mpi_list)
+
+        if square:
+            max_factor_x, max_factor_y, max_mpi_size = factorize_mpi(max_mpi_size)
+        else:
+            domains_y = 1
+            max_factor_x = int(max_mpi_size/domains_y)
+            max_factor_y = domains_y
+
+        local_div_y = number_of_div_y
+        logging.info('Set max_mpi_size = %i' %max_mpi_size)
+
+        for mpi_size in mpi_list:
             if not square:
                 domains_x = mpi_size
-                domains_y = 1
+    
             else:
-                factor1 = int(np.sqrt(mpi_size))
-                factor2 = int(mpi_size/factor1)
-                if factor1>=factor2:
-                    domains_x, domains_y = factor1, factor2
-                else:
-                    domains_x, domains_y = factor2, factor1
+                domains_x, domains_y, mpi_size = factorize_mpi(mpi_size)
 
-                if int(factor1*factor2)!=mpi_size:
-                    logging.warning('Changing mpi size to fit the best rectangular subdomains')
-                    mpi_size = int(factor1*factor1)
+            if strong:
+                max_div_x = local_div_x*max_factor_x
+                max_div_y = local_div_y*max_factor_y
+                number_of_div_x = int(max_div_x/domains_x)
+                number_of_div_y = int(max_div_y/domains_y)
+                domain_size = max_mpi_size*(local_div_x*local_div_y*2) # number of domains x num of nodes x dof per node
+                logging.info('Domain size (%i,%i)' %(domain_size,domain_size))
+
+            else:
+                number_of_div_x = local_div_x
+                number_of_div_y = local_div_y
+                domains_x, domains_y, mpi_size = factorize_mpi(mpi_size)
+                domain_size = mpi_size*(number_of_div_x*number_of_div_y*2) # number of domains x num of nodes x dof per node
+                logging.info('Local Domain size (%i,%i)' %(domain_size,domain_size))
             
 
-            number_of_div_x = int(max_div_x/domains_x)
             logging.info(header)
             logging.info('########################     MPI size  : %i    #####################' %mpi_size)
             logging.info(header)

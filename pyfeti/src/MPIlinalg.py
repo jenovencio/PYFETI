@@ -141,7 +141,7 @@ def pardot(v,w,local_id,neighbors_id,global2local_map,partitions_list=None):
         local_var = local_v.dot(local_w)
         #nei_var = exchange_info(local_var,local_id,nei_id,isnumpy=True)
         #partial_norm_dict[key_pair] = 0.5*(local_var + nei_var)
-        partial_norm_dict[key_pair] = local_var
+        partial_norm_dict[local_id,nei_id] = local_var
 
     # global exchange with scalars
     partial_norm_dict = exchange_global_dict(partial_norm_dict,local_id,partitions_list)
@@ -152,7 +152,7 @@ def pardot(v,w,local_id,neighbors_id,global2local_map,partitions_list=None):
             v_dot_w+=item
     
     #logging.info(('v_dot_w',v_dot_w))
-    return v_dot_w
+    return 0.5*v_dot_w
 
 def get_chunks(number_of_chuncks,size):
     ''' create chuncks based on number of mpi process

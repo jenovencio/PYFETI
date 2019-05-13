@@ -77,7 +77,7 @@ config = {
     'install_requires': ['numpy>=1.10', 'scipy>=0.17', 'pandas', 'matplotlib', 'numdifftools','dill','mpi4py'],
     'tests_require': ['nose'],
     'packages': ['pyfeti',
-                 'pyfet.src'],
+                 'pyfeti.src'],
     'scripts': [],
     'entry_points': {},
     'provides': 'pyfeti',

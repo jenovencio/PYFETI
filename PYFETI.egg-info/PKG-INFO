@@ -1,15 +1,16 @@
 Metadata-Version: 1.2
 Name: PYFETI
-Version: 0.1
+Version: 0.12
 Summary: Python FETI standalone library .
-Home-page: https://github.com/jenovencio/contpy
+Home-page: https://gitlab.lrz.de/AM/pyfeti
 Author: Guilherme Jenovencio
 Author-email: guilherme.jenovencio@tum.de
 Maintainer: Guilherme Jenovencio
 Maintainer-email: guilherme.jenovencio@tum.de
 License: UNKNOWN
 Download-URL: Where to download it.
-Description: Python FETI standalone library which provides data structure to solve Dual Domain Decompositon methods and implement new versions 
+Description: Python FETI standalone library which provides data structure to solve Dual Domain Decompositonmethods and implement new versions 
+Platform: Linux
 Platform: Windows
 Provides: p
 Provides: y

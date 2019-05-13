@@ -280,13 +280,6 @@ if __name__ == '__main__':
         logging.info('Set mpi_step = %i' %mpi_step )
 
     
-
-        mpi_list = [4,9]
-        square = True
-        strong = True
-        BC_type='G'
-        precond='Dirichlet'
-
         if not mpi_list:
             mpi_list = list(range(min_mpi_size,max_mpi_size+1,mpi_step))
         else:

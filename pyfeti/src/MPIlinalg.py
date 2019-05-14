@@ -96,6 +96,57 @@ def exchange_global_array(local_array,local_id,partitions_list=None):
 
     return local_dict
 
+def All2Allreduce(local_var):
+    ''' sum up all local_var in all mpi ranks
+
+    Parameters:
+        local_var : float or 0D np.array
+
+    returns:
+        global_var : 0D np.array
+            summation of all local variables
+
+    '''
+    global_var = np.array(0.0, dtype=local_var.dtype)
+    # sending message to neighbors
+    comm.Allreduce(local_var, global_var, op=MPI.SUM)
+    return global_var
+
+def All2All_array(local_array,size_list,global_array_length,dtype=np.float):
+    ''' Exchange numpy array with all mpi ranks
+    Paramenters:
+
+    local_array : np.array
+        local numpy array
+
+    size_list : list
+        list of expected mpi array lenghts
+
+    global_array_length : int
+        global array
+
+    dtype : np.dtype
+        type of numpy array
+
+    returns
+        np.array
+            a global numpy array
+    '''
+    
+    sizes = size_list
+
+    # build the displacement of the buffer vector
+    disp = [0]
+    disp.extend(list(np.cumsum(sizes)[:-1]))
+    
+    # build global buffer array
+    global_array = np.zeros(global_array_length, dtype=dtype)
+    
+    # Global exchange
+    comm.Allgatherv([local_array,sizes[rank]],[global_array,(size_list,disp)])
+    
+    return global_array
+
 def pardot(v,w,local_id,neighbors_id,global2local_map,partitions_list=None):
     ''' This function computes a parallel dot product v * w
     based on mpi operations
@@ -124,6 +175,7 @@ def pardot(v,w,local_id,neighbors_id,global2local_map,partitions_list=None):
     partial_norm_dict = {}
     v_dict = vector2localdict(v, global2local_map)
     w_dict = vector2localdict(w, global2local_map)
+    local_var = 0.0
     for nei_id in neighbors_id:
         if nei_id>local_id:
             key_pair = (local_id,nei_id)
@@ -137,21 +189,13 @@ def pardot(v,w,local_id,neighbors_id,global2local_map,partitions_list=None):
             logging.error('pardot method received a variable that is not a np.array!')
             return None
 
-        # averaging among neighbors
-        local_var = local_v.dot(local_w)
-        #nei_var = exchange_info(local_var,local_id,nei_id,isnumpy=True)
-        #partial_norm_dict[key_pair] = 0.5*(local_var + nei_var)
-        partial_norm_dict[local_id,nei_id] = local_var
+        # compute local dot product
+        local_var += local_v.dot(local_w)
+        
 
-    # global exchange with scalars
-    partial_norm_dict = exchange_global_dict(partial_norm_dict,local_id,partitions_list)
-
-    v_dot_w = 0.0
-    for (i_id,j_id) , item in partial_norm_dict.items():
-        if j_id>=i_id:
-            v_dot_w+=item
+    # global Reduce 
+    v_dot_w = All2Allreduce(local_var)
     
-    #logging.info(('v_dot_w',v_dot_w))
     return 0.5*v_dot_w
 
 def get_chunks(number_of_chuncks,size):
@@ -249,6 +293,24 @@ class ParallelRetangularLinearOperator(RetangularLinearOperator):
         self.local_id = rank + 1
         self.kwargs = kwargs
         self.__dict__.update(kwargs)
+        self.row_size_list = self.get_size_list(row_map_dict)
+        self.column_list = self.get_size_list(column_map_dict)
+
+    def get_size_list(self,map_dict):
+        ''' create size list
+        '''
+        mpi_size = comm.Get_size()
+        partitions_list = list(range(1,mpi_size+1))
+        size_list = []
+        for key in partitions_list:
+            try:
+                size = len(map_dict[key])
+            except:
+                size = 0
+
+            size_list.append(size)
+
+        return size_list
 
     def _matvec(self,v, **kwargs):
 
@@ -281,11 +343,10 @@ class ParallelRetangularLinearOperator(RetangularLinearOperator):
         try:       
             if isinstance(list(self.row_map_dict.keys())[0],int):
                 vec2dict = array2localdict(a, self.row_map_dict)
+                local_array = np.empty(0) 
                 if self.local_id in vec2dict:
-                    vec2dict = exchange_global_array(vec2dict[self.local_id],self.local_id)
-                else:
-                    vec2dict = exchange_global_array(np.array([0.]),self.local_id)
-                a = self.dict2vec(vec2dict,a.shape[0],self.row_map_dict)
+                    local_array = vec2dict[self.local_id]
+                a = All2All_array(local_array, size_list = self.row_size_list ,global_array_length=self.shape[0])
                 
             else:
                 

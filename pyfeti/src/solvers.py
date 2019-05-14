@@ -135,9 +135,10 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
             beta_start = time.time()
             if k>1:
                 vn = vdot(yk,wk)
-                vn1 = vdot(yk1,wk1)
                 beta = vn/vn1
+                vn1 = vn
             else:
+                vn1 = vdot(yk,wk)
                 pk1 = yk
             beta_elapsed_time = time.time() - beta_start
             logging.info('Time Duration  of beta computation = %4.2e (s), Iteration = %i!' %(beta_elapsed_time,k))
@@ -151,7 +152,7 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
             logging.info('Time Duration  of F action = %4.2e (s), Iteration = %i!' %(F_elapsed_time,k))
 
             alpha_start = time.time()
-            alpha_k = alpha_calc(yk,wk,pk,Fpk,vdot)
+            alpha_k = alpha_calc(vn1,pk,Fpk,vdot)
             alpha_elapsed_time = time.time() - alpha_start
             logging.info('Time Duration  of alpha computation = %4.2e (s), Iteration = %i!' %(alpha_elapsed_time,k))
             
@@ -178,13 +179,12 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
         return lampda_pcpg, rk, proj_r_hist, lambda_hist
 
 
-def alpha_calc(yk,wk,pk,Fpk,vdot=None):
+def alpha_calc(vn1,pk,Fpk,vdot=None):
     if vdot is None:
         vdot = lambda v,w : np.dot(v,w)
 
-    aux1 = vdot(yk,wk)
     aux2 = vdot(pk,Fpk)
-    alpha = float(aux1/aux2)
+    alpha = float(vn1/aux2)
     return alpha
 
 def pminres(F_action,residual,Projection_action=None,lambda_init=None,

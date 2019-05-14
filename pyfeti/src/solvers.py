@@ -99,7 +99,7 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
         logging.info('Setting PCPG max number of iterations = %i' %max_int)
 
         # initialize variables
-        start_time = time.time()
+        global_start_time = time.time()
         beta = 0.0
         yk1 = np.zeros(interface_size)
         wk1 = np.zeros(interface_size)
@@ -108,17 +108,15 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
         rk = residual
         k=0
         for k in range(max_int):
-
+            
             proj_start = time.time()
             wk = P(rk)  # projection action
             proj_elapsed_time = time.time() - proj_start
             logging.info('Time Duration  of Projection action = %4.2e (s), Iteration = %i!' %(proj_elapsed_time,k))
 
             norm_wk = norm_func(wk)
-            #logging.info(('norm_wk =', norm_wk ))
             proj_r_hist.append(norm_wk)
-            elapsed_time = time.time() - start_time
-            logging.info('Time Duration %4.2e (s), Iteration = %i, Norm of project residual wk = %2.5e!' %(elapsed_time,k,norm_wk))
+            logging.info('Iteration = %i, Norm of project residual wk = %2.5e!' %(k,norm_wk))
             
             if norm_wk<tolerance:
                 logging.info('PCG has converged after %i' %(k+1))
@@ -169,13 +167,21 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
             if callback is not None:
                 callback(lampda_pcpg)
 
-            start_time = time.time()
+            elapsed_time = time.time() - proj_start
+            logging.info('#'*30)
+            logging.info('Iteration = %i : Time Duration %4.2e (s)!' %(elapsed_time,k))
 
         if (k>0) and k==(max_int-1):
             logging.warning('Maximum iteration was reached, MAX_INT = %i, without converging!' %(k+1))
             logging.warning('Projected norm = %2.5e , where the PCPG tolerance is set to %2.5e' %(norm_wk,tolerance))
 
-
+        elapsed_time = time.time() - global_start_time
+        logging.info('#'*30)
+        logging.info('Total PCPG elapsed time = %2.2e (s)!' %(elapsed_time))
+        logging.info('Number of PCPG Iterations = %i (s)!' %(k+1))
+        logging.info('avg Time per iteration = %2.2e (s)!' %(elapsed_time/((k+1))))
+        logging.info('#'*30)
+        
         return lampda_pcpg, rk, proj_r_hist, lambda_hist
 
 

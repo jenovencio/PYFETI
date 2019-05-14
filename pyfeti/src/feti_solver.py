@@ -717,6 +717,10 @@ class LocalProblem():
     counter = 0
     def __init__(self,K_local, B_local, f_local,id,pseudoinverse_kargs={'method':'svd','tolerance':1.0E-8}):
         LocalProblem.counter+=1
+
+        if not isinstance(K_local,csc_matrix):  
+            K_local = sparse.csc_matrix(K_local)
+
         if isinstance(K_local,Matrix):
             self.K_local = K_local
         else:
@@ -829,9 +833,13 @@ class LocalProblem():
 
         elif precond_type=='LumpedDirichlet':
             Kib = self.K_local.data[np.ix_(interior_id,interface_id)]
-            Kii_inv = np.diag(1.0/(K[np.ix_(interior_id,interior_id)].diagonal()))
             f_exp = Kib.dot(ub)
-            ui = Kii_inv.dot(f_exp)
+            try:
+                ui = self._Kii_inv.dot(f_exp)    
+            except AttributeError:
+                self._Kii_inv = sparse.diags(1.0/(K.diagonal()[interior_id]))
+                ui = self._Kii_inv.dot(f_exp) 
+
             f[interface_id] += Kbb.dot(ub) - Kib.T.dot(ui)
         
         elif precond_type=='Dirichlet':
@@ -839,8 +847,18 @@ class LocalProblem():
             Kib = self.K_local.data[np.ix_(interior_id,interface_id)]
             f_exp = np.zeros(self.length)
             f_exp[interior_id] += Kib.dot(ub)
-            Kii = K[np.ix_(interior_id,interior_id)]
-            ui = sparse.linalg.spsolve(Kii,f_exp[interior_id])
+            try:
+                ui = self._lu.solve(f_exp[interior_id])
+            except AttributeError:
+
+                Kii = K[np.ix_(interior_id,interior_id)].tocsc()
+                self._lu = sparse.linalg.splu(Kii,options={'SymmetricMode':True})
+                ui = self._lu.solve(f_exp[interior_id])
+            except MemoryError:
+                looging.error('Memory error during Dirichlet Preconditioner Applications')
+                raise MemoryError('Memory error during Dirichlet Preconditioner Applications')
+            except Exception as e:
+                raise Exception('Excepiton occurs during Dirichlet Preconditioner Applications')
             #ui = self.K_local.apply_inverse(f_exp)[interior_id]
             f[interface_id] += Kbb.dot(ub) - Kib.T.dot(ui)
 

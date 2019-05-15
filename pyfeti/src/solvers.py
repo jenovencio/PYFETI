@@ -9,7 +9,7 @@ import time
 
 def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
         Precondicioner_action=None,tolerance=None,max_int=None,
-        callback=None,vdot= None):
+        callback=None,vdot= None,save_lambda=False):
         ''' This function is a general interface for PCGP algorithms
 
         argument:
@@ -42,14 +42,17 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
             function with the dot product of vdot(v,w) if none 
             then, np.dot(v,w)
 
+        save_lambda : Booelan, Default = False
+            store lambda interations in the a list
+
         return 
-        lampda_pcgp : np.array
-            last lambda
-        rk : np.array
-            last projected residual
-        proj_r_hist : list
-            list of the history of the norm of the projected  residuals
-        lambda_hist : list
+            lampda_pcgp : np.array
+                last lambda
+            rk : np.array
+                last projected residual
+            proj_r_hist : list
+                list of the history of the norm of the projected  residuals
+            lambda_hist : list
             list of the 
 
         '''
@@ -155,7 +158,9 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
             logging.info('Time Duration  of alpha computation = %4.2e (s), Iteration = %i!' %(alpha_elapsed_time,k))
             
             lampda_pcpg = lampda_pcpg + alpha_k*pk
-            lambda_hist.append(lampda_pcpg)
+            
+            if save_lambda:
+                lambda_hist.append(lampda_pcpg)
 
             rk = rk - alpha_k*Fpk
             

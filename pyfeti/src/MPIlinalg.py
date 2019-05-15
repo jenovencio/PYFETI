@@ -164,7 +164,10 @@ def pardot(v,w,local_id,neighbors_id,global2local_map,partitions_list=None):
             function to convert array to dict of arrays
         partitions_list: list, Default=None
             list of all the mpi
-        
+    
+    returns
+        float
+            dot product of vector v and w
 
     '''
 

@@ -152,12 +152,30 @@ if __name__ == '__main__':
             BC_type : type of Neumman B.C, Defult = RX, options {RX,G} RX is force in x at the right domains, G is gravity in Y
             strong : Boolean variable, if True perform strong scalability, if False, perform weak scalability, Default = True
             mpi_list : List of MPI number to be tested : Default = list(range(min_mpi_size,max_mpi_size+1,mpi_step))
+            loglevel : INFO, DEBUG, ERROR, WARNING, CRITICAL. Default = INFO
             example of command call:
             > python  create_test_case.py max_mpi_size=10 divY=10 divX=10
+
             '''
 
+    default_dict = {'loglevel' : 'INFO',
+                    'strong'  : True,
+                    'FETI_algorithm' : 'ParallelFETIsolver',
+                    'square' : False,
+                    'BC_type' : 'RX',
+                    'precond' : None,
+                    'tol' : 1.0E-8,
+                    'method' : 'svd',
+                    'mpi_list' : [],
+                    'max_mpi_size' : 5,
+                    'min_mpi_size' : 1,
+                    'mpi_step' : 1,
+                    'divY' : 5,
+                    'divX' : 5}
 
-    header ='###################################################################'
+
+
+    header ='#'*50
     import sys
     from datetime import datetime
     curdir = os.getcwd()
@@ -168,17 +186,35 @@ if __name__ == '__main__':
     else:
 
         import amfe
-        
-        keydict = sysargs2keydict(sys.argv)
 
-        #variables
-        try:
-            loglevel = keydict['loglevel']
-        except:
-            loglevel = 'INFO'
+        # transform system arguments in python dict
+        keydict = sysargs2keydict(sys.argv)
+        
+        # update variables with system argument dict
+        default_dict.update(keydict)
+
+        # add default dict to local variables
+        locals().update(default_dict)
+
+        divY = 12
+        divX = 12
+        mpi_list = [4,9]
+        square = True
+        BC_type = 'G'
+        
+        if not mpi_list:
+            mpi_list = list(range(min_mpi_size,max_mpi_size+1,mpi_step))
+        
+        max_mpi_size = max(mpi_list)
+
+        if square:
+            max_factor_x, max_factor_y, max_mpi_size = factorize_mpi(max_mpi_size)
+        else:
+            domains_y = 1
+            max_factor_x = int(max_mpi_size/domains_y)
+            max_factor_y = domains_y
         
         date_str = datetime.now().strftime('%Y_%m_%d_%H_%M_%S')
-
         scalability_folder = os.path.join(curdir,date_str)
         os.mkdir(scalability_folder)
 
@@ -192,105 +228,29 @@ if __name__ == '__main__':
         logging.info(header)
         logging.info(datetime.now().strftime('%Y-%m-%d  %H:%M:%S'))
         
-        #Extract variables
-        try: 
-            strong = keydict['strong']
-        except:
-            strong = True
-
         if strong:
             logging.info('Perform STRONG parallel scalability.')
         else:
             logging.info('Perform WEAK parallel scalability.')
-
-        try: 
-            mpi_list = keydict['mpi_list']
-        except:
-            mpi_list = []
-
-
-        try: 
-            FETI_algorithm = keydict['FETI_algorithm']
-        except:
-            FETI_algorithm = 'ParallelFETIsolver'
-        logging.info('Set FETI algorithm  = %s' %FETI_algorithm)
-
-        try: 
-            square = keydict['square']
-        except:
-            square = False
         logging.info('Square  = %s' %str(square ))
-
-        try: 
-            BC_type = keydict['BC_type']
-        except:
-            BC_type = 'RX'
         logging.info('Neumann B.C type  = %s' %BC_type)
-
-        
-        
-        try: 
-            precond = keydict['precond']
-            logging.info('Preconditioner type  = %s' %precond)
-        except:
-            precond = None
+        if precond is None:
             logging.info('Preconditioner type  = %s' %'Identity')
-
-
-        try: 
-            tol = float(keydict['tol'])
-        except:
-            tol = 1.0E-8
-        logging.info('PCPG tolerance  = %2.2e' %tol)
-
-        try:
-            method = keydict['method']
-        except:
-            method = 'svd'
-        logging.info('Set pseudoinverse method  = %s' %method)
-
-        try:
-            max_mpi_size = keydict['max_mpi_size']
-        except:
-            max_mpi_size = 5
-        
-        try:
-            number_of_div_y = keydict['divY']
-        except:
-            number_of_div_y = 5
-        logging.info('Set divY = %i' %number_of_div_y)
-
-        try:
-            local_div_x = keydict['divX']
-        except:
-            local_div_x = 5
-        logging.info('Set divX = %i' %local_div_x )
-        
-        try:
-            min_mpi_size = keydict['min_mpi_size']
-        except:
-            min_mpi_size = 1
-        logging.info('Set min_mpi_size = %i' %min_mpi_size )
-
-        try:
-            mpi_step = keydict['mpi_step']
-        except:
-            mpi_step = 1
-        logging.info('Set mpi_step = %i' %mpi_step )
-
-    
-        if not mpi_list:
-            mpi_list = list(range(min_mpi_size,max_mpi_size+1,mpi_step))
-        
-        if square:
-            max_factor_x, max_factor_y, max_mpi_size = factorize_mpi(max_mpi_size)
         else:
-            domains_y = 1
-            max_factor_x = int(max_mpi_size/domains_y)
-            max_factor_y = domains_y
-
-        local_div_y = number_of_div_y
+            logging.info('Preconditioner type  = %s' %precond)
+        logging.info('PCPG tolerance  = %2.2e' %tol)
+        logging.info('Set pseudoinverse method  = %s' %method)
+        logging.info('Set divX = %i' %divX)
+        logging.info('Set divY = %i' %divY)
         logging.info('Set max_mpi_size = %i' %max_mpi_size)
+        logging.info('Set min_mpi_size = %i' %min_mpi_size )
+        
+
+
+        # creating alias variables
+        number_of_div_y = divY
+        local_div_x = divX    
+        local_div_y = number_of_div_y
 
         for mpi_size in mpi_list:
             if not square:
@@ -312,9 +272,9 @@ if __name__ == '__main__':
                 number_of_div_y = local_div_y
                 domains_x, domains_y, mpi_size = factorize_mpi(mpi_size)
                 domain_size = mpi_size*(number_of_div_x*number_of_div_y*2) # number of domains x num of nodes x dof per node
-                logging.info('Local Domain size (%i,%i)' %(domain_size,domain_size))
+                logging.info('Local Domain : size (%i,%i)' %(domain_size,domain_size))
             
-
+            logging.info('Local Domain : number of local divisions in (X,Y) = (%i,%i)' %(number_of_div_x,number_of_div_y))
             logging.info(header)
             logging.info('########################     MPI size  : %i    #####################' %mpi_size)
             logging.info(header)
@@ -330,7 +290,7 @@ if __name__ == '__main__':
             logging.info('# AMFE log : Assembling local matrices')            
             K, f, B_dict, s = create_case(number_of_div = number_of_div_x, number_of_div_y=number_of_div_y , case_id=mpi_size)
             ndof = K.shape[0]
-            case_obj = case_generator.FETIcase_builder(domains_x,domains_y, K, f, B_dict, s,BC_type=BC_type)
+            case_obj = case_generator.FETIcase_builder(domains_x,domains_y, K, f, B_dict, s, BC_type=BC_type)
             K_dict, B_dict, f_dict = case_obj.build_subdomain_matrices()
             logging.info('# END AMFE log')    
             logging.info(header)

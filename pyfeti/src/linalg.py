@@ -153,6 +153,13 @@ def splusps(A,tol=1.0e-6):
     idp = [] # id of non-zero pivot columns
     idf = [] # id of zero pivot columns
     
+    if not isinstance(A,csc_matrix):  
+        A = csc_matrix(A)
+
+    A_diag = A.diagonal()
+    Atrace = A_diag.sum()
+    avg_diag_A = A_diag/Atrace
+
     try:
         # apply small perturbation in diagonal
         A[-1,-1] +=1.0E-15
@@ -163,10 +170,9 @@ def splusps(A,tol=1.0e-6):
     except:
         pass
 
-    if not isinstance(A,csc_matrix):  
-        A = csc_matrix(A)
+    
 
-    lu = sla.splu(A)
+    lu = sla.splu(A,options={'SymmetricMode':True})
 
     U = lu.U
     Pc = lil_matrix((n, n))

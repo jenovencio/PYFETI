@@ -74,19 +74,23 @@ class FETIcase_builder():
 
         return neighbors_dict
 
-    def compute_gravity_force(self,g=9800,direction=[0.,1.]):
+    def compute_gravity_force(self,g=9800,direction=[0.,1.],neighbors_list=None):
         nnodes = int(len(self.f)/2)
         force = g*np.array(nnodes*direction)
-        W = self.get_scalling_neighbors_matrix()
+        W = self.get_scalling_neighbors_matrix(neighbors_list)
         return W.dot(force)
 
-    def get_scalling_neighbors_matrix(self):
+    def get_scalling_neighbors_matrix(self,neighbors_list=None):
         
-        #nei_array = np.ones(self.f.shape)
-        nei_array = np.zeros(self.f.shape)
+        if neighbors_list is None:
+            neighbors_list = list(self.s.selection_dict.keys())
+            nei_array = np.zeros(self.f.shape)
+        else:
+            nei_array = np.ones(self.f.shape)
+        
         for nei_key, set_values in self.s.selection_dict.items():
-
-            nei_array[list(set_values)] +=1
+            if nei_key in neighbors_list:
+                nei_array[list(set_values)] +=1
 
         return np.diag(1.0/nei_array)
 
@@ -103,6 +107,18 @@ class FETIcase_builder():
                 global_id = self.two2one_map((i,j))
                 
 
+                
+                B_dict[global_id] = {}
+                neighbors_list = []
+                for bool_key, nei_index in self.get_neighbors_dict(i,j).items():
+                    global_nei_id = self.two2one_map(nei_index)
+                    if global_nei_id is not None:
+                        try:
+                            B_dict[global_id][global_id,global_nei_id] = np.sign(global_nei_id-global_id)*self.B_dict[bool_key]
+                            neighbors_list.append(global_nei_id)
+                        except:
+                            pass
+
                 if self.BC_type=='RX':
                     if i==(self.domains_x-1):
                         Neumann_mult = 1.0
@@ -110,9 +126,10 @@ class FETIcase_builder():
                         Neumann_mult = 0.0
                     force = Neumann_mult*f
                 elif self.BC_type=='G':
-                    force = self.compute_gravity_force()
+                    force = self.compute_gravity_force(g=1.0e7,neighbors_list=neighbors_list)
                 else:
                     raise NotImplemented('Boundary condition named %s not implemented' %self.BC_type)
+
 
                 if i==0:
                     #apply dirichelt B.C
@@ -123,16 +140,9 @@ class FETIcase_builder():
                         K = sparse.csr_matrix(K_dir_obj.eliminate_by_identity(1))
                         force[list(self.s.selection_dict[1])] = 0.0 
 
+
                 K_dict[global_id] = K
                 f_dict[global_id] = force
-                B_dict[global_id] = {}
-                for bool_key, nei_index in self.get_neighbors_dict(i,j).items():
-                    global_nei_id = self.two2one_map(nei_index)
-                    if global_nei_id is not None:
-                        try:
-                            B_dict[global_id][global_id,global_nei_id] = np.sign(global_nei_id-global_id)*self.B_dict[bool_key]
-                        except:
-                            pass
 
         return K_dict, B_dict, f_dict
 

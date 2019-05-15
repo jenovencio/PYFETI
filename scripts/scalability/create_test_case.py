@@ -195,12 +195,6 @@ if __name__ == '__main__':
 
         # add default dict to local variables
         locals().update(default_dict)
-
-        divY = 12
-        divX = 12
-        mpi_list = [4,9]
-        square = True
-        BC_type = 'G'
         
         if not mpi_list:
             mpi_list = list(range(min_mpi_size,max_mpi_size+1,mpi_step))

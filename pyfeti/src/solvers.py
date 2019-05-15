@@ -9,7 +9,7 @@ import time
 
 def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
         Precondicioner_action=None,tolerance=None,max_int=None,
-        callback=None,vdot= None,save_lambda=False):
+        callback=None,vdot= None,save_lambda=False,exact_norm=False):
         ''' This function is a general interface for PCGP algorithms
 
         argument:
@@ -45,13 +45,17 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
         save_lambda : Booelan, Default = False
             store lambda interations in the a list
 
+        exact_norm : Booelan, Default = False
+            if True compute the L2 norm of the projected residual sqrt(vdot(wk,wk)), if false compute 
+            the sqrt(vdot(wk,yk)) where yk is the projected preconditioned array
+
         return 
             lampda_pcgp : np.array
                 last lambda
             rk : np.array
                 last projected residual
             proj_r_hist : list
-                list of the history of the norm of the projected  residuals
+                list of the history of the norm of the projected residuals
             lambda_hist : list
             list of the 
 
@@ -97,7 +101,6 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
 
         F = F_action
 
-
         logging.info('Setting PCPG tolerance = %4.2e' %tolerance)
         logging.info('Setting PCPG max number of iterations = %i' %max_int)
 
@@ -117,14 +120,6 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
             proj_elapsed_time = time.time() - proj_start
             logging.info('Time Duration  of Projection action = %4.2e (s), Iteration = %i!' %(proj_elapsed_time,k))
 
-            norm_wk = norm_func(wk)
-            proj_r_hist.append(norm_wk)
-            logging.info('Iteration = %i, Norm of project residual wk = %2.5e!' %(k,norm_wk))
-            
-            if norm_wk<tolerance:
-                logging.info('PCG has converged after %i' %(k+1))
-                break
-
             # checking if precond will be applied, if not extra projection must be avoided
             if apply_precond:
                 zk = Precond(wk)
@@ -140,10 +135,26 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
                 vn1 = vn
             else:
                 vn1 = vdot(yk,wk)
+                vn = vn1 
                 pk1 = yk
             beta_elapsed_time = time.time() - beta_start
             logging.info('Time Duration  of beta computation = %4.2e (s), Iteration = %i!' %(beta_elapsed_time,k))
 
+            if exact_norm:
+                norm_wk = norm_func(wk)
+                logging.info('Iteration = %i, Norm of project residual wk = %2.5e!' %(k,norm_wk))
+            else:
+                norm_wk = np.sqrt(vn)
+                logging.info('Iteration = %i, Norm of project preconditioned residual  sqrt(<yk,wk>) = %2.5e!' %(k,norm_wk))
+
+            proj_r_hist.append(norm_wk)
+            if norm_wk<=tolerance:
+                #evaluate the exact norm
+                norm_wk = norm_func(wk)
+                if norm_wk<=tolerance:
+                    logging.info('PCG has converged after %i' %(k+1))
+                    logging.info('Iteration = %i, Norm of project residual wk = %2.5e!' %(k,norm_wk))
+                    break
             
             pk = yk + beta*pk1
 

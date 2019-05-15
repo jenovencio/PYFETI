@@ -162,17 +162,18 @@ def splusps(A,tol=1.0e-6):
 
     try:
         # apply small perturbation in diagonal
-        A[-1,-1] +=1.0E-15
-        A[-2,-2] +=1.0E-15
-        A[-3,-3] +=1.0E-15
+        #A[-1,-1] +=1.0E-15
+        #A[-2,-2] +=1.0E-15
+        #A[-3,-3] +=1.0E-15
         #pert_size = 3
-        #A += 1.0E-14*sparse.diags(np.concatenate(([0.0]*(A.shape[0]-pert_size),[1]*pert_size)))
+        A += 1.0E-15*avg_diag_A*sparse.diags(np.ones(n))
+        pass
     except:
         pass
 
     
 
-    lu = sla.splu(A,options={'SymmetricMode':True})
+    lu = sla.splu(A,options={'DiagPivotThresh': 0.0,'SymmetricMode':True})
 
     U = lu.U
     Pc = lil_matrix((n, n))
@@ -1251,6 +1252,7 @@ class  Test_linalg(TestCase):
         
         np.testing.assert_almost_equal(A.dot(r),r*0,decimal=15)
 
+        A = sparse.csc_matrix(A)
         lu, idf, R = splusps(A)
 
         b1 = np.array([0., 1., 0. , 0., -1., 0.0])
@@ -1263,12 +1265,12 @@ class  Test_linalg(TestCase):
 
         b2 = np.array([0., 1., 1., -1., -1., 0.0])
         x2 = lu.solve(b2)
-        np.testing.assert_almost_equal(A.dot(x2) - b2, b2*0 ,decimal=15)
+        np.testing.assert_almost_equal(A.dot(x2) - b2, b2*0 ,decimal=14)
 
 
         b3 = np.array([0., 1., 1000., -1000., -1., 0.0])
         x3 = lu.solve(b3)
-        np.testing.assert_almost_equal(A.dot(x3) - b3, b3*0 ,decimal=15)
+        np.testing.assert_almost_equal(b3*0, A.dot(x3) - b3, decimal=14)
 
     def test_splusps_and_lu_3(self):
         # singular beam problem

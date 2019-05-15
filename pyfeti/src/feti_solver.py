@@ -824,7 +824,13 @@ class LocalProblem():
         u = self.expand_interface_gap(gap_dict)
         ub = u[interface_id]
         K = self.K_local.data
-        Kbb = K[np.ix_(interface_id,interface_id)]
+        # creating Kbb matrix in the first try
+        try:
+            Kbb = self._Kbb
+        except AttributeError:
+            self._Kbb = K[np.ix_(interface_id,interface_id)]
+            Kbb = self._Kbb
+
         if precond_type=='Lumped':
             f[interface_id] += Kbb.dot(ub)
 
@@ -832,25 +838,36 @@ class LocalProblem():
             f[interface_id] += np.diag(Kbb.diagonal()).dot(ub)
 
         elif precond_type=='LumpedDirichlet':
-            Kib = self.K_local.data[np.ix_(interior_id,interface_id)]
-            f_exp = Kib.dot(ub)
             try:
-                ui = self._Kii_inv.dot(f_exp)    
+                Kib = self._Kib
+            except AttributeError:
+                Kib = self.K_local.data[np.ix_(interior_id,interface_id)]
+                self._Kib = Kib
+
+            try:
+                Kii = self._Kii_inv
             except AttributeError:
                 self._Kii_inv = sparse.diags(1.0/(K.diagonal()[interior_id]))
-                ui = self._Kii_inv.dot(f_exp) 
+                Kii = self._Kii_inv
+
+            f_exp = Kib.dot(ub)    
+            ui = self._Kii_inv.dot(f_exp) 
 
             f[interface_id] += Kbb.dot(ub) - Kib.T.dot(ui)
         
         elif precond_type=='Dirichlet':
             
-            Kib = self.K_local.data[np.ix_(interior_id,interface_id)]
+            try:
+                Kib = self._Kib
+            except AttributeError:
+                Kib = self.K_local.data[np.ix_(interior_id,interface_id)]
+                self._Kib = Kib
+            
             f_exp = np.zeros(self.length)
             f_exp[interior_id] += Kib.dot(ub)
             try:
                 ui = self._lu.solve(f_exp[interior_id])
             except AttributeError:
-
                 Kii = K[np.ix_(interior_id,interior_id)].tocsc()
                 self._lu = sparse.linalg.splu(Kii,options={'SymmetricMode':True})
                 ui = self._lu.solve(f_exp[interior_id])

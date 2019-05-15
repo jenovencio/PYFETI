@@ -169,7 +169,7 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
 
             elapsed_time = time.time() - proj_start
             logging.info('#'*30)
-            logging.info('Iteration = %i : Time Duration %4.2e (s)!' %(elapsed_time,k))
+            logging.info('Iteration = %i : Time Duration %4.2e (s)!' %(k,elapsed_time))
 
         if (k>0) and k==(max_int-1):
             logging.warning('Maximum iteration was reached, MAX_INT = %i, without converging!' %(k+1))

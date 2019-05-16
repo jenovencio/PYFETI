@@ -879,9 +879,9 @@ def pyfeti_dir(filename=''):
 
 
 class DomainCreator():
-    def __init__(self,width=10,high=10,x_divisions=11,y_divisions=11,domain_id=1):
+    def __init__(self,width=10,heigh=10,x_divisions=11,y_divisions=11,domain_id=1):
         self.width = width
-        self.high = high
+        self.heigh = heigh
         self.x_divisions = x_divisions
         self.y_divisions = y_divisions
         self.domain_id = domain_id
@@ -900,7 +900,7 @@ class DomainCreator():
 
     def build_nodes(self):
         delta_x = self.width/(self.x_divisions-1)
-        delta_y = self.high/(self.y_divisions-1)
+        delta_y = self.heigh/(self.y_divisions-1)
         x0 = self.start_x
         y0 = self.start_y
         nodes_dict = {}

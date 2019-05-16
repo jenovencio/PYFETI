@@ -11,15 +11,19 @@ from pyfeti.src import feti_solver
 import time, logging
 
 
-def create_case(number_of_div = 3, number_of_div_y=None, case_id=1,save_fig=False):
+def create_case(width = 100, heigh=100, divX=100, divY=100, case_id=1,save_fig=False):
     ''' This function create a subdomain matrices based on the number of 
     divisions.
 
     paramenters:
-        number_of_div : int (default = 3)
-            number of nodes in the x direction
-        number_of_div_y : Default = None
-            number of nodes in the x direction, if None value = number_of_dif
+        width : float, Default = 100 [mm]
+            width of the 2D body
+        heigh : float, Default = 100 [mm]
+            heigh of the 2D body
+        divY : int, Default = 100 
+            divisions in Y direction
+        divX : int, Default = 100 
+            divisions in X direction
         case_id : int
             if of the case to save files
 
@@ -28,12 +32,9 @@ def create_case(number_of_div = 3, number_of_div_y=None, case_id=1,save_fig=Fals
         B_left, B_right, B_tio, B_bottom and also the selectionOperator with the matrices indeces
     '''
 
-    if number_of_div_y is None:
-        number_of_div_y = number_of_div
+    
 
-    creator_obj  = utils.DomainCreator(width=number_of_div,high=number_of_div_y,x_divisions=number_of_div,y_divisions=number_of_div_y)
-    logging.info('Local Domain width [m] = %2.2f' %number_of_div)
-    logging.info('Local Domain heigh [m] = %2.2f' %number_of_div_y)
+    creator_obj  = utils.DomainCreator(width=width*1.0e-3,heigh=heigh*1.0e-3,x_divisions=int(divX)+1,y_divisions=int(divY)+1)
     creator_obj.build_elements()
     
     script_folder = os.path.join(os.path.dirname(__file__),str(case_id))
@@ -52,14 +53,18 @@ def create_case(number_of_div = 3, number_of_div_y=None, case_id=1,save_fig=Fals
 
     if save_fig:
         ax = amfe.plot2Dmesh(m)
-        ax.set_xlim([0,number_of_div])
-        ax.set_ylim([0,number_of_div_y])
+        ax.set_xlim([0,width*1.0e-3])
+        ax.set_ylim([0,heigh*1.0e-3])
         ax.set_aspect('equal')
+        ax.set_xlabel('Width [m]')
+        ax.set_ylabel('Heigh [m]')
         plt.legend('off')
+        
         plt.savefig(os.path.join(mesh_folder,'mesh.png'))
 
+
     # creating material
-    my_material = amfe.KirchhoffMaterial(E=210E9, nu=0.3, rho=7.86E3, plane_stress=True, thickness=1.0)
+    my_material = amfe.KirchhoffMaterial(E=210.0E5, nu=0.3, rho=7.86E-9, plane_stress=True, thickness=1.0e-3)
 
     my_system = amfe.MechanicalSystem()
     my_system.set_mesh_obj(m)
@@ -132,18 +137,26 @@ def factorize_mpi(mpi_size):
 
 if __name__ == '__main__':
     help_doc = ''' 
-            This python script runs a scalility test based on ParallelFETIsolver
+            This python script runs a scalabity test based on ParallelFETIsolver
             implemented in PyFETI
 
             for more information visit: [https://github.com/jenovencio/PYFETI]
 
+                            W = width
+               __ __ __ __ __ __ __ __ __ __ __ __
+              |                                   |
+              |                                   |
+            H |                                   |
+              |                                   |
+              |__ __ __ __ __ __ __ __ __ __ __ __|
 
             Script options
-            max_mpi_size : Maximum number of mpi process in the scalability test, Default = 5
-            min_mpi_size : Minimum number of mpi process in the scalability test, Default = 1
-            mpi_step : Step of MPI process to be tested, Default = 1
-            divY : Number of division in the Y direction, Default = 5
-            divX : Number of local division in the X direction, Default = 5
+            W  : float value for the width in [mm] of the 2D plane-stress body. Default = 60
+            H  : float value for the heigh in [mm] of the 2D plane-stress body. Default = 60
+            divY : Number of division in the Y direction, Default = 24
+            divX : Number of local division in the X direction, Default = 24
+            domainxX  : list of domains in the X direciton. Default = [1,2,3]
+            domainxY  : list of domains in the Y direciton. Default = [1,2,3]
             method : Method to compute the local pseudoinverse, Default = svd (splusps also avaliable)
             FETI_algorithm : Type of FETI algorithm SerialFETIsolver of ParallelFETIsolver,  Default = ParallelFETIsolver
             tol : tolerance of PCPG error norm, Default = 1.0E-8
@@ -151,7 +164,6 @@ if __name__ == '__main__':
             square : create a square of retangular domains depended on the mpi, Default : False
             BC_type : type of Neumman B.C, Defult = RX, options {RX,G} RX is force in x at the right domains, G is gravity in Y
             strong : Boolean variable, if True perform strong scalability, if False, perform weak scalability, Default = True
-            mpi_list : List of MPI number to be tested : Default = list(range(min_mpi_size,max_mpi_size+1,mpi_step))
             loglevel : INFO, DEBUG, ERROR, WARNING, CRITICAL. Default = INFO
             launcher_only : Boolean variable to create scripts to without launch mpi : Default = False
             delete_files : Boolean variable to delete *.pkl files after mpirun : Default = True
@@ -163,19 +175,19 @@ if __name__ == '__main__':
     default_dict = {'loglevel' : 'INFO',
                     'strong'  : True,
                     'FETI_algorithm' : 'ParallelFETIsolver',
-                    'square' : False,
-                    'BC_type' : 'RX',
+                    'square' : True,
+                    'BC_type' : 'G',
                     'precond' : None,
                     'tol' : 1.0E-8,
                     'method' : 'svd',
-                    'mpi_list' : [],
-                    'max_mpi_size' : 5,
-                    'min_mpi_size' : 1,
-                    'mpi_step' : 1,
-                    'divY' : 5,
-                    'divX' : 5,
+                    'domainX' : [1,2,3],
+                    'domainY' : [1,2,3],
+                    'divY' : 24,
+                    'divX' : 24,
                     'launcher_only' : False,
-                    'delete_files' : True}
+                    'delete_files' : True,
+                    'W' : 60.0,
+                    'H' : 60.0}
 
 
 
@@ -199,20 +211,7 @@ if __name__ == '__main__':
 
         # add default dict to local variables
         locals().update(default_dict)
-        strong = False
-        
-        if not mpi_list:
-            mpi_list = list(range(min_mpi_size,max_mpi_size+1,mpi_step))
-        
-        max_mpi_size = max(mpi_list)
 
-        if square:
-            max_factor_x, max_factor_y, max_mpi_size = factorize_mpi(max_mpi_size)
-        else:
-            domains_y = 1
-            max_factor_x = int(max_mpi_size/domains_y)
-            max_factor_y = domains_y
-        
         date_str = datetime.now().strftime('%Y_%m_%d_%H_%M_%S')
         scalability_folder = os.path.join(curdir,date_str)
         os.mkdir(scalability_folder)
@@ -241,55 +240,48 @@ if __name__ == '__main__':
         logging.info('Set pseudoinverse method  = %s' %method)
         logging.info('Set divX = %i' %divX)
         logging.info('Set divY = %i' %divY)
-        logging.info('Set max_mpi_size = %i' %max_mpi_size)
-        logging.info('Set min_mpi_size = %i' %min_mpi_size )
+        logging.info('Set max_mpi_size = %i' %(max(domainX)*max(domainY)))
+        logging.info('Set min_mpi_size = %i' %(min(domainX)*min(domainY)))
         
 
-
-        # creating alias variables
-        number_of_div_y = divY
-        local_div_x = divX    
-        local_div_y = number_of_div_y
-
-        for mpi_size in mpi_list:
-            if not square:
-                domains_x = mpi_size
     
-            else:
-                domains_x, domains_y, mpi_size = factorize_mpi(mpi_size)
+        for domain_x,domain_y in zip(domainX,domainY):
+            
+            mpi_size = domain_x*domain_y
+            # subdomain dimensions
+            w = W/domain_x
+            h = H/domain_y
 
             if strong:
-                max_div_x = local_div_x*max_factor_x
-                max_div_y = local_div_y*max_factor_y
-                number_of_div_x = int(max_div_x/domains_x)
-                number_of_div_y = int(max_div_y/domains_y)
-                domain_size = max_mpi_size*(local_div_x*local_div_y*2) # number of domains x num of nodes x dof per node
-                logging.info('Domain size (%i,%i)' %(domain_size,domain_size))
-
+                div_x = divX/domain_x
+                div_y = divY/domain_y
+                
             else:
-                number_of_div_x = local_div_x
-                number_of_div_y = local_div_y
-                #domains_x, domains_y, mpi_size = factorize_mpi(mpi_size)
-                domain_size = mpi_size*(number_of_div_x*number_of_div_y*2) # number of domains x num of nodes x dof per node
-                logging.info('Local Domain : size (%i,%i)' %(domain_size,domain_size))
+                div_x = divX
+                div_y = divY
+                
+            domain_size = div_x*div_y*2 # number of domains x num of nodes x dof per node    
+            logging.info('Local Domain : size (%i,%i)' %(domain_size,domain_size))
             
-            logging.info('Local Domain : number of local divisions in (X,Y) = (%i,%i)' %(number_of_div_x,number_of_div_y))
+            logging.info('Local Domain : number of local divisions in (X,Y) = (%i,%i)' %(div_x,div_y))
             logging.info(header)
             logging.info('########################     MPI size  : %i    #####################' %mpi_size)
             logging.info(header)
             logging.info('Date - Time = ' + datetime.now().strftime('%Y-%m-%d - %H:%M:%S'))
             script_folder = os.path.join(os.path.dirname(__file__),str(mpi_size),'tmp')
 
-            logging.info('Domains in x direction = %i' %domains_x)
-            logging.info('Domains in y direction = %i' %domains_y)
-            logging.info('Number of local divisions in x %i' %number_of_div_x)
-            logging.info('Number of local divisions in y %i' %number_of_div_y)
+            logging.info('Domains in x direction = %i' %domain_x)
+            logging.info('Domains in y direction = %i' %domain_y)
+            logging.info('Number of local divisions in x %i' %div_x)
+            logging.info('Number of local divisions in y %i' %div_y)
             
             logging.info(header)
-            logging.info('# AMFE log : Assembling local matrices')            
-            K, f, B_dict, s = create_case(number_of_div = number_of_div_x, number_of_div_y=number_of_div_y , case_id=mpi_size)
+            logging.info('# AMFE log : Assembling local matrices')     
+            logging.info('Local Domain width [mm] = %2.2f' %w)
+            logging.info('Local Domain heigh [mm] = %2.2f' %h)       
+            K, f, B_dict, s = create_case(width = w, heigh=h, divX=div_x, divY=div_y , case_id=mpi_size, save_fig=True)
             ndof = K.shape[0]
-            case_obj = case_generator.FETIcase_builder(domains_x,domains_y, K, f, B_dict, s, BC_type=BC_type)
+            case_obj = case_generator.FETIcase_builder(domain_x,domain_y, K, f, B_dict, s, BC_type=BC_type)
             K_dict, B_dict, f_dict = case_obj.build_subdomain_matrices()
             logging.info('# END AMFE log')    
             logging.info(header)
@@ -332,11 +324,9 @@ if __name__ == '__main__':
                     logging.info('{"Course_problem_size" : %i}' %len(solution_obj.alpha))
                     logging.info('{"PCPG_iterations" : %i}' %solution_obj.PCGP_iterations)
                     logging.info('{"PCPG_residual" : %6.4e}' %solution_obj.projected_residual)
-
                     logging.info('{"Global_FETI_solver" : %f} #Elapsed time (s)' %solution_obj.solver_time)
                     logging.info('{"Local_matrix_preprocessing" : %f} #Elapsed time (s)' %solution_obj.local_matrix_time)
                     logging.info('{"PCPG" : %f} #Elapsed time (s)' %solution_obj.time_PCPG)
-                
                     logging.info('Date - Time = ' + datetime.now().strftime('%Y-%m-%d - %H:%M:%S'))
                     logging.info(header)
                     logging.info('END OF MPI size : %i' %mpi_size)
@@ -348,6 +338,7 @@ if __name__ == '__main__':
                     with open(os.path.join(scalability_folder,'run_dir.log'),'a') as f:
                         f.writelines(solver_obj.manager.temp_folder)
                         f.write('\n')
+                        
             except:
                 logging.error('Parallel solver Error!')
 

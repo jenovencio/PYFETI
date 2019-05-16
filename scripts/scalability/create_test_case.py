@@ -153,6 +153,8 @@ if __name__ == '__main__':
             strong : Boolean variable, if True perform strong scalability, if False, perform weak scalability, Default = True
             mpi_list : List of MPI number to be tested : Default = list(range(min_mpi_size,max_mpi_size+1,mpi_step))
             loglevel : INFO, DEBUG, ERROR, WARNING, CRITICAL. Default = INFO
+            launcher_only : Boolean variable to create scripts to without launch mpi : Default = False
+            delete_files : Boolean variable to delete *.pkl files after mpirun : Default = True
             example of command call:
             > python  create_test_case.py max_mpi_size=10 divY=10 divX=10
 
@@ -171,7 +173,9 @@ if __name__ == '__main__':
                     'min_mpi_size' : 1,
                     'mpi_step' : 1,
                     'divY' : 5,
-                    'divX' : 5}
+                    'divX' : 5,
+                    'launcher_only' : False,
+                    'delete_files' : True}
 
 
 
@@ -195,6 +199,7 @@ if __name__ == '__main__':
 
         # add default dict to local variables
         locals().update(default_dict)
+        strong = False
         
         if not mpi_list:
             mpi_list = list(range(min_mpi_size,max_mpi_size+1,mpi_step))
@@ -264,7 +269,7 @@ if __name__ == '__main__':
             else:
                 number_of_div_x = local_div_x
                 number_of_div_y = local_div_y
-                domains_x, domains_y, mpi_size = factorize_mpi(mpi_size)
+                #domains_x, domains_y, mpi_size = factorize_mpi(mpi_size)
                 domain_size = mpi_size*(number_of_div_x*number_of_div_y*2) # number of domains x num of nodes x dof per node
                 logging.info('Local Domain : size (%i,%i)' %(domain_size,domain_size))
             
@@ -310,34 +315,39 @@ if __name__ == '__main__':
                 solver_obj = FETIsolver(K_dict,B_dict,f_dict,temp_folder=script_folder,
                                                 pseudoinverse_kargs=pseudoinverse_kargs,
                                                 dual_interface_algorithm=dual_interface_algorithm,tolerance=tol,
-                                                precond_type=precond)
+                                                precond_type=precond,launcher_only=launcher_only)
+
+                
                 start_time = time.time()
                 solution_obj = solver_obj.solve()
                 elapsed_time = time.time() - start_time
                 logging.info('{"Parallel Solver" : %f} #Elapsed time (s)' %elapsed_time)
 
-                solution_obj.local_matrix_time
-                solution_obj.time_PCPG 
+                if not launcher_only:
+                    solution_obj.local_matrix_time
+                    solution_obj.time_PCPG 
 
-                logging.info('{"Interface_size" : %i}' %len(solution_obj.interface_lambda))
-                logging.info('{"Primal_variable_size" : %i}' %len(solution_obj.displacement))
-                logging.info('{"Course_problem_size" : %i}' %len(solution_obj.alpha))
-                logging.info('{"PCPG_iterations" : %i}' %solution_obj.PCGP_iterations)
-                logging.info('{"PCPG_residual" : %6.4e}' %solution_obj.projected_residual)
+                    logging.info('{"Interface_size" : %i}' %len(solution_obj.interface_lambda))
+                    logging.info('{"Primal_variable_size" : %i}' %len(solution_obj.displacement))
+                    logging.info('{"Course_problem_size" : %i}' %len(solution_obj.alpha))
+                    logging.info('{"PCPG_iterations" : %i}' %solution_obj.PCGP_iterations)
+                    logging.info('{"PCPG_residual" : %6.4e}' %solution_obj.projected_residual)
 
-                logging.info('{"Global_FETI_solver" : %f} #Elapsed time (s)' %solution_obj.solver_time)
-                logging.info('{"Local_matrix_preprocessing" : %f} #Elapsed time (s)' %solution_obj.local_matrix_time)
-                logging.info('{"PCPG" : %f} #Elapsed time (s)' %solution_obj.time_PCPG)
-            
+                    logging.info('{"Global_FETI_solver" : %f} #Elapsed time (s)' %solution_obj.solver_time)
+                    logging.info('{"Local_matrix_preprocessing" : %f} #Elapsed time (s)' %solution_obj.local_matrix_time)
+                    logging.info('{"PCPG" : %f} #Elapsed time (s)' %solution_obj.time_PCPG)
+                
+                    logging.info('Date - Time = ' + datetime.now().strftime('%Y-%m-%d - %H:%M:%S'))
+                    logging.info(header)
+                    logging.info('END OF MPI size : %i' %mpi_size)
+                    logging.info(header)
+                    logging.info('\n\n\n')
+                    if delete_files:
+                        os.system('rm -r ./ '+ str(mpi_size) + '/tmp/*.pkl')
+                else:
+                    pass
             except:
                 logging.error('Parallel solver Error!')
 
-            logging.info('Date - Time = ' + datetime.now().strftime('%Y-%m-%d - %H:%M:%S'))
-            logging.info(header)
-            logging.info('END OF MPI size : %i' %mpi_size)
-            logging.info(header)
-            logging.info('\n\n\n')
-            os.system('rm -r ./ '+ str(mpi_size) + '/tmp/*.pkl')
-
-    # back to original folder
-    os.chdir(curdir)
+            # back to original folder
+            os.chdir(scalability_folder)

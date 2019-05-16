@@ -16,7 +16,7 @@ methods:
 
 """
 
-import os, logging
+import os, logging, time
 from unittest import TestCase, main
 import numpy as np
 import scipy
@@ -160,18 +160,24 @@ def splusps(A,tol=1.0e-6):
     Atrace = A_diag.sum()
     avg_diag_A = A_diag/Atrace
 
+    start = time.time()
     try:
          # apply small perturbation in diagonal
          lu = sla.splu(A,options={'DiagPivotThresh': 0.0,'SymmetricMode':True})
-         looging.info('Standard SuperLU.')
+         logging.info('Standard SuperLU.')
     except:
         B = A.tolil()
         B += 1.0E-15*avg_diag_A*sparse.diags(np.ones(n))
         A = B.tocsc()
         del B
         lu = sla.splu(A,options={'DiagPivotThresh': 0.0,'SymmetricMode':True})
-        looging.info('Perturbed SuperLU.')
+        logging.info('Perturbed SuperLU.')
 
+    elapsed_time = time.time() - start
+    logging.info('Time Duration of SuperLU factorization = %4.2e (s)' %(elapsed_time))
+
+
+    start = time.time()
     U = lu.U
     Pc = lil_matrix((n, n))
     Pc[np.arange(n), lu.perm_c] = 1
@@ -187,6 +193,9 @@ def splusps(A,tol=1.0e-6):
         R = Pc.dot(R)
     else:
         R = np.array([])
+
+    elapsed_time = time.time() - start
+    logging.info('Time Duration of Kernel computation = %4.2e (s)' %(elapsed_time))
 
     return  lu, idf, R
 

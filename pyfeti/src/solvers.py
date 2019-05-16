@@ -9,7 +9,7 @@ import time
 
 def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
         Precondicioner_action=None,tolerance=None,max_int=None,
-        callback=None,vdot= None,save_lambda=False,exact_norm=False):
+        callback=None,vdot= None,save_lambda=False,exact_norm=True):
         ''' This function is a general interface for PCGP algorithms
 
         argument:
@@ -38,7 +38,7 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
         callback : callable, Default None
             function to be callabe at the and of each iteration
 
-        vdot : allable, Default None
+        vdot : callable, Default None
             function with the dot product of vdot(v,w) if none 
             then, np.dot(v,w)
 
@@ -143,18 +143,21 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
             if exact_norm:
                 norm_wk = norm_func(wk)
                 logging.info('Iteration = %i, Norm of project residual wk = %2.5e!' %(k,norm_wk))
-            else:
-                norm_wk = np.sqrt(vn)
-                logging.info('Iteration = %i, Norm of project preconditioned residual  sqrt(<yk,wk>) = %2.5e!' %(k,norm_wk))
-
-            proj_r_hist.append(norm_wk)
-            if norm_wk<=tolerance:
-                #evaluate the exact norm
-                norm_wk = norm_func(wk)
                 if norm_wk<=tolerance:
                     logging.info('PCG has converged after %i' %(k+1))
-                    logging.info('Iteration = %i, Norm of project residual wk = %2.5e!' %(k,norm_wk))
                     break
+            else:
+                norm_wk = np.sqrt(vn1)
+                logging.info('Iteration = %i, Norm of project preconditioned residual  sqrt(<yk,wk>) = %2.5e!' %(k,norm_wk))
+                if norm_wk<=tolerance:
+                    #evaluate the exact norm
+                    _norm_wk = norm_func(wk)
+                    if _norm_wk<=tolerance:
+                        logging.info('PCG has converged after %i' %(k+1))
+                        logging.info('Iteration = %i, Norm of project residual wk = %2.5e!' %(k,_norm_wk))
+                        break
+
+            proj_r_hist.append(norm_wk)
             
             pk = yk + beta*pk1
 

@@ -671,28 +671,32 @@ class ParallelSolverManager(SolverManager):
         logging.info('Local Time after mpi run: %s' %localtime)
 
     def read_results(self):
-        logging.info('Reading results from MPISolver')
-        start_time = time.time()
-        solution_path = os.path.join(self.temp_folder,'solution.pkl')
-        u_dict = {}
-        alpha_dict = {}
-        for i in range(1,self.num_partitions+1):
-            try:
-                displacement_path = os.path.join(self.temp_folder,'displacement_' + str(i) + '.pkl')
-                alpha_path = os.path.join(self.temp_folder,'alpha_' + str(i) + '.pkl')                
-                u_dict[i] =  load_object(displacement_path)
-                alpha_dict[i] =  load_object(alpha_path,tries=1,sleep_delay=0)
-            except:
-                pass
-            
-            
-        sol_obj = load_object(solution_path)
-        sol_obj.u_dict = u_dict
-        sol_obj.alpha_dict = alpha_dict
+        if not self.launcher_only:
+            logging.info('Reading results from MPISolver')
+            start_time = time.time()
+            solution_path = os.path.join(self.temp_folder,'solution.pkl')
+            u_dict = {}
+            alpha_dict = {}
+            for i in range(1,self.num_partitions+1):
+                try:
+                    displacement_path = os.path.join(self.temp_folder,'displacement_' + str(i) + '.pkl')
+                    alpha_path = os.path.join(self.temp_folder,'alpha_' + str(i) + '.pkl')                
+                    u_dict[i] =  load_object(displacement_path)
+                    alpha_dict[i] =  load_object(alpha_path,tries=1,sleep_delay=0)
+                except:
+                    pass
+                
+                
+            sol_obj = load_object(solution_path)
+            sol_obj.u_dict = u_dict
+            sol_obj.alpha_dict = alpha_dict
 
-        elapsed_time = time.time() - start_time
-        logging.info('{ "load_results": %f} #Elapsed time (s)' %elapsed_time)
-        return sol_obj
+            elapsed_time = time.time() - start_time
+            logging.info('{ "load_results": %f} #Elapsed time (s)' %elapsed_time)
+            return sol_obj
+        else:
+            logging.warning('No results to read!')
+            return None
 
     def delete(self):
         shutil.rmtree(self.temp_folder)

@@ -606,6 +606,7 @@ class ParallelSolverManager(SolverManager):
         self.prefix = 'local_problem_'
         self.ext = '.pkl'
         self.log = True
+        self.launcher_only = False
         super().__init__(K_dict,B_dict,f_dict,pseudoinverse_kargs=pseudoinverse_kargs,**kwargs)
         
     def _create_local_problems(self,K_dict,B_dict,f_dict,temp_folder=None):
@@ -661,7 +662,9 @@ class ParallelSolverManager(SolverManager):
         start_time = time.time()
         localtime = time.asctime( time.localtime(time.time()) )
         logging.info('Local Time before mpi run: %s' %localtime)
-        mpi_obj.run()
+        mpi_obj.create_laucher()
+        if not self.launcher_only:
+            mpi_obj.run()
         elapsed_time = time.time() - start_time
         logging.info('{"mpi_run" : %f} #Elapsed time (s)' %elapsed_time)
         localtime = time.asctime( time.localtime(time.time()))

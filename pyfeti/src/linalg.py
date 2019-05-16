@@ -161,19 +161,16 @@ def splusps(A,tol=1.0e-6):
     avg_diag_A = A_diag/Atrace
 
     try:
-        # apply small perturbation in diagonal
-        #A[-1,-1] +=1.0E-15
-        #A[-2,-2] +=1.0E-15
-        #A[-3,-3] +=1.0E-15
-        #pert_size = 3
-        A += 1.0E-15*avg_diag_A*sparse.diags(np.ones(n))
-        pass
+         # apply small perturbation in diagonal
+         lu = sla.splu(A,options={'DiagPivotThresh': 0.0,'SymmetricMode':True})
+         looging.info('Standard SuperLU.')
     except:
-        pass
-
-    
-
-    lu = sla.splu(A,options={'DiagPivotThresh': 0.0,'SymmetricMode':True})
+        B = A.tolil()
+        B += 1.0E-15*avg_diag_A*sparse.diags(np.ones(n))
+        A = B.tocsc()
+        del B
+        lu = sla.splu(A,options={'DiagPivotThresh': 0.0,'SymmetricMode':True})
+        looging.info('Perturbed SuperLU.')
 
     U = lu.U
     Pc = lil_matrix((n, n))

@@ -699,13 +699,13 @@ class  Test_FETIsolver(TestCase):
 
 if __name__=='__main__':
 
-    main()
-    #test_obj = Test_FETIsolver()
+    #main()
+    test_obj = Test_FETIsolver()
     #test_obj.setUp()
     #test_obj.test_ParallelRetangularLinearOperator()
     #test_obj.test_serial_solver()
     #test_obj.test_serial_preconditioner()
-    #test_obj.test_serial_solver_cases_precond()
+    test_obj.test_serial_solver_cases_precond()
     #test_obj.test_parallel_solver_cases_precond()
     #test_obj.test_compare_serial_and_parallel_precond()
     #test_obj.test_parallel_solver()

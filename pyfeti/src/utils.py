@@ -59,26 +59,39 @@ class MPILauncher():
             self.tmp_folder = self.kwargs['tmp_folder']
         else:
             self.tmp_folder = 'tmp'
+        self.laucher_files_exist = False
+        self.local_folder = None
+        self.local_folder = None
+        self.os_script_name = None
 
-    def run(self):
+    def create_laucher(self):
         platform = get_platform()
         if platform=='Windows':
-            self.run_windows()
+            local_folder, os_script_name = self.windows_laucher()
         elif platform=='Linux':
-            self.run_linux()
+            local_folder, os_script_name =self.linux_laucher()
+        else:
+            raise NotImplemented('Platform %s not supported' %platform)
 
-    def run_linux(self):
+        self.laucher_files_exist = True
+        self.local_folder = local_folder
+        self.os_script_name = os_script_name
+        return local_folder, os_script_name
+
+    def linux_laucher(self):
         os_script_name= 'run_mpi.sh'
         header_string = '#!/bin/sh'
         mpi_command = self.create_command_string(mpi_args='')
-        self.run_os(os_script_name,mpi_command,header_string)
+        local_folder = self.create_laucher_files(os_script_name,mpi_command,header_string)
+        return local_folder, os_script_name
 
-    def run_windows(self):
+    def windows_laucher(self):
         os_script_name = 'run_mpi.bat'
         header_string = 'rem Windows bat file'
         mpi_command = self.create_command_string(mpi_args='-l')
-        self.run_os(os_script_name,mpi_command,header_string)
-    
+        local_folder = self.create_laucher_files(os_script_name,mpi_command,header_string)
+        return local_folder, os_script_name
+
     def create_command_string(self,mpi_args=''):
         ''' Create the command line to call mpi
             Parameters:
@@ -108,7 +121,7 @@ class MPILauncher():
             command += '  "' + str(key) + '=' + str(value) +  '" '
         return command
 
-    def run_os(self,os_script_name,mpi_command,header_string=''):
+    def create_laucher_files(self,os_script_name,mpi_command,header_string=''):
         ''' This function creates a OS script and
         run it. It is a common interface for every OS.
         
@@ -143,7 +156,21 @@ class MPILauncher():
         
         logging.info('Run directory = %s' %os.getcwd())
         logging.info('######################################################################')
+        return local_folder
+    
+    def run(self,local_folder=None, os_script_name=None):
+        if not self.laucher_files_exist:
+            local_folder, os_script_name = self.create_laucher()
 
+        if local_folder is None:
+            local_folder = self.local_folder
+
+        if os_script_name is None:
+            os_script_name = self.os_script_name
+
+        return self.run_os(local_folder, os_script_name)
+
+    def run_os(self,local_folder,os_script_name):
         # executing bat file
         try:    
             #subprocess.call(os_script_name,shell=True)

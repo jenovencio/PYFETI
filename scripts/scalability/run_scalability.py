@@ -8,7 +8,7 @@ from pyfeti.src.utils import OrderedSet, Get_dofs, save_object, dict2dfmap, sysa
 from pyfeti import linalg
 from pyfeti import case_generator
 from pyfeti.src import feti_solver
-import time, logging
+import time, logging, json
 
 
 def create_case(width = 100, heigh=100, divX=100, divY=100, case_id=1,save_fig=False):
@@ -107,6 +107,45 @@ def create_case(width = 100, heigh=100, divX=100, divY=100, case_id=1,save_fig=F
 
     return K, fext, B_dict, s
 
+def create_salamon_job(directory=None, job_name='submit.sh',nnodes=1,queue='qexp',hours=1,minutes=00,**kwargs):
+    
+    if directory is None:
+        directory = os.getcwd()
+
+    commands = \
+    '''
+    # variables
+    scriptfile=test.sh
+    nnodes=%i
+    ncpus=24
+    queue=%s
+    hours=%i
+    min=%i
+
+    echo -------------------------------------------------
+    echo -----------  run PyFETI scalability -------------
+    echo -------------------------------------------------
+    echo author: Guilherme Jenovencio
+
+    echo creating a local script for scalability ...
+    echo script name = $scriptfile
+    echo cd $PWD>$scriptfile
+    echo ml Anaconda3>>$scriptfile
+    echo ml MPICH>>$scriptfile
+    echo bash run_mpi.sh>>$scriptfile
+    echo queue  selected  = $queue
+    echo nodes = $nnodes
+    echo CPU = $ncpus
+    echo Hours = $hours
+    echo minutes = $min
+    qsub -A  $project_id -q $queue -l select=$nnodes:ncpus=$ncpus,walltime=$hours:$min:00 $scriptfile
+    ''' %(nnodes,queue,hours,minutes)
+
+    job_path = os.path.join(directory, job_name)
+    with open(job_path,'w') as f:
+        f.write(commands)
+
+    return job_path
 
 def factorize_mpi(mpi_size):
     ''' Factorize mpi in the multiplication of
@@ -155,11 +194,11 @@ if __name__ == '__main__':
             H  : float value for the heigh in [mm] of the 2D plane-stress body. Default = 60
             divY : Number of division in the Y direction, Default = 24
             divX : Number of local division in the X direction, Default = 24
-            domainxX  : list of domains in the X direciton. Default = [1,2,3]
-            domainxY  : list of domains in the Y direciton. Default = [1,2,3]
-            method : Method to compute the local pseudoinverse, Default = svd (splusps also avaliable)
+            domainX  : list of domains in the X direciton. Default = [1,2,3]
+            domainY  : list of domains in the Y direciton. Default = [1,2,3]
+            method : Method to compute the local pseudoinverse, Default = splusps (splusps also avaliable)
             FETI_algorithm : Type of FETI algorithm SerialFETIsolver of ParallelFETIsolver,  Default = ParallelFETIsolver
-            tol : tolerance of PCPG error norm, Default = 1.0E-8
+            tol : tolerance of PCPG error norm, Default = 1.0E-5
             precond : Preconditioner type : Default - Identity (options: Lumped, Dirichlet, LumpedDirichlet, SuperLumped)
             square : create a square of retangular domains depended on the mpi, Default : False
             BC_type : type of Neumman B.C, Defult = RX, options {RX,G} RX is force in x at the right domains, G is gravity in Y
@@ -167,8 +206,10 @@ if __name__ == '__main__':
             loglevel : INFO, DEBUG, ERROR, WARNING, CRITICAL. Default = INFO
             launcher_only : Boolean variable to create scripts to without launch mpi : Default = False
             delete_files : Boolean variable to delete *.pkl files after mpirun : Default = True
+            salomon : {} dict with salomon paramenters e.g. {'queue':'qexp','ncpus' : 24, 'default_time':30, 'effectivity': 0.7}.  Default = {}
+                         'default_time' is given in minutes, an estimation of required HPC time will be computed based on it.
             example of command call:
-            > python  create_test_case.py max_mpi_size=10 divY=10 divX=10
+            > python  create_test_case.py W=60 H=60 domainX=[2,3] domainX=[1,1] 
 
             '''
 
@@ -176,10 +217,10 @@ if __name__ == '__main__':
                     'strong'  : True,
                     'FETI_algorithm' : 'ParallelFETIsolver',
                     'square' : True,
-                    'BC_type' : 'G',
+                    'BC_type' : 'RX',
                     'precond' : None,
-                    'tol' : 1.0E-8,
-                    'method' : 'svd',
+                    'tol' : 1.0E-5,
+                    'method' : 'splusps',
                     'domainX' : [1,2,3],
                     'domainY' : [1,2,3],
                     'divY' : 24,
@@ -187,9 +228,10 @@ if __name__ == '__main__':
                     'launcher_only' : False,
                     'delete_files' : True,
                     'W' : 60.0,
-                    'H' : 60.0}
+                    'H' : 60.0,
+                    'salomon' : {}}
 
-
+    salamon_defaut = {'queue':'qexp','default_time':30,'ncpus':24, 'effectivity': 0.5}
 
     header ='#'*50
     import sys
@@ -212,6 +254,15 @@ if __name__ == '__main__':
         # add default dict to local variables
         locals().update(default_dict)
 
+        if len(domainY)!=len(domainX):
+            logging.warning('DomainY list with different length of DomainX. Setting new DomainY')
+            domainY = [domainY[0]]*len(domainX)
+            logging.warning(('new DomainY = ',domainY))
+        
+        
+        max_mpi_size = (max(domainX)*max(domainY))
+        min_mpi_size = (min(domainX)*min(domainY))
+
         date_str = datetime.now().strftime('%Y_%m_%d_%H_%M_%S')
         scalability_folder = os.path.join(curdir,date_str)
         os.mkdir(scalability_folder)
@@ -219,8 +270,9 @@ if __name__ == '__main__':
         # change to scalability local folder
         os.chdir(scalability_folder)
 
+        LOG_FORMAT = "%(levelname)s : %(message)s"
         log_level = getattr(logging,loglevel)
-        logging.basicConfig(level=log_level ,filename='master_' + date_str  + '.log')
+        logging.basicConfig(level=log_level ,filename='master_' + date_str  + '.log', format=LOG_FORMAT)
         logging.info(header)
         logging.info('#####################    SCALABILITY TEST  #######################')
         logging.info(header)
@@ -240,11 +292,11 @@ if __name__ == '__main__':
         logging.info('Set pseudoinverse method  = %s' %method)
         logging.info('Set divX = %i' %divX)
         logging.info('Set divY = %i' %divY)
-        logging.info('Set max_mpi_size = %i' %(max(domainX)*max(domainY)))
-        logging.info('Set min_mpi_size = %i' %(min(domainX)*min(domainY)))
+        logging.info('Set max_mpi_size = %i' %max_mpi_size)
+        logging.info('Set min_mpi_size = %i' %min_mpi_size)
         
 
-    
+
         for domain_x,domain_y in zip(domainX,domainY):
             
             mpi_size = domain_x*domain_y
@@ -312,13 +364,14 @@ if __name__ == '__main__':
                 
                 start_time = time.time()
                 solution_obj = solver_obj.solve()
-                elapsed_time = time.time() - start_time
-                logging.info('{"Parallel Solver" : %f} #Elapsed time (s)' %elapsed_time)
+                
 
                 if not launcher_only:
+
+                    elapsed_time = time.time() - start_time
+                    logging.info('{"Parallel Solver" : %f} #Elapsed time (s)' %elapsed_time)
                     solution_obj.local_matrix_time
                     solution_obj.time_PCPG 
-
                     logging.info('{"Interface_size" : %i}' %len(solution_obj.interface_lambda))
                     logging.info('{"Primal_variable_size" : %i}' %len(solution_obj.displacement))
                     logging.info('{"Course_problem_size" : %i}' %len(solution_obj.alpha))
@@ -335,8 +388,44 @@ if __name__ == '__main__':
                     if delete_files:
                         os.system('rm -r ./ '+ str(mpi_size) + '/tmp/*.pkl')
                 else:
-                    with open(os.path.join(scalability_folder,'run_dir.log'),'a') as f:
-                        f.writelines(solver_obj.manager.temp_folder)
+                    elapsed_time = time.time() - start_time
+                    logging.info('{"Preprocessing_time" : %f} #Elapsed time (s)' %elapsed_time)
+                    
+                    simulation_folder = os.path.join(scalability_folder,solver_obj.manager.temp_folder)
+                    local_dict = {}
+                    local_dict['simulation_folder'] = simulation_folder
+                    local_dict['preprocessing_time[s]'] = elapsed_time
+                    local_dict['preprocessing_time[s]'] = elapsed_time
+                    local_dict['case_info'] = {'div_x':div_x,'div_y':div_y,'domain_x':domain_x, 
+                                               'domain_y':domain_y, 'Kshape' : K.shape,
+                                                'W' : W, 'H' : H, 'width' : w, 'heigh' : h }
+                    
+                    if salomon:
+
+                        salamon_defaut.update(salomon)
+                        ncpus = salamon_defaut['ncpus']
+                        default_time = salamon_defaut['default_time']
+                        effectivity = salamon_defaut['effectivity']
+
+                        # Heuristic estimation for Jobs
+                        time_reduction_factor = (min_mpi_size/mpi_size)/(effectivity)
+                        time_in_minute = np.ceil(default_time*time_reduction_factor)
+                        nnodes = int(mpi_size//ncpus) + int(bool(mpi_size%ncpus))
+
+                        salomon['nnodes'] = nnodes
+                        salomon['hours'] = int(time_in_minute//60)
+                        salomon['minutes'] =  int(time_in_minute%60)
+                        
+                        salamon_defaut.update(salomon)
+                        job_path = create_salamon_job(**salamon_defaut)
+                        local_dict['job_path'] = job_path
+
+
+                    case_dict = {}
+                    case_dict['case'] = {mpi_size : local_dict}
+
+                    with open(os.path.join(curdir, date_str + '.json'),'a') as f:
+                        json.dump(case_dict,f)
                         f.write('\n')
                         
             except:

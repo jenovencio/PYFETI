@@ -31,7 +31,7 @@ def create_case(number_of_div = 3, number_of_div_y=None, case_id=1,save_fig=Fals
     if number_of_div_y is None:
         number_of_div_y = number_of_div
 
-    creator_obj  = utils.DomainCreator(width=number_of_div,high=number_of_div_y,x_divisions=number_of_div,y_divisions=number_of_div_y)
+    creator_obj  = utils.DomainCreator(width=number_of_div,heigh=number_of_div_y,x_divisions=number_of_div,y_divisions=number_of_div_y)
     logging.info('Local Domain width [m] = %2.2f' %number_of_div)
     logging.info('Local Domain heigh [m] = %2.2f' %number_of_div_y)
     creator_obj.build_elements()
@@ -199,7 +199,6 @@ if __name__ == '__main__':
 
         # add default dict to local variables
         locals().update(default_dict)
-        strong = False
         
         if not mpi_list:
             mpi_list = list(range(min_mpi_size,max_mpi_size+1,mpi_step))

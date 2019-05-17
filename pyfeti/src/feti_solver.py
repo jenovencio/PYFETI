@@ -297,9 +297,7 @@ class SolverManager():
                                                          tolerance=tolerance,max_int=max_int,vdot=vdot)
 
         lambda_sol = lambda_im + lambda_ker
-        logging.debug(('lambda_im=',lambda_im))
-        logging.debug(('lambda_sol=',lambda_sol))
-
+        
         G = self.G
         GGT_inv = self.GGT_inv
         Fdot_lambda_ker = self.apply_F(lambda_ker, external_force=False,global_exchange=True)

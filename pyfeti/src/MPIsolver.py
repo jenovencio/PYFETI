@@ -94,10 +94,8 @@ class ParallelSolver(SolverManager):
                 self.local_lambda_length_dict.update(lambda_nei_dict)
                 self.local_alpha_length_dict.update(alpha_nei_dict)
                 self.local_primal_length_dict.update(primal_nei_dict)
-                
-        logging.debug(('lambda dict', self.local_lambda_length_dict))
-        logging.debug(('alpha dict', self.local_alpha_length_dict))
-        logging.debug(('primal dict',self.local_primal_length_dict))
+
+        return None
         
     def mpi_solver(self):
         ''' solve linear FETI problem with PCGP with partial reorthogonalization
@@ -107,6 +105,8 @@ class ParallelSolver(SolverManager):
 
         logging.info('Assembling  local G, GGT, and e')
         self.assemble_local_G_GGT_and_e()
+        build_local_matrix_time = time.time() - start_time
+        logging.info('{"elaspsed_time_local_matrix_preprocessing" : %2.2e} # Elapsed time [s]' %(build_local_matrix_time))
 
         
         G_dict = exchange_global_dict(self.course_problem.G_dict,self.obj_id,self.partitions_list)
@@ -116,41 +116,40 @@ class ParallelSolver(SolverManager):
         self.course_problem.e_dict = e_dict
         
         logging.info('Exchange global size')
+        t1 = time.time()
         self._exchange_global_size()
-        
+        logging.info('{"elaspsed_time_exchange_global_size" : %2.2e} # Elapsed time [s]' %(time.time() - t1))
 
+        t1 = time.time()
         self.assemble_cross_GGT()
-        
         self.GGT_dict = self.course_problem.GGT_dict
-        
         GGT_dict = exchange_global_dict(self.GGT_dict,self.obj_id,self.partitions_list)
-
-        
         self.course_problem.GGT_dict = GGT_dict
-        
+        logging.info('{"elaspsed_time_assemble_GGT" : %2.2e} # Elapsed time [s]' %(time.time() - t1))
+
+        t1 = time.time()
         self.build_local_to_global_mapping()
-        
-        build_local_matrix_time = time.time() - start_time
+        logging.info('{"elaspsed_time_build_global_map": %2.2e} # Elapsed time [s]' %(time.time() - t1))
 
         GGT = self.assemble_GGT()
-        logging.info('GGT size = %i' %GGT.shape[0])
-        logging.debug(('GGT = ', GGT))
         G = self.assemble_G()
         e = self.assemble_e()
-        
-        comm.Barrier()
 
-        start_time = time.time()
+        logging.info('{"primal_variable_size"} = %i' %self.primal_size)
+        logging.info('{"dual_variable_size"} = %i'  %self.lambda_size)
+        logging.info('{"coarse_variable_size"} = %i' %self.alpha_size)
+        
+        t1 = time.time()
         lambda_sol,alpha_sol, rk, proj_r_hist, lambda_hist = self.solve_dual_interface_problem()
-        elaspsed_time_PCPG = time.time() - start_time
-        logging.info('{"elaspsed_time_PCPG" : %2.4e} # Elapsed time' %elaspsed_time_PCPG)
+        elaspsed_time_PCPG = time.time() - t1
+        logging.info('{"elaspsed_time_PCPG" : %2.4e} # Elapsed time' %(elaspsed_time_PCPG))
 
-        comm.Barrier()
+        t1 = time.time()
         u_dict, lambda_dict, alpha_dict = self.assemble_solution_dict(lambda_sol,alpha_sol)
-        
+        logging.info('Time for assemble primal variavble solution = %2.2e [s]' %(time.time() - t1))
 
         # Serialization the results, Displacement and alpha
-        start_time = time.time()
+        t1 = time.time()
         # serializing displacement
         save_object(u_dict[self.obj_id],'displacement_' + str(self.obj_id) + '.pkl')
 
@@ -169,8 +168,8 @@ class ParallelSolver(SolverManager):
 
             save_object(sol_obj,'solution.pkl')
 
-        elapsed_time = time.time() - start_time
-        logging.info('{"serialization_time":%2.4e}' %elapsed_time)
+        logging.info('{"serialization_time":%2.4e}' %(time.time() - t1))
+        logging.info('{"Total_mpisolver_elaspsed_time":%2.4e}' %(time.time() - start_time))
         
     def assemble_local_G_GGT_and_e(self):
         problem_id = self.obj_id
@@ -305,8 +304,7 @@ class ParallelSolver(SolverManager):
         return  self.G.T.dot((GGT_inv).dot(self.e))
 
     def apply_F(self, v,  external_force=False, global_exchange=False):
-       
-        logging.debug(('global2local_lambda_dofs ', self.global2local_lambda_dofs))
+               
         v_dict = self.vector2localdict(v, self.global2local_lambda_dofs)
         gap_dict = self.solve_interface_gap(v_dict,external_force)
         
@@ -322,7 +320,6 @@ class ParallelSolver(SolverManager):
             except:
                 pass
 
-        comm.Barrier()
         return -d
 
     def apply_F_inv(self,v,global_exchange=False,**kwargs):
@@ -450,13 +447,16 @@ if __name__ == "__main__":
     size = comm.Get_size()
 
     obj_id = rank + 1
-    logging.basicConfig(level=logging.INFO,filename='domain_' + str(obj_id) + '.log', filemode='w')
-    
-    header ='###################################################################'
-    system_argument = sys.argv
 
+    #setting log file
+    LOG_FORMAT = "%(levelname)s : %(threadName)s : %(created)f : %(message)s"
+    logging.basicConfig(level=logging.INFO,filename='domain_' + str(obj_id) + '.log', filemode='w', format=LOG_FORMAT)
+    
+    
+    header ='#'*60
+    system_argument = sys.argv
     if  len(system_argument)>1:
-        mpi_kwargs = {}
+        mpi_kwargs = {}    
         for arg in system_argument:
             try:
                 var, value = arg.split('=')
@@ -465,10 +465,16 @@ if __name__ == "__main__":
                 except:
                     mpi_kwargs[var] = value
             except:
-                logging.debug('Commnad line argument noy understood, arg = %s cannot be splited in variable name + value' %arg)
+                logging.debug('Command line argument not understood, arg = %s cannot be splited in variable name + value' %arg)
                 pass
+        
+        looger = logging.getLogger()
+        if 'loglevel' in mpi_kwargs:
+            new_loglevel = getattr(logging,mpi_kwargs['loglevel'])
+            logging.info('Setting a new log level = %i ' %new_loglevel)
+            looger.setLevel(new_loglevel)
 
-
+        
         
         logging.info(header)
         logging.info('MPI rank %i' %rank)

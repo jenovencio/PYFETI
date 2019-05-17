@@ -115,10 +115,13 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
         k=0
         for k in range(max_int):
             
+            logging.info('#'*60)
+            logging.info('PCPG Iteration = %i!' %(k))
+
             proj_start = time.time()
             wk = P(rk)  # projection action
             proj_elapsed_time = time.time() - proj_start
-            logging.info('Time Duration  of Projection action = %4.2e (s), Iteration = %i!' %(proj_elapsed_time,k))
+            logging.info('{"elaspsed_time_projection" : %2.4e} # Elapsed time' %(proj_elapsed_time))
 
             # checking if precond will be applied, if not extra projection must be avoided
             if apply_precond:
@@ -138,7 +141,7 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
                 vn = vn1 
                 pk1 = yk
             beta_elapsed_time = time.time() - beta_start
-            logging.info('Time Duration  of beta computation = %4.2e (s), Iteration = %i!' %(beta_elapsed_time,k))
+            logging.info('{"elaspsed_time_beta" : %2.4e} # Elapsed time' %(beta_elapsed_time))
 
             if exact_norm:
                 norm_wk = norm_func(wk)
@@ -164,12 +167,12 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
             F_start = time.time()
             Fpk = F(pk)
             F_elapsed_time = time.time() - F_start
-            logging.info('Time Duration  of F action = %4.2e (s), Iteration = %i!' %(F_elapsed_time,k))
+            logging.info('{"elaspsed_time_F_action" : %2.4e} # Elapsed time' %(F_elapsed_time))
 
             alpha_start = time.time()
             alpha_k = alpha_calc(vn1,pk,Fpk,vdot)
             alpha_elapsed_time = time.time() - alpha_start
-            logging.info('Time Duration  of alpha computation = %4.2e (s), Iteration = %i!' %(alpha_elapsed_time,k))
+            logging.info('{"elaspsed_time_alpha" : %2.4e} # Elapsed time'  %(alpha_elapsed_time))
             
             lampda_pcpg = lampda_pcpg + alpha_k*pk
             
@@ -187,19 +190,19 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
                 callback(lampda_pcpg)
 
             elapsed_time = time.time() - proj_start
-            logging.info('#'*30)
-            logging.info('Iteration = %i : Time Duration %4.2e (s)!' %(k,elapsed_time))
+            
+            logging.info('{"elaspsed_time_PCPG_iteration" : %2.4e} # Elapsed time' %(elapsed_time))
 
         if (k>0) and k==(max_int-1):
             logging.warning('Maximum iteration was reached, MAX_INT = %i, without converging!' %(k+1))
             logging.warning('Projected norm = %2.5e , where the PCPG tolerance is set to %2.5e' %(norm_wk,tolerance))
 
         elapsed_time = time.time() - global_start_time
-        logging.info('#'*30)
-        logging.info('Total PCPG elapsed time = %2.2e (s)!' %(elapsed_time))
-        logging.info('Number of PCPG Iterations = %i (s)!' %(k+1))
-        logging.info('avg Time per iteration = %2.2e (s)!' %(elapsed_time/((k+1))))
-        logging.info('#'*30)
+        logging.info('#'*60)
+        logging.info('{"Total_elaspsed_time_PCPG" : %2.4e} # Elapsed time [s]' %(elapsed_time))
+        logging.info('Number of PCPG Iterations = %i !' %(k+1))
+        logging.info('{"avg_iteration_time_PCPG" : %2.4e} # Elapsed time [s]' %(elapsed_time/((k+1))))
+        logging.info('#'*60)
         
         return lampda_pcpg, rk, proj_r_hist, lambda_hist
 

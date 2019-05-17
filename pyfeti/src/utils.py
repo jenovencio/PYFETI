@@ -213,10 +213,21 @@ def sysargs2keydict(system_argument):
             var, value = arg.split('=')
             try:
                 sys_kwargs[var] = eval(value)
+                
             except:
-                sys_kwargs[var] = value
+                
+                if value[0]=='{' and value[-1]=='}':
+                    sys_kwargs[var] = {}
+                    print(value[1:-2])
+                    key_value_pairs = value[1:-2].split(',')
+
+                    for key_value_pair in key_value_pairs:
+                        key, val = key_value_pair.split(':')
+                        sys_kwargs[var] = {str(key) : val}
+                else:
+                    sys_kwargs[var] = value
         except:
-            print('Commnad line argument noy understood, arg = %s cannot be splited in variable name + value' %arg)
+            print('Commnad line argument not understood, arg = %s cannot be splited in variable name + value' %arg)
 
     return sys_kwargs
 

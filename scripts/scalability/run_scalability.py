@@ -253,7 +253,7 @@ if __name__ == '__main__':
 
         # add default dict to local variables
         locals().update(default_dict)
-
+        
         if len(domainY)!=len(domainX):
             logging.warning('DomainY list with different length of DomainX. Setting new DomainY')
             domainY = [domainY[0]]*len(domainX)
@@ -333,7 +333,7 @@ if __name__ == '__main__':
             logging.info('Local Domain heigh [mm] = %2.2f' %h)       
             K, f, B_dict, s = create_case(width = w, heigh=h, divX=div_x, divY=div_y , case_id=mpi_size, save_fig=True)
             ndof = K.shape[0]
-            case_obj = case_generator.FETIcase_builder(domain_x,domain_y, K, f, B_dict, s, BC_type=BC_type)
+            case_obj = case_generator.FETIcase_builder(domain_x,domain_y, K, f, B_dict, s, BC_type=BC_type, force_scaling=1.0e-5)
             K_dict, B_dict, f_dict = case_obj.build_subdomain_matrices()
             logging.info('# END AMFE log')    
             logging.info(header)

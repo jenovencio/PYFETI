@@ -46,6 +46,7 @@ class FETIcase_builder():
         self.domains_x = domains_x
         self.domains_y = domains_y
         self.BC_type = BC_type
+        self.force_scaling = 1.0
         self.__dict__.update(kwargs)
 
     def two2one_map(self,tuple_index):
@@ -142,7 +143,7 @@ class FETIcase_builder():
 
 
                 K_dict[global_id] = K
-                f_dict[global_id] = force
+                f_dict[global_id] = self.force_scaling*force
 
         return K_dict, B_dict, f_dict
 

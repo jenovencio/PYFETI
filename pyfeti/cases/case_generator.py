@@ -92,7 +92,7 @@ class FETIcase_builder():
             if nei_key in neighbors_list:
                 nei_array[list(set_values)] +=1
 
-        return np.diag(1.0/nei_array)
+        return sparse.diags(1.0/nei_array)
 
     def build_subdomain_matrices(self):
 

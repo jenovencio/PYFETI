@@ -146,7 +146,7 @@ class ParallelSolver(SolverManager):
 
         t1 = time.time()
         u_dict, lambda_dict, alpha_dict = self.assemble_solution_dict(lambda_sol,alpha_sol)
-        logging.info('Time for assemble primal variavble solution = %2.2e [s]' %(time.time() - t1))
+        logging.info('{"elaspsed_time_primal_assembly": %2.2e} # Elapsed time [s]' %(time.time() - t1))
 
         # Serialization the results, Displacement and alpha
         t1 = time.time()
@@ -168,8 +168,8 @@ class ParallelSolver(SolverManager):
 
             save_object(sol_obj,'solution.pkl')
 
-        logging.info('{"serialization_time":%2.4e}' %(time.time() - t1))
-        logging.info('{"Total_mpisolver_elaspsed_time":%2.4e}' %(time.time() - start_time))
+        logging.info('{"serialization_time":%2.4f}' %(time.time() - t1))
+        logging.info('{"Total_mpisolver_elaspsed_time":%2.4f}' %(time.time() - start_time))
         
     def assemble_local_G_GGT_and_e(self):
         problem_id = self.obj_id
@@ -449,7 +449,7 @@ if __name__ == "__main__":
     obj_id = rank + 1
 
     #setting log file
-    LOG_FORMAT = "%(levelname)s : %(threadName)s : %(created)f : %(message)s"
+    LOG_FORMAT = "%(levelname)s : %(message)s"
     logging.basicConfig(level=logging.INFO,filename='domain_' + str(obj_id) + '.log', filemode='w', format=LOG_FORMAT)
     
     

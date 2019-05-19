@@ -263,9 +263,6 @@ class  Test_FETIsolver(TestCase):
         K, f = solver_obj.manager.assemble_global_K_and_f()
         R = solver_obj.manager.assemble_global_kernel()
         e = solver_obj.manager.assemble_e()
-        G = solver_obj.manager.assemble_G()
-        GGT_inv = np.linalg.inv(G.dot(G.T))
-        P = np.eye(B.shape[0]) - (G.T.dot(GGT_inv)).dot(G)
         F_feti = solver_obj.manager.assemble_global_F()
 
         K_inv = np.linalg.pinv(K.A)

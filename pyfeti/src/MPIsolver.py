@@ -76,10 +76,6 @@ class ParallelSolver(SolverManager):
 
         logging.info('local length = %i' %self.local_problem.length)
         
-    @property
-    def GGT_inv(self):
-        return np.linalg.inv(self.GGT)
-
     def _exchange_global_size(self):
         local_id = self.obj_id
         for nei_id in self.local_problem.neighbors_id:

@@ -1035,13 +1035,19 @@ class CourseProblem():
             if course_method is None:
                 course_method = self.course_method
 
+            if self.GGT is None:
+                raise ValueError('GGT is None, but it must be a np.array!')
+
             if course_method == 'splu':
                 GGT = scipy.sparse.matrix.csr(self.GGT)
                 self.GGT_inv.dot = lambda x : scipy.sparse.linalg.splu(GGT).solve 
             elif course_method == 'inv':
+                if sparse.issparse(self.GGT):
+                    # convert to a dense matrix
+                    self.GGT = self.GGT.A 
                 self.GGT_inv = np.linalg.inv(self.GGT)
             else:
-                raise('G@G.T is not defined.')
+                raise ValueError('G@G.T is not defined.')
 
         return self.GGT_inv
     
@@ -1056,7 +1062,7 @@ class CourseProblem():
         return GGT_inv_columns
             
     def assemble_block_matrix(self,M_dict,row_map_dict,column_map_dict,shape):
-        M = np.zeros(shape)
+        M = sparse.lil_matrix(shape)
         for row_key, row_dofs in row_map_dict.items():
             for col_key, column_dofs in column_map_dict.items():
                 if isinstance(col_key,int):
@@ -1073,7 +1079,7 @@ class CourseProblem():
                 except:
                     continue
 
-        return M
+        return M.tocsc()
             
     def assemble_block_vector(self,v_dict,map_dict,length):
         v = np.zeros(length)

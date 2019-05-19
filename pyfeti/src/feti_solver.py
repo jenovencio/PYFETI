@@ -1012,7 +1012,7 @@ class CourseProblem():
         self.global2local_lambda_dofs = {}
         self.GGT = None
         self.GGT_inv = None
-        self.course_method = 'inv'
+        self.course_method = 'splu'
      
         if id is None:
             self.id = CourseProblem.counter
@@ -1039,8 +1039,11 @@ class CourseProblem():
                 raise ValueError('GGT is None, but it must be a np.array!')
 
             if course_method == 'splu':
-                GGT = scipy.sparse.matrix.csr(self.GGT)
-                self.GGT_inv.dot = lambda x : scipy.sparse.linalg.splu(GGT).solve 
+                if not sparse.issparse(self.GGT):
+                    self.GGT = scipy.sparse.csc_matrix(self.GGT)
+                GGT_inv  = scipy.sparse.linalg.splu(self.GGT)
+                self.GGT_inv = sparse.linalg.LinearOperator(shape=self.GGT.shape,matvec = lambda x : GGT_inv.solve(x)) 
+                
             elif course_method == 'inv':
                 if sparse.issparse(self.GGT):
                     # convert to a dense matrix

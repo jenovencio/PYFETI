@@ -312,14 +312,14 @@ class SolverManager():
             precond_type = self.precond_type
             if self.precond_type is not None:
                 Precondicioner_action = lambda gap_u : self.apply_F_inv(gap_u,precond_type=precond_type )
-                looging.info('Preconditioner type = %s' %precond_type)
+                logging.info('Preconditioner type = %s' %precond_type)
             else:
-                looging.info('Preconditioner type = Identity')
+                logging.info('Preconditioner type = Identity')
         except:
             pass
             
 
-        looging.info('Computing global residual')
+        logging.info('Computing global residual')
         t1 = time.time()
         residual = -self.apply_F(lambda_im, external_force=True,global_exchange=True)
         norm_d = np.linalg.norm(residual)

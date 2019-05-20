@@ -106,13 +106,13 @@ class ParallelSolver(SolverManager):
 
         logging.info('Exchange local G_dict and  local e_dict')
         t1 = time.time()
-        G_dict = exchange_global_dict(self.course_problem.G_dict,self.obj_id,self.partitions_list)
+        #G_dict = exchange_global_dict(self.course_problem.G_dict,self.obj_id,self.partitions_list)
         logging.info('{"elaspsed_time_exchange_G_dict" : %2.4f} # Elapsed time [s]' %(time.time() - t1))
         t1 = time.time()
         e_dict = exchange_global_dict(self.course_problem.e_dict,self.obj_id,self.partitions_list)
         logging.info('{"elaspsed_time_exchange_e_dict" : %2.4f} # Elapsed time [s]' %(time.time() - t1))
 
-        self.course_problem.G_dict = G_dict
+        #self.course_problem.G_dict = G_dict
         self.course_problem.e_dict = e_dict
 
         logging.info('Exchange global size')
@@ -132,7 +132,11 @@ class ParallelSolver(SolverManager):
         logging.info('{"elaspsed_time_build_global_map": %2.4f} # Elapsed time [s]' %(time.time() - t1))
 
         GGT = self.assemble_GGT()
-        G = self.assemble_G()
+        #G = self.assemble_G()
+        G = self.G = G = ParallelRetangularLinearOperator(self.course_problem.G_dict,
+        self.local2global_alpha_dofs,self.local2global_lambda_dofs,
+        shape=(self.alpha_size , self.lambda_size), neighbors_id = self.neighbors_id)
+
         e = self.assemble_e()
 
         logging.info('{"primal_variable_size"} = %i' %self.primal_size)
@@ -290,13 +294,15 @@ class ParallelSolver(SolverManager):
 
     def get_projection(self):
         # instantiating parallel retangular matrix operator to compute G.dot(v)
-        G = ParallelRetangularLinearOperator(self.course_problem.G_dict,
-        self.local2global_alpha_dofs,self.local2global_lambda_dofs,
-        shape=(self.alpha_size , self.lambda_size), neighbors_id = self.neighbors_id)
+        #G = ParallelRetangularLinearOperator(self.course_problem.G_dict,
+        #self.local2global_alpha_dofs,self.local2global_lambda_dofs,
+        #shape=(self.alpha_size , self.lambda_size), neighbors_id = self.neighbors_id)
+        G = self.G 
         GGT_inv = self.GGT_inv
 
         # G.T.dot(v) is performed locally, without mpi communication
-        GT = self.G.T
+        #GT = self.G.T
+        GT = G.T
         return lambda r : r - GT.dot(GGT_inv.dot(G.dot(r)))
 
     def compute_lambda_im(self):

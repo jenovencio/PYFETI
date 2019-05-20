@@ -716,8 +716,8 @@ class  Test_FETIsolver(TestCase):
 
 if __name__=='__main__':
 
-    #main()
-    test_obj = Test_FETIsolver()
+    main()
+    #test_obj = Test_FETIsolver()
     #test_obj.setUp()
     #test_obj.test_ParallelRetangularLinearOperator()
     #test_obj.test_serial_solver()
@@ -737,4 +737,4 @@ if __name__=='__main__':
     #test_obj.test_compare_serial_and_parallel_solver_slusps()
     #test_obj.test_compare_svd_splusps()
     #test_obj.test_total_FETI_approach()
-    test_obj.test_dict2array_method()
+    #test_obj.test_dict2array_method()

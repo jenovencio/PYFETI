@@ -102,30 +102,34 @@ class ParallelSolver(SolverManager):
         logging.info('Assembling  local G, GGT, and e')
         self.assemble_local_G_GGT_and_e()
         build_local_matrix_time = time.time() - start_time
-        logging.info('{"elaspsed_time_local_matrix_preprocessing" : %2.2e} # Elapsed time [s]' %(build_local_matrix_time))
+        logging.info('{"elaspsed_time_local_matrix_preprocessing" : %2.4f} # Elapsed time [s]' %(build_local_matrix_time))
 
-        
+        logging.info('Exchange local G_dict and  local e_dict')
+        t1 = time.time()
         G_dict = exchange_global_dict(self.course_problem.G_dict,self.obj_id,self.partitions_list)
+        logging.info('{"elaspsed_time_exchange_G_dict" : %2.4f} # Elapsed time [s]' %(time.time() - t1))
+        t1 = time.time()
         e_dict = exchange_global_dict(self.course_problem.e_dict,self.obj_id,self.partitions_list)
-        
+        logging.info('{"elaspsed_time_exchange_e_dict" : %2.4f} # Elapsed time [s]' %(time.time() - t1))
+
         self.course_problem.G_dict = G_dict
         self.course_problem.e_dict = e_dict
-        
+
         logging.info('Exchange global size')
         t1 = time.time()
         self._exchange_global_size()
-        logging.info('{"elaspsed_time_exchange_global_size" : %2.2e} # Elapsed time [s]' %(time.time() - t1))
+        logging.info('{"elaspsed_time_exchange_global_size" : %2.4f} # Elapsed time [s]' %(time.time() - t1))
 
         t1 = time.time()
         self.assemble_cross_GGT()
         self.GGT_dict = self.course_problem.GGT_dict
         GGT_dict = exchange_global_dict(self.GGT_dict,self.obj_id,self.partitions_list)
         self.course_problem.GGT_dict = GGT_dict
-        logging.info('{"elaspsed_time_assemble_GGT" : %2.2e} # Elapsed time [s]' %(time.time() - t1))
+        logging.info('{"elaspsed_time_assemble_GGT" : %2.4f} # Elapsed time [s]' %(time.time() - t1))
 
         t1 = time.time()
         self.build_local_to_global_mapping()
-        logging.info('{"elaspsed_time_build_global_map": %2.2e} # Elapsed time [s]' %(time.time() - t1))
+        logging.info('{"elaspsed_time_build_global_map": %2.4f} # Elapsed time [s]' %(time.time() - t1))
 
         GGT = self.assemble_GGT()
         G = self.assemble_G()
@@ -138,11 +142,11 @@ class ParallelSolver(SolverManager):
         t1 = time.time()
         lambda_sol,alpha_sol, rk, proj_r_hist, lambda_hist = self.solve_dual_interface_problem()
         elaspsed_time_PCPG = time.time() - t1
-        logging.info('{"elaspsed_time_PCPG" : %2.4e} # Elapsed time' %(elaspsed_time_PCPG))
+        logging.info('{"elaspsed_time_PCPG" : %2.4f} # Elapsed time' %(elaspsed_time_PCPG))
 
         t1 = time.time()
         u_dict, lambda_dict, alpha_dict = self.assemble_solution_dict(lambda_sol,alpha_sol)
-        logging.info('{"elaspsed_time_primal_assembly": %2.2e} # Elapsed time [s]' %(time.time() - t1))
+        logging.info('{"elaspsed_time_primal_assembly": %2.4f} # Elapsed time [s]' %(time.time() - t1))
 
         # Serialization the results, Displacement and alpha
         t1 = time.time()

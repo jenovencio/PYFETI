@@ -691,13 +691,33 @@ class  Test_FETIsolver(TestCase):
 
         #LO.dict2vec( v_dict= {} ,10 ,map_dict=local2global_alpha_dofs)
 
+    def test_dict2array_method(self):
+        print('Test dict2array method')
+        algorithm = SerialFETIsolver
+        case_id,nx,ny = 1,3,2
+        K_dict, B_dict, f_dict = create_FETI_case(case_id,nx,ny)
+        solver_obj = algorithm(K_dict,B_dict,f_dict,dual_interface_algorithm='PCPG',precond_type=None)
+        manager = solver_obj.manager 
+        manager.assemble_local_G_GGT_and_e()
+        manager.assemble_cross_GGT()
+        manager.build_local_to_global_mapping()
+
+        G_dict = manager.course_problem.G_dict
+
+        G_array, chunck_map = manager.dict2array(G_dict)
+
+        G_calc_dict = manager.array2dict(G_array,chunck_map)
+
+        for key, G in G_dict.items():
+            np.testing.assert_array_equal(G,G_calc_dict[key].A)
+
         
 
 
 if __name__=='__main__':
 
-    main()
-    #test_obj = Test_FETIsolver()
+    #main()
+    test_obj = Test_FETIsolver()
     #test_obj.setUp()
     #test_obj.test_ParallelRetangularLinearOperator()
     #test_obj.test_serial_solver()
@@ -717,3 +737,4 @@ if __name__=='__main__':
     #test_obj.test_compare_serial_and_parallel_solver_slusps()
     #test_obj.test_compare_svd_splusps()
     #test_obj.test_total_FETI_approach()
+    test_obj.test_dict2array_method()

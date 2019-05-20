@@ -64,6 +64,19 @@ def exchange_global_dict(local_dict,local_id,partitions_list):
 
     logging.debug('End exchange_global_dict')
     return local_dict
+
+def exchange_global_dict_of_arrays(local_dict,local_id,partitions_list):
+    
+    logging.debug('Init exchange_global_dict')
+    logging.debug(('local_dict =' ,local_dict))
+    for global_id in partitions_list:
+        if global_id!=local_id:
+            nei_dict =  exchange_info(local_dict,local_id,global_id)
+            if nei_dict:
+                local_dict.update(nei_dict)
+
+    logging.debug('End exchange_global_dict')
+    return local_dict
     
 def exchange_global_array(local_array,local_id,partitions_list=None):
     ''' This function receives an array and send it to all mpi ranks

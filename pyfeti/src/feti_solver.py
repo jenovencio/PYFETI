@@ -139,6 +139,51 @@ class SolverManager():
         
         self.local_problem_id_list.sort()
 
+    def dict2array(self,A_dict):
+        ''' This function transform a local dictionary 
+        into a scipy block matrix
+        and then provide the dict with chunks
+        Parameters:
+            A_dict : dict
+                local dictionary with array or sparse.matrix
+
+        return 
+            sparse matrix
+            dict with chunks
+        '''
+        chunck_dict = {} # [position, length]
+        A_list = []
+        count = 0
+        for key, A in A_dict.items():
+            length = A.shape[1]
+            chunck_dict[key] = [count,length]
+            count += length
+            if not sparse.issparse(A):
+                A = sparse.csc_matrix(A)
+            A_list.append(A)
+            
+        return sparse.hstack(A_list), chunck_dict
+
+    def array2dict(self,A,chunck_dict):
+        ''' inverse of dict2array , break a 2D sparse array
+        in dict 
+
+        Parameters
+            A : sparse matrix
+                horizontal sparse matrix
+            chunck_dict : dict
+                dict with position and lengh of local blocks
+            
+        return 
+            dict
+                dict with block sparse matrix
+        '''
+        A_dict = {}
+        for key,(pos,length) in chunck_dict.items():
+            A_dict[key] = A[:,pos:pos+length]
+        return A_dict        
+
+
     def assemble_local_G_GGT_and_e(self):
         
         for problem_id, local_problem in self.local_problem_dict.items():
@@ -274,9 +319,12 @@ class SolverManager():
             pass
             
 
+        looging.info('Computing global residual')
+        t1 = time.time()
         residual = -self.apply_F(lambda_im, external_force=True,global_exchange=True)
-        d = -self.apply_F(0.0*lambda_im, external_force=True,global_exchange=True)
-        norm_d = np.linalg.norm(d)
+        norm_d = np.linalg.norm(residual)
+        t1 = time.time()
+        logging.info('{"elaspsed_global_residual" : %2.2e} # Elapsed time [s]' %(time.time() - t1))
 
         logging.info('Dual Interface algorithm = %s' %algorithm)
         method_to_call = getattr(solvers, algorithm)

@@ -348,7 +348,7 @@ class SolverManager():
         
         G = self.G
         GGT_inv = self.GGT_inv
-        Fdot_lambda_ker = self.apply_F(lambda_ker, external_force=False,global_exchange=True)
+        Fdot_lambda_ker = self.apply_F(lambda_ker, external_force=False,global_exchange=False)
         alpha_sol = GGT_inv.dot(G.dot(residual - Fdot_lambda_ker))
 
         return lambda_sol,alpha_sol, rk, proj_r_hist, lambda_hist

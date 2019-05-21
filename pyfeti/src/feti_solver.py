@@ -321,8 +321,8 @@ class SolverManager():
 
         logging.info('Computing global residual')
         t1 = time.time()
-        residual = -self.apply_F(lambda_im, external_force=True,global_exchange=True)
-        norm_d = np.linalg.norm(residual)
+        residual = -self.apply_F(lambda_im, external_force=True,global_exchange=False)
+        norm_d = np.sqrt(vdot(residual,residual))
         t1 = time.time()
         logging.info('{"elaspsed_global_residual" : %2.2e} # Elapsed time [s]' %(time.time() - t1))
 
@@ -1088,8 +1088,8 @@ class CourseProblem():
 
             if course_method == 'splu':
                 if not sparse.issparse(self.GGT):
-                    self.GGT = scipy.sparse.csc_matrix(self.GGT)
-                GGT_inv  = scipy.sparse.linalg.splu(self.GGT)
+                    self.GGT = sparse.csc_matrix(self.GGT)
+                GGT_inv  = sparse.linalg.splu(self.GGT)
                 self.GGT_inv = sparse.linalg.LinearOperator(shape=self.GGT.shape,matvec = lambda x : GGT_inv.solve(x)) 
                 
             elif course_method == 'inv':

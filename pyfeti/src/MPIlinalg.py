@@ -120,7 +120,15 @@ def All2Allreduce(local_var):
             summation of all local variables
 
     '''
-    global_var = np.array(0.0, dtype=local_var.dtype)
+    try:
+        dtype = local_var.dtype
+    except AttributeError:
+        logging.warning('setting local dtype as np.float in ALL2ALLreduce')
+        dtype = np.float
+        local_var = np.array(local_var, dtype=dtype)
+        
+
+    global_var = np.array(0.0, dtype=dtype)
     # sending message to neighbors
     comm.Allreduce(local_var, global_var, op=MPI.SUM)
     return global_var
@@ -202,8 +210,9 @@ def pardot(v,w,local_id,neighbors_id,global2local_map,partitions_list=None):
         local_w = w_dict[key_pair]
 
         if type(local_w) is not np.ndarray:
-            logging.error('pardot method received a variable that is not a np.array!')
-            return None
+            msg = 'pardot method received a variable that is not a np.array!'
+            logging.error(msg)
+            raise ValueError(msg)
 
         # compute local dot product
         local_var += local_v.dot(local_w)

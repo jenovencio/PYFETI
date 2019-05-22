@@ -191,7 +191,8 @@ def pardot(v,w,local_id,neighbors_id,global2local_map,partitions_list=None):
             dot product of vector v and w
 
     '''
-
+    logging.info('starting pardot')
+    t1 = time.time()
     if partitions_list is None:
         size = comm.Get_size()
         partitions_list = list(range(1,size+1))
@@ -217,9 +218,12 @@ def pardot(v,w,local_id,neighbors_id,global2local_map,partitions_list=None):
         # compute local dot product
         local_var += local_v.dot(local_w)
         
-
+    t2 = time.time()
+    logging.info('elaspsed_time_local_pardot %2.4f' %(t2 - t1))
     # global Reduce 
+
     v_dot_w = All2Allreduce(local_var)
+    logging.info('elaspsed_time_All2Allrecude %2.4f' %(time.time() - t2))
     
     return 0.5*v_dot_w
 

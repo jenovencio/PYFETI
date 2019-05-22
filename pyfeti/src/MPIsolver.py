@@ -131,13 +131,19 @@ class ParallelSolver(SolverManager):
         self.build_local_to_global_mapping()
         logging.info('{"elaspsed_time_build_global_map": %2.4f} # Elapsed time [s]' %(time.time() - t1))
 
+        t1 = time.time()
         GGT = self.assemble_GGT()
-        #G = self.assemble_G()
+        logging.info('{"elaspsed_time_assemble_GGT": %2.4f} # Elapsed time [s]' %(time.time() - t1))
+
+        t1 = time.time()
         G = self.G = G = ParallelRetangularLinearOperator(self.course_problem.G_dict,
         self.local2global_alpha_dofs,self.local2global_lambda_dofs,
         shape=(self.alpha_size , self.lambda_size), neighbors_id = self.neighbors_id)
+        logging.info('{"elaspsed_time_parallel_G_operator": %2.4f} # Elapsed time [s]' %(time.time() - t1))
 
+        t1 = time.time()
         e = self.assemble_e()
+        logging.info('{"elaspsed_time_assemble_e": %2.4f} # Elapsed time [s]' %(time.time() - t1))
 
         logging.info('{"primal_variable_size"} = %i' %self.primal_size)
         logging.info('{"dual_variable_size"} = %i'  %self.lambda_size)

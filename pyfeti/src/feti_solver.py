@@ -183,7 +183,6 @@ class SolverManager():
             A_dict[key] = A[:,pos:pos+length]
         return A_dict        
 
-
     def assemble_local_G_GGT_and_e(self):
         
         for problem_id, local_problem in self.local_problem_dict.items():
@@ -302,7 +301,11 @@ class SolverManager():
         if algorithm is None:
             algorithm = self.dual_interface_algorithm
 
+        logging.info('Solving lambda image')
+        t1 = time.time()
         lambda_im = self.compute_lambda_im()
+        logging.info('elapsed_time_lambda_im = %2.4f' %(time.time() - t1) )
+
         Projection_action = self.get_projection()
         F_action = lambda lambda_ker : self.apply_F(lambda_ker)
         vdot = self.get_vdot()
@@ -1078,6 +1081,7 @@ class CourseProblem():
         self.GGT_dict.update(local_GGT_dict)
     
     def compute_GGT_inv(self,course_method=None,**kwargs):
+
 
         if self.GGT_inv is None:
             if course_method is None:

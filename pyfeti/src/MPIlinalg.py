@@ -191,39 +191,13 @@ def pardot(v,w,local_id,neighbors_id,global2local_map,partitions_list=None):
             dot product of vector v and w
 
     '''
-    logging.info('starting pardot')
     t1 = time.time()
-    if partitions_list is None:
-        size = comm.Get_size()
-        partitions_list = list(range(1,size+1))
-
-    partial_norm_dict = {}
-    v_dict = vector2localdict(v, global2local_map)
-    w_dict = vector2localdict(w, global2local_map)
-    local_var = 0.0
-    for nei_id in neighbors_id:
-        if nei_id>local_id:
-            key_pair = (local_id,nei_id)
-        else:
-            key_pair = (nei_id,local_id)
-
-        local_v = v_dict[key_pair]
-        local_w = w_dict[key_pair]
-
-        if type(local_w) is not np.ndarray:
-            msg = 'pardot method received a variable that is not a np.array!'
-            logging.error(msg)
-            raise ValueError(msg)
-
-        # compute local dot product
-        local_var += local_v.dot(local_w)
-        
-    t2 = time.time()
-    logging.info('elaspsed_time_local_pardot %2.4f' %(t2 - t1))
+    logging.info('starting pardot')
+    local_var = np.dot(v,w)
     # global Reduce 
 
     v_dot_w = All2Allreduce(local_var)
-    logging.info('elaspsed_time_All2Allrecude %2.4f' %(time.time() - t2))
+    logging.info('elaspsed_time_All2Allrecude %2.4f' %(time.time() - t1))
     
     return 0.5*v_dot_w
 

@@ -125,7 +125,7 @@ class ParallelSolver(SolverManager):
         self.GGT_dict = self.course_problem.GGT_dict
         GGT_dict = exchange_global_dict(self.GGT_dict,self.obj_id,self.partitions_list)
         self.course_problem.GGT_dict = GGT_dict
-        logging.info('{"elaspsed_time_assemble_GGT" : %2.4f} # Elapsed time [s]' %(time.time() - t1))
+        logging.info('{"elaspsed_time_assemble_GGT_dict" : %2.4f} # Elapsed time [s]' %(time.time() - t1))
 
         t1 = time.time()
         self.build_local_to_global_mapping()
@@ -143,6 +143,7 @@ class ParallelSolver(SolverManager):
 
         t1 = time.time()
         e = self.assemble_e()
+
         logging.info('{"elaspsed_time_assemble_e": %2.4f} # Elapsed time [s]' %(time.time() - t1))
 
         logging.info('{"primal_variable_size"} = %i' %self.primal_size)

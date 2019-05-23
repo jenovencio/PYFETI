@@ -55,7 +55,6 @@ def exchange_info(local_var,sub_id,nei_id,tag_id=15,isnumpy=False):
 def exchange_global_dict(local_dict,local_id,partitions_list):
     
     list_of_dicts = comm.allgather(local_dict)
-    logging.info(list_of_dicts)
     
     global_dict = {}
     for item in list_of_dicts:
@@ -198,7 +197,7 @@ def pardot(v,w,local_id,neighbors_id,global2local_map,partitions_list=None):
     # global Reduce 
 
     v_dot_w = All2Allreduce(local_var)
-    logging.info('elaspsed_time_All2Allrecude %2.4f' %(time.time() - t1))
+    logging.info('elaspsed_time_All2Allreduce %2.4f' %(time.time() - t1))
     
     return 0.5*v_dot_w
 

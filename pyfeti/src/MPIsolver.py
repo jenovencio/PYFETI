@@ -282,13 +282,6 @@ class ParallelSolver(SolverManager):
         self.alpha_size = dof_alpha_init
         self.primal_size = dof_primal_init
        
-    def assemble_GGT(self):
-        try:
-            self.GGT = self.course_problem.assemble_GGT(self.local2global_alpha_dofs,(self.alpha_size ,self.alpha_size))
-            return self.GGT
-        except:
-            raise('Build local to global mapping before calling this function')
-    
     def assemble_G(self):
         try:
             self.G = self.course_problem.assemble_G(self.local2global_alpha_dofs,self.local2global_lambda_dofs,(self.alpha_size ,self.lambda_size))

@@ -1130,7 +1130,7 @@ class CourseProblem():
                         l_key.remove(row_key)
                         column_key = l_key[0]
                 try:        
-                    M[np.ix_(row_dofs,column_dofs)] += M_dict[row_key,column_key]
+                    M[np.ix_(row_dofs,column_dofs)] = M_dict[row_key,column_key]
                 except:
                     continue
 

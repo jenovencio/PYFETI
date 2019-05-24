@@ -81,18 +81,18 @@ class MPILauncher():
     def linux_laucher(self):
         os_script_name= 'run_mpi.sh'
         header_string = '#!/bin/sh'
-        mpi_command = self.create_command_string(mpi_args='')
+        mpi_command = self.create_command_string(mpi_args='-bind-to core:overload-allowed')
         local_folder = self.create_laucher_files(os_script_name,mpi_command,header_string)
         return local_folder, os_script_name
 
     def windows_laucher(self):
         os_script_name = 'run_mpi.bat'
         header_string = 'rem Windows bat file'
-        mpi_command = self.create_command_string(mpi_args='-l')
+        mpi_command = self.create_command_string(mpi_args='-l -bind-to core:overload-allowed')
         local_folder = self.create_laucher_files(os_script_name,mpi_command,header_string)
         return local_folder, os_script_name
 
-    def create_command_string(self,mpi_args='-bind-to core'):
+    def create_command_string(self,mpi_args=''):
         ''' Create the command line to call mpi
             Parameters:
             --------

@@ -353,11 +353,14 @@ if __name__ == '__main__':
             logging.info('{"Dual interface tolerance" : %2.2e}' %tol)
 
             try:
+                bind_to_core = False
+                if salomon:
+                    bind_to_core = True
                 FETIsolver = getattr(feti_solver, FETI_algorithm)
                 solver_obj = FETIsolver(K_dict,B_dict,f_dict,temp_folder=script_folder,
                                                 pseudoinverse_kargs=pseudoinverse_kargs,
                                                 dual_interface_algorithm=dual_interface_algorithm,tolerance=tol,
-                                                precond_type=precond,launcher_only=True)
+                                                precond_type=precond,launcher_only=True,bind_to_core=bind_to_core)
 
                 
                 start_time = time.time()

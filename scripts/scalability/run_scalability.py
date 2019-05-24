@@ -402,7 +402,7 @@ if __name__ == '__main__':
                     if salomon_defaut['queue'] is None:
                         if nnodes<=8 and (salomon_defaut['hours']*60 + salomon['minutes'])<=60:
                             salomon_defaut['queue']='qexp'
-                        elif nnodes<86:
+                        elif nnodes<=86:
                             salomon_defaut['queue']='qprod'
                         else:
                             salomon_defaut['queue']='qmpp'

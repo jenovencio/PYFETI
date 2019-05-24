@@ -8,7 +8,7 @@ from pyfeti.src.utils import OrderedSet, Get_dofs, save_object, dict2dfmap, sysa
 from pyfeti import linalg
 from pyfeti import case_generator
 from pyfeti.src import feti_solver
-import time, logging, json
+import time, logging, json, subprocess
 
 
 def create_case(width = 100, heigh=100, divX=100, divY=100, case_id=1,save_fig=False):
@@ -231,7 +231,7 @@ if __name__ == '__main__':
                     'H' : 60.0,
                     'salomon' : {}}
 
-    salamon_defaut = {'queue':'qexp','default_time':30,'ncpus':24, 'effectivity': 0.5}
+    salomon_defaut = {'queue': None,'default_time':30,'ncpus':24, 'effectivity': 0.5}
 
     header ='#'*50
     import sys
@@ -242,7 +242,6 @@ if __name__ == '__main__':
         print(help_doc)
         exit(0)
     else:
-
         import amfe
 
         # transform system arguments in python dict
@@ -258,7 +257,6 @@ if __name__ == '__main__':
             logging.warning('DomainY list with different length of DomainX. Setting new DomainY')
             domainY = [domainY[0]]*len(domainX)
             logging.warning(('new DomainY = ',domainY))
-        
         
         max_mpi_size = (max(domainX)*max(domainY))
         min_mpi_size = (min(domainX)*min(domainY))
@@ -296,7 +294,7 @@ if __name__ == '__main__':
         logging.info('Set min_mpi_size = %i' %min_mpi_size)
         
 
-
+        case_dict = {}
         for domain_x,domain_y in zip(domainX,domainY):
             
             mpi_size = domain_x*domain_y
@@ -359,75 +357,95 @@ if __name__ == '__main__':
                 solver_obj = FETIsolver(K_dict,B_dict,f_dict,temp_folder=script_folder,
                                                 pseudoinverse_kargs=pseudoinverse_kargs,
                                                 dual_interface_algorithm=dual_interface_algorithm,tolerance=tol,
-                                                precond_type=precond,launcher_only=launcher_only)
+                                                precond_type=precond,launcher_only=True)
 
                 
                 start_time = time.time()
                 solution_obj = solver_obj.solve()
-                
-
-                if not launcher_only:
-
-                    elapsed_time = time.time() - start_time
-                    logging.info('{"Parallel Solver" : %f} #Elapsed time (s)' %elapsed_time)
-                    solution_obj.local_matrix_time
-                    solution_obj.time_PCPG 
-                    logging.info('{"Interface_size" : %i}' %len(solution_obj.interface_lambda))
-                    logging.info('{"Primal_variable_size" : %i}' %len(solution_obj.displacement))
-                    logging.info('{"Course_problem_size" : %i}' %len(solution_obj.alpha))
-                    logging.info('{"PCPG_iterations" : %i}' %solution_obj.PCGP_iterations)
-                    logging.info('{"PCPG_residual" : %6.4e}' %solution_obj.projected_residual)
-                    logging.info('{"Global_FETI_solver" : %f} #Elapsed time (s)' %solution_obj.solver_time)
-                    logging.info('{"Local_matrix_preprocessing" : %f} #Elapsed time (s)' %solution_obj.local_matrix_time)
-                    logging.info('{"PCPG" : %f} #Elapsed time (s)' %solution_obj.time_PCPG)
-                    logging.info('Date - Time = ' + datetime.now().strftime('%Y-%m-%d - %H:%M:%S'))
-                    logging.info(header)
-                    logging.info('END OF MPI size : %i' %mpi_size)
-                    logging.info(header)
-                    logging.info('\n\n\n')
-                    if delete_files:
-                        os.system('rm -r ./ '+ str(mpi_size) + '/tmp/*.pkl')
-                else:
-                    elapsed_time = time.time() - start_time
-                    logging.info('{"Preprocessing_time" : %f} #Elapsed time (s)' %elapsed_time)
-                    
-                    simulation_folder = os.path.join(scalability_folder,solver_obj.manager.temp_folder)
-                    local_dict = {}
-                    local_dict['simulation_folder'] = simulation_folder
-                    local_dict['preprocessing_time[s]'] = elapsed_time
-                    local_dict['preprocessing_time[s]'] = elapsed_time
-                    local_dict['case_info'] = {'div_x':div_x,'div_y':div_y,'domain_x':domain_x, 
+                elapsed_time = time.time() - start_time
+                logging.info('{"Preprocessing_time" : %f} #Elapsed time (s)' %elapsed_time)
+                simulation_folder = os.path.join(scalability_folder,solver_obj.manager.temp_folder)
+                local_dict = {}
+                local_dict['simulation_folder'] = simulation_folder
+                local_dict['preprocessing_time[s]'] = elapsed_time
+                local_dict['case_info'] = {'div_x':div_x,'div_y':div_y,'domain_x':domain_x, 
                                                'domain_y':domain_y, 'Kshape' : K.shape,
                                                 'W' : W, 'H' : H, 'width' : w, 'heigh' : h }
+
+
+                if salomon:
+                    salomon_defaut.update(salomon)
+                    ncpus = salomon_defaut['ncpus']
+                    default_time = salomon_defaut['default_time']
+                    effectivity = salomon_defaut['effectivity']
+
+                    # Heuristic estimation for Jobs
+                    if min_mpi_size!=mpi_size:
+                        if strong:
+                            time_reduction_factor = (min_mpi_size/mpi_size)/(effectivity)
+                        else:
+                            time_reduction_factor = 1.0/effectivity
+                    else:
+                        time_reduction_factor = 1.0
+
+                    time_in_minute = np.ceil(default_time*time_reduction_factor)
+                    nnodes = int(mpi_size//ncpus) + int(bool(mpi_size%ncpus))
+
+                    salomon['nnodes'] = nnodes
+                    salomon['hours'] = int(time_in_minute//60)
+                    salomon['minutes'] =  int(time_in_minute%60)
                     
-                    if salomon:
+                    salomon_defaut.update(salomon)
+                    if salomon_defaut['queue'] is None:
+                        if nnodes<=8 and (salomon_defaut['hours']*60 + salomon['minutes'])<=60:
+                            salomon_defaut['queue']='qexp'
+                        elif nnodes<86:
+                            salomon_defaut['queue']='qprod'
+                        else:
+                            salomon_defaut['queue']='qmpp'
 
-                        salamon_defaut.update(salomon)
-                        ncpus = salamon_defaut['ncpus']
-                        default_time = salamon_defaut['default_time']
-                        effectivity = salamon_defaut['effectivity']
+                    job_path = create_salamon_job(**salomon_defaut)
+                    local_dict['job_path'] = job_path
+                    
+                    if not launcher_only:
+                        # calling salamon job
+                        os.chmod(job_path, 0o777)
+                        subprocess.call(job_path,shell=True)
 
-                        # Heuristic estimation for Jobs
-                        time_reduction_factor = (min_mpi_size/mpi_size)/(effectivity)
-                        time_in_minute = np.ceil(default_time*time_reduction_factor)
-                        nnodes = int(mpi_size//ncpus) + int(bool(mpi_size%ncpus))
+                else:
+                    if not launcher_only:
 
-                        salomon['nnodes'] = nnodes
-                        salomon['hours'] = int(time_in_minute//60)
-                        salomon['minutes'] =  int(time_in_minute%60)
-                        
-                        salamon_defaut.update(salomon)
-                        job_path = create_salamon_job(**salamon_defaut)
-                        local_dict['job_path'] = job_path
+                        start_time = time.time() 
+                        solver_obj.manager.mpi_obj.run()
+                        solution_obj = solver_obj.manager.read_results()
+                        elapsed_time = time.time() - start_time
+                        solution_obj.local_matrix_time
+                        solution_obj.time_PCPG 
+                        logging.info('{"Interface_size" : %i}' %len(solution_obj.interface_lambda))
+                        logging.info('{"Primal_variable_size" : %i}' %len(solution_obj.displacement))
+                        logging.info('{"Course_problem_size" : %i}' %len(solution_obj.alpha))
+                        logging.info('{"PCPG_iterations" : %i}' %solution_obj.PCGP_iterations)
+                        logging.info('{"PCPG_residual" : %6.4e}' %solution_obj.projected_residual)
+                        logging.info('{"Global_FETI_solver" : %f} #Elapsed time (s)' %solution_obj.solver_time)
+                        logging.info('{"Local_matrix_preprocessing" : %f} #Elapsed time (s)' %solution_obj.local_matrix_time)
+                        logging.info('{"PCPG" : %f} #Elapsed time (s)' %solution_obj.time_PCPG)
+                        logging.info('Date - Time = ' + datetime.now().strftime('%Y-%m-%d - %H:%M:%S'))
+                        logging.info(header)
+                        logging.info('END OF MPI size : %i' %mpi_size)
+                        logging.info('{"Parallel Solver" : %f} #Elapsed time (s)' %elapsed_time)
+                        logging.info(header)
+                        logging.info('\n\n\n')
+                        if delete_files:
+                            os.system('rm -r ./ '+ str(mpi_size) + '/tmp/loc*.pkl')
 
+                    else:
+                        pass
 
-                    case_dict = {}
-                    case_dict['case'] = {mpi_size : local_dict}
-
-                    with open(os.path.join(curdir, date_str + '.json'),'a') as f:
-                        json.dump(case_dict,f)
-                        f.write('\n')
-                        
+                case_dict['case'] = {mpi_size : local_dict}
+                with open(os.path.join(curdir, date_str + '.json'),'a') as f:
+                    json.dump(case_dict,f)
+                    f.write('\n')
+                    
             except:
                 logging.error('Parallel solver Error!')
 

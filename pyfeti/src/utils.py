@@ -92,7 +92,7 @@ class MPILauncher():
         local_folder = self.create_laucher_files(os_script_name,mpi_command,header_string)
         return local_folder, os_script_name
 
-    def create_command_string(self,mpi_args=''):
+    def create_command_string(self,mpi_args='-bind-to core'):
         ''' Create the command line to call mpi
             Parameters:
             --------

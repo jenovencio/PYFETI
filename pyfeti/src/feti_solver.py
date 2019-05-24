@@ -656,6 +656,7 @@ class ParallelSolverManager(SolverManager):
         self.ext = '.pkl'
         self.log = True
         self.launcher_only = False
+        self.mpi_obj = None
         super().__init__(K_dict,B_dict,f_dict,pseudoinverse_kargs=pseudoinverse_kargs,**kwargs)
         
     def _create_local_problems(self,K_dict,B_dict,f_dict,temp_folder=None):
@@ -696,7 +697,7 @@ class ParallelSolverManager(SolverManager):
 
         start_time = time.time()
         
-        mpi_obj = MPILauncher(python_file,
+        self.mpi_obj = MPILauncher(python_file,
                               mpi_size=self.num_partitions,
                               module = 'MPIsolver',
                               method = 'launch_ParallelSolver',
@@ -711,31 +712,42 @@ class ParallelSolverManager(SolverManager):
         start_time = time.time()
         localtime = time.asctime( time.localtime(time.time()) )
         logging.info('Local Time before mpi run: %s' %localtime)
-        mpi_obj.create_laucher()
+        self.mpi_obj.create_laucher()
         if not self.launcher_only:
-            mpi_obj.run()
-        elapsed_time = time.time() - start_time
-        logging.info('{"mpi_run" : %f} #Elapsed time (s)' %elapsed_time)
-        localtime = time.asctime( time.localtime(time.time()))
-        logging.info('Local Time after mpi run: %s' %localtime)
+            self.mpi_obj.run()
+            elapsed_time = time.time() - start_time
+            logging.info('{"mpi_run" : %f} #Elapsed time (s)' %elapsed_time)
+            localtime = time.asctime( time.localtime(time.time()))
+            logging.info('Local Time after mpi run: %s' %localtime)
 
     def read_results(self):
-        if not self.launcher_only:
+        try:
             logging.info('Reading results from MPISolver')
             start_time = time.time()
             solution_path = os.path.join(self.temp_folder,'solution.pkl')
             u_dict = {}
             alpha_dict = {}
+            read_solution = True
             for i in range(1,self.num_partitions+1):
-                try:
-                    displacement_path = os.path.join(self.temp_folder,'displacement_' + str(i) + '.pkl')
-                    alpha_path = os.path.join(self.temp_folder,'alpha_' + str(i) + '.pkl')                
-                    u_dict[i] =  load_object(displacement_path)
-                    alpha_dict[i] =  load_object(alpha_path,tries=1,sleep_delay=0)
-                except:
-                    pass
+                displacement_path = os.path.join(self.temp_folder,'displacement_' + str(i) + '.pkl')
+                u_dict[i] =  load_object(displacement_path,tries=1,sleep_delay=0)
+                if u_dict[i] is None:    
+                    read_solution = False
+                    raise ValueError('No results!')
+                else:
+                    os.remove(displacement_path)
                 
-                
+                alpha_path = os.path.join(self.temp_folder,'alpha_' + str(i) + '.pkl')                
+                alpha_dict[i] =  load_object(alpha_path,tries=1,sleep_delay=0)
+                if alpha_dict[i] is None:
+                    continue
+                else:
+                    os.remove(alpha_path)
+
+        except:
+            read_solution = False                        
+
+        if read_solution:
             sol_obj = load_object(solution_path)
             sol_obj.u_dict = u_dict
             sol_obj.alpha_dict = alpha_dict
@@ -758,7 +770,6 @@ class ParallelFETIsolver(FETIsolver):
         self.delete_folder = delete_folder
 
     def solve(self):
-        logging.info('')
         manager = self.manager        
         manager.launch_mpi_process()
         sol_obj = manager.read_results()

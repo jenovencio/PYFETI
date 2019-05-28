@@ -151,7 +151,7 @@ class ParallelSolver(SolverManager):
         logging.info('{"coarse_variable_size"} = %i' %self.alpha_size)
         
         t1 = time.time()
-        lambda_sol,alpha_sol, rk, proj_r_hist, lambda_hist = self.solve_dual_interface_problem()
+        lambda_sol,alpha_sol, rk, proj_r_hist, lambda_hist, info_dict = self.solve_dual_interface_problem()
         elaspsed_time_PCPG = time.time() - t1
         logging.info('{"elaspsed_time_PCPG" : %2.4f} # Elapsed time' %(elaspsed_time_PCPG))
 
@@ -175,7 +175,8 @@ class ParallelSolver(SolverManager):
             sol_obj = Solution({}, lambda_dict, {}, rk, proj_r_hist, lambda_hist, lambda_map=self.local2global_lambda_dofs,
                                 alpha_map=self.local2global_alpha_dofs, u_map=self.local2global_primal_dofs,lambda_size=self.lambda_size,
                                 alpha_size=self.alpha_size,solver_time=elapsed_time,
-                                local_matrix_time = build_local_matrix_time, time_PCPG = elaspsed_time_PCPG)
+                                local_matrix_time = build_local_matrix_time, time_PCPG = elaspsed_time_PCPG, tolerance = self.tolerance,
+                                precond = self.precond_type, info_dict = info_dict)
 
             save_object(sol_obj,'solution.pkl')
 

@@ -105,6 +105,7 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
         logging.info('Setting PCPG max number of iterations = %i' %max_int)
 
         # initialize variables
+        info_dict = {}
         global_start_time = time.time()
         beta = 0.0
         yk1 = np.zeros(interface_size)
@@ -117,19 +118,22 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
             
             logging.info('#'*60)
             logging.info('PCPG Iteration = %i' %(k))
+            info_dict[k] = {}
 
             proj_start = time.time()
             wk = P(rk)  # projection action
             proj_elapsed_time = time.time() - proj_start
             logging.info('{"elaspsed_time_projection" : %2.4f} # Elapsed time' %(proj_elapsed_time))
-
+            info_dict[k]["elaspsed_time_projection"] = proj_elapsed_time
             # checking if precond will be applied, if not extra projection must be avoided
+            t1 = time.time()
             if apply_precond:
                 zk = Precond(wk)
                 yk = P(zk)
             else:
                 zk = wk
                 yk = zk
+            info_dict[k]["elaspsed_time_precond"] = time.time() - t1
             
             beta_start = time.time()
             if k>1:
@@ -142,6 +146,7 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
                 pk1 = yk
             beta_elapsed_time = time.time() - beta_start
             logging.info('{"elaspsed_time_beta" : %2.4f} # Elapsed time' %(beta_elapsed_time))
+            info_dict[k]["elaspsed_time_beta"] = beta_elapsed_time
 
             if exact_norm:
                 norm_wk = norm_func(wk)
@@ -168,12 +173,14 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
             Fpk = F(pk)
             F_elapsed_time = time.time() - F_start
             logging.info('{"elaspsed_time_F_action" : %2.4f} # Elapsed time' %(F_elapsed_time))
+            info_dict[k]["elaspsed_time_F_action"] = F_elapsed_time
 
             alpha_start = time.time()
             alpha_k = alpha_calc(vn1,pk,Fpk,vdot)
             alpha_elapsed_time = time.time() - alpha_start
             logging.info('{"elaspsed_time_alpha" : %2.4f} # Elapsed time'  %(alpha_elapsed_time))
-            
+            info_dict[k]["elaspsed_time_alpha"] = alpha_elapsed_time
+
             lampda_pcpg = lampda_pcpg + alpha_k*pk
             
             if save_lambda:
@@ -192,6 +199,7 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
             elapsed_time = time.time() - proj_start
             
             logging.info('{"elaspsed_time_PCPG_iteration" : %2.2f} # Elapsed time' %(elapsed_time))
+            info_dict[k]["elaspsed_time_iteration"] = elapsed_time
 
         if (k>0) and k==(max_int-1):
             logging.warning('Maximum iteration was reached, MAX_INT = %i, without converging!' %(k+1))
@@ -201,10 +209,14 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
         logging.info('#'*60)
         logging.info('{"Total_elaspsed_time_PCPG" : %2.2f} # Elapsed time [s]' %(elapsed_time))
         logging.info('Number of PCPG Iterations = %i !' %(k+1))
-        logging.info('{"avg_iteration_time_PCPG" : %2.4f} # Elapsed time [s]' %(elapsed_time/((k+1))))
+        avg_iteration_time = elapsed_time/(k+1)
+        logging.info('{"avg_iteration_time_PCPG" : %2.4f} # Elapsed time [s]' %(avg_iteration_time))
         logging.info('#'*60)
-        
-        return lampda_pcpg, rk, proj_r_hist, lambda_hist
+
+        info_dict['avg_iteration_time'] = elapsed_time/(k+1)
+        info_dict['Total_elaspsed_time_PCPG'] = elapsed_time
+        info_dict['PCPG_iterations'] = k+1
+        return lampda_pcpg, rk, proj_r_hist, lambda_hist, info_dict
 
 
 def alpha_calc(vn1,pk,Fpk,vdot=None):

@@ -78,7 +78,7 @@ class SerialFETIsolver(FETIsolver):
        e = manager.assemble_e()
        
        start_time = time.time()
-       lambda_sol,alpha_sol, rk, proj_r_hist, lambda_hist = manager.solve_dual_interface_problem()
+       lambda_sol,alpha_sol, rk, proj_r_hist, lambda_hist, info_dict = manager.solve_dual_interface_problem()
        elaspsed_time_PCPG = time.time() - start_time
 
        u_dict, lambda_dict, alpha_dict = manager.assemble_solution_dict(lambda_sol,alpha_sol)
@@ -319,7 +319,7 @@ class SolverManager():
             else:
                 logging.info('Preconditioner type = Identity')
         except:
-            pass
+            self.precond_type = None
             
 
         logging.info('Computing global residual')
@@ -333,19 +333,22 @@ class SolverManager():
         method_to_call = getattr(solvers, algorithm)
 
         try:
-            tolerance = norm_d*self.tolerance 
+            self.tolerance = norm_d*self.tolerance 
         except:
-            tolerance = None # using default tolerance of the choosen interface algorithm
+            self.tolerance = None # using default tolerance of the choosen interface algorithm
            
         try:
             max_int = self.max_int
         except:
             max_int = None # using default max_int of the choosen interface algorithm
 
-        lambda_ker, rk, proj_r_hist, lambda_hist = method_to_call(F_action,residual,Projection_action=Projection_action,
-                                                         lambda_init=None,
-                                                         Precondicioner_action=Precondicioner_action,
-                                                         tolerance=tolerance,max_int=max_int,vdot=vdot)
+        lambda_ker, rk, proj_r_hist, lambda_hist, info_dict = method_to_call(F_action,residual,
+                                                                             Projection_action=Projection_action,
+                                                                             lambda_init=None,
+                                                                             Precondicioner_action=Precondicioner_action,
+                                                                             tolerance=self.tolerance,
+                                                                             max_int=max_int,
+                                                                             vdot=vdot)
 
         lambda_sol = lambda_im + lambda_ker
         
@@ -354,7 +357,7 @@ class SolverManager():
         Fdot_lambda_ker = self.apply_F(lambda_ker, external_force=False,global_exchange=False)
         alpha_sol = GGT_inv.dot(G.dot(residual - Fdot_lambda_ker))
 
-        return lambda_sol,alpha_sol, rk, proj_r_hist, lambda_hist
+        return lambda_sol,alpha_sol, rk, proj_r_hist, lambda_hist, info_dict
 
     def vector2localdict(self,v,map_dict):
         return vector2localdict(v,map_dict)

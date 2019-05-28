@@ -200,7 +200,6 @@ if __name__ == '__main__':
             FETI_algorithm : Type of FETI algorithm SerialFETIsolver of ParallelFETIsolver,  Default = ParallelFETIsolver
             tol : tolerance of PCPG error norm, Default = 1.0E-5
             precond : Preconditioner type : Default - Identity (options: Lumped, Dirichlet, LumpedDirichlet, SuperLumped)
-            square : create a square of retangular domains depended on the mpi, Default : False
             BC_type : type of Neumman B.C, Defult = RX, options {RX,G} RX is force in x at the right domains, G is gravity in Y
             strong : Boolean variable, if True perform strong scalability, if False, perform weak scalability, Default = True
             loglevel : INFO, DEBUG, ERROR, WARNING, CRITICAL. Default = INFO
@@ -216,7 +215,6 @@ if __name__ == '__main__':
     default_dict = {'loglevel' : 'INFO',
                     'strong'  : True,
                     'FETI_algorithm' : 'ParallelFETIsolver',
-                    'square' : True,
                     'BC_type' : 'RX',
                     'precond' : None,
                     'tol' : 1.0E-5,
@@ -280,7 +278,6 @@ if __name__ == '__main__':
             logging.info('Perform STRONG parallel scalability.')
         else:
             logging.info('Perform WEAK parallel scalability.')
-        logging.info('Square  = %s' %str(square ))
         logging.info('Neumann B.C type  = %s' %BC_type)
         if precond is None:
             logging.info('Preconditioner type  = %s' %'Identity')
@@ -369,12 +366,13 @@ if __name__ == '__main__':
                 logging.info('{"Preprocessing_time" : %f} #Elapsed time (s)' %elapsed_time)
                 simulation_folder = os.path.join(scalability_folder,solver_obj.manager.temp_folder)
                 local_dict = {}
-                local_dict['simulation_folder'] = simulation_folder
+                local_dict['scalability_folder'] = curdir
+                local_dict['simulation_folder'] = os.path.join(date_str,solver_obj.manager.temp_folder)
                 local_dict['preprocessing_time[s]'] = elapsed_time
                 local_dict['case_info'] = {'div_x':div_x,'div_y':div_y,'domain_x':domain_x, 
                                                'domain_y':domain_y, 'Kshape' : K.shape,
                                                 'W' : W, 'H' : H, 'width' : w, 'heigh' : h }
-
+                local_dict['scalability_variables'] = default_dict
 
                 if salomon:
                     salomon_defaut.update(salomon)
@@ -400,7 +398,7 @@ if __name__ == '__main__':
                     
                     salomon_defaut.update(salomon)
                     if salomon_defaut['queue'] is None:
-                        if nnodes<=8 and (salomon_defaut['hours']*60 + salomon['minutes'])<=60:
+                        if (nnodes<=8) and ((salomon_defaut['hours']*60 + salomon['minutes'])<=60):
                             salomon_defaut['queue']='qexp'
                         elif nnodes<=86:
                             salomon_defaut['queue']='qprod'

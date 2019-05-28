@@ -230,6 +230,7 @@ if __name__ == '__main__':
                     'salomon' : {}}
 
     salomon_defaut = {'queue': None,'default_time':30,'ncpus':24, 'effectivity': 0.5}
+    
 
     header ='#'*50
     import sys
@@ -250,6 +251,7 @@ if __name__ == '__main__':
 
         # add default dict to local variables
         locals().update(default_dict)
+        salomon={'default_time':160}
         
         if len(domainY)!=len(domainX):
             logging.warning('DomainY list with different length of DomainX. Setting new DomainY')
@@ -397,7 +399,7 @@ if __name__ == '__main__':
                     salomon['minutes'] =  int(time_in_minute%60)
                     
                     salomon_defaut.update(salomon)
-                    if salomon_defaut['queue'] is None:
+                    if 'queue' not in salomon:
                         if (nnodes<=8) and ((salomon_defaut['hours']*60 + salomon['minutes'])<=60):
                             salomon_defaut['queue']='qexp'
                         elif nnodes<=86:

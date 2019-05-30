@@ -202,7 +202,7 @@ if __name__ == '__main__':
             precond : Preconditioner type : Default - Identity (options: Lumped, Dirichlet, LumpedDirichlet, SuperLumped)
             BC_type : type of Neumman B.C, Defult = RX, options {RX,G} RX is force in x at the right domains, G is gravity in Y
             strong : Boolean variable, if True perform strong scalability, if False, perform weak scalability, Default = True
-            loglevel : INFO, DEBUG, ERROR, WARNING, CRITICAL. Default = INFO
+            loglevel : INFO, DEBUG, ERROR, WARNING, CRITICAL. Default = WARNING
             launcher_only : Boolean variable to create scripts to without launch mpi : Default = False
             delete_files : Boolean variable to delete *.pkl files after mpirun : Default = True
             salomon : {} dict with salomon paramenters e.g. {'queue':'qexp','ncpus' : 24, 'default_time':30, 'effectivity': 0.7}.  Default = {}
@@ -212,7 +212,7 @@ if __name__ == '__main__':
 
             '''
 
-    default_dict = {'loglevel' : 'INFO',
+    default_dict = {'loglevel' : 'WARNING',
                     'strong'  : True,
                     'FETI_algorithm' : 'ParallelFETIsolver',
                     'BC_type' : 'RX',
@@ -231,7 +231,6 @@ if __name__ == '__main__':
 
     salomon_defaut = {'queue': None,'default_time':30,'ncpus':24, 'effectivity': 0.5}
     
-
     header ='#'*50
     import sys
     from datetime import datetime
@@ -251,7 +250,6 @@ if __name__ == '__main__':
 
         # add default dict to local variables
         locals().update(default_dict)
-        salomon={'default_time':160}
         
         if len(domainY)!=len(domainX):
             logging.warning('DomainY list with different length of DomainX. Setting new DomainY')
@@ -359,7 +357,7 @@ if __name__ == '__main__':
                 solver_obj = FETIsolver(K_dict,B_dict,f_dict,temp_folder=script_folder,
                                                 pseudoinverse_kargs=pseudoinverse_kargs,
                                                 dual_interface_algorithm=dual_interface_algorithm,tolerance=tol,
-                                                precond_type=precond,launcher_only=True,bind_to_core=bind_to_core)
+                                                precond_type=precond,launcher_only=True,bind_to_core=bind_to_core,loglevel=loglevel)
 
                 
                 start_time = time.time()

@@ -12,6 +12,7 @@ amfe2gmsh = {}
 amfe2gmsh['Quad4'] = '3'
 amfe2gmsh['straight_line'] = '1'
 amfe2gmsh['node_point'] = '15'
+amfe2gmsh['Hexa8'] = '5'
 
 
 # geting path of MPI executable
@@ -929,6 +930,14 @@ class DomainCreator():
     
         return nodes_dict
 
+    def nodesdict_2_array(self,nodes_dict):
+        ''' create an array of nodes based on a dict of nodes
+        '''
+        nodes = []
+        for key, coord in nodes_dict.items():
+            nodes.append(coord) 
+        return np.array(nodes)
+
     def build_elements(self):
         ''' This function build linear and quad elements based on instance
         parameters
@@ -1102,6 +1111,172 @@ class DomainCreator():
         elem_string += tag_elements_end
         return elem_string
 
+class PrismaCreator(DomainCreator):
+    def __init__(self,width=10,heigh=10,thickness=10,x_divisions=11,y_divisions=11,z_divisions=11,domain_id=1):
+        self.width = width
+        self.heigh = heigh
+        self.thickness = thickness
+        self.x_divisions = x_divisions
+        self.y_divisions = y_divisions
+        self.z_divisions = z_divisions
+        self.domain_id = domain_id
+        self.start_x = 0.0
+        self.start_y = 0.0
+        self.start_z = 0.0
+        self.elem_type = 'Hexa8'
+        self.gmsh_type = 1
+        self.elem_num = 0
+        self.tag_dict = {}
+    
+    def node_map(self):
+        a = 1
+        b = self.x_divisions 
+        c = self.x_divisions*self.y_divisions 
+        d = 1
+        return lambda tup : a*tup[0] + b*tup[1] + c*tup[2] + d
+
+    def build_nodes(self):
+        delta_x = self.width/(self.x_divisions-1)
+        delta_y = self.heigh/(self.y_divisions-1)
+        delta_z = self.thickness/(self.z_divisions-1)
+        x0 = self.start_x
+        y0 = self.start_y
+        z0 = self.start_z
+        nodes_dict = {}
+        for k in range(self.z_divisions):
+            for j in range(self.y_divisions):
+                for i in range(self.x_divisions):
+                    nodes_dict[i,j,k] = [x0 + i*delta_x , y0 + j*delta_y, z0 + k*delta_z]
+    
+        return nodes_dict
+    
+    def create_hexa_elem(self,tag_name='domain'):
+        ''' This function create dict Hexa8 elements
+        with the key given by the tag_name
+
+        Hexahedron:            
+
+               K
+        3----------2           
+        |\     ^   |\           
+        | \    |   | \          
+        |  \   |   |  \       
+        |   7------+---6      
+        |   |  +-- |-- | -> I 
+        0---+---\--1   |      
+         \  |    \  \  |      
+          \ |     \  \ |      
+           \|      J  \|      
+            4----------5
+        
+        Parameters
+            tag_name : string
+                key for the element dictionaty
+
+        Returns 
+            dict [tag_name] = elem_dict
+        '''
+        node_map = self.node_map()
+        elem_nodes = lambda I,J,K : [(I+0,J+0,K+0),
+                                     (I+1,J+0,K+0),
+                                     (I+1,J+0,K+1),
+                                     (I+0,J+0,K+1),
+                                     (I+0,J+1,K+0),
+                                     (I+1,J+1,K+0),
+                                     (I+1,J+1,K+1),
+                                     (I+0,J+1,K+1)]
+
+        hexa_elem_dict = {tag_name : {}}
+        count = 0
+        for elem_id_k in range(self.z_divisions - 1):
+            for elem_id_j in range(self.y_divisions-1):
+                for elem_id_i in range(self.x_divisions - 1):
+                    hexa_elem_dict[tag_name][count] =  list(map(node_map,elem_nodes(elem_id_i,elem_id_j,elem_id_k)))
+                    count+=1
+        self.elem_num += count 
+        # update self.tag_dict with elem_dict information
+        self.tag_dict.update({'domain' : '3'}) 
+
+        return hexa_elem_dict
+
+    def build_elements(self):
+        ''' This function build linear and quad elements based on instance
+        parameters
+        '''
+
+        self.elem_num = 0
+
+        elem_dict = {}
+        node_dict = self.create_node_points()
+        #linear_elem_dict = self.create_linear_elem()
+        quad_elem_dict = self.create_quad_elem()
+        hexa_elem_dict = self.create_hexa_elem()
+        
+        elem_dict.update({'node_point' : node_dict}) 
+        #elem_dict.update({'straight_line' : linear_elem_dict}) 
+        elem_dict.update({'Quad4' : quad_elem_dict})
+        elem_dict.update({'Hexa8' : hexa_elem_dict})
+
+        return elem_dict
+
+    def create_node_points(self):
+        ''' This function create dict node points 
+        
+        Returns 
+            dict [tag_name] = elem_dict
+        '''
+        node_map = self.node_map()
+        node_elem_dict = {'ijk' : {0 : [node_map((0,0,0))]} ,
+                          'Ijk' : {1 : [node_map((self.x_divisions-1,0,0))]} ,
+                          'iJk' : {2 : [node_map((0,self.y_divisions-1,0))]} ,
+                          'IJk' : {3 : [node_map((self.x_divisions-1,self.y_divisions-1,0))]},
+                          'ijK' : {4 : [node_map((0,0,self.z_divisions-1))]} ,
+                          'IjK' : {5 : [node_map((self.x_divisions-1,0,self.z_divisions-1))]} ,
+                          'iJK' : {6 : [node_map((0,self.y_divisions-1,self.z_divisions-1))]} ,
+                          'IJK' : {7 : [node_map((self.x_divisions-1,self.y_divisions-1,self.z_divisions-1))]}
+                          }
+        self.elem_num += 8
+        # update self.tag_dict with elem_dict information
+        self.tag_dict.update({'ijk' : '10' , 
+                              'Ijk' : '11' , 
+                              'iJk' : '12' , 
+                              'IJk' : '13',
+                              'ijK' : '14' , 
+                              'IjK' : '15' , 
+                              'iJK' : '16' , 
+                              'IJK' : '17',
+                              }) 
+
+        return node_elem_dict
+
+    def create_quad_elem(self,tag_name='surface'):
+        ''' This function create dict Quad4 elements
+        with the key given by the tag_name
+        
+        Parameters
+            tag_name : string
+                key for the element dictionaty
+
+        Returns 
+            dict [tag_name] = elem_dict
+        '''
+        node_map = self.node_map()
+        quad_elem_nodes = lambda I,J,K : [(I,J,K),(I,J+1,K),(I+1,J+1,K),(I+1,J,K)]
+
+        quad_elem_dict = {tag_name : {}}
+        K = 0
+        count = 0
+        for elem_id_j in range(self.y_divisions - 1):
+            for elem_id_i in range(self.x_divisions-1):
+                quad_elem_dict[tag_name][count] =  list(map(node_map,quad_elem_nodes(elem_id_i,elem_id_j, K)))
+                count+=1
+        self.elem_num += count 
+        # update self.tag_dict with elem_dict information
+        self.tag_dict.update({tag_name : '30'}) 
+
+        return quad_elem_dict
+
+
 class  Test_Utils(TestCase):
     def test_OrderedSet(self):
         s = OrderedSet('abracadaba')
@@ -1132,7 +1307,6 @@ class  Test_Utils(TestCase):
         self.assertEqual( list(s.selection_dict[3])[0],3)
         self.assertEqual( list(s.selection_dict['internal']),[5,6,7])
 
-
     def test_SelectionOperator_build_B(self):
         id_df = pd.DataFrame(data={'x': [0, 2, 4, 6], 'y': [1, 3, 5, 7]})
         group_dict = OrderedDict()
@@ -1151,9 +1325,44 @@ class  Test_Utils(TestCase):
         except:
             pass
 
-        mesh_path = r'meshes\mesh1.msh'
+        mesh_path = os.path.join('meshes','mesh1.msh')
         creator_obj.save_gmsh_file(mesh_path)
         shutil.rmtree('meshes')
+
+    def test_PrismaCreator(self):
+        creator_obj  = PrismaCreator(width=20,heigh=5,thickness=5,
+                                       x_divisions=21,y_divisions=4,z_divisions=4)
+        nodes_dict = creator_obj.build_nodes()
+        nodes = creator_obj.nodesdict_2_array(nodes_dict)
+        creator_obj.create_hexa_elem()
+        
+        creator_obj.build_elements()
+        try:
+            os.mkdir('meshes')
+        except:
+            pass
+
+        mesh_path = os.path.join('meshes','mesh1.msh')
+        creator_obj.save_gmsh_file(mesh_path)
+        shutil.rmtree('meshes')
+        
+        #import matplotlib.pyplot as plt
+        #from mpl_toolkits.mplot3d import Axes3D
+        #fig = plt.figure()
+        #ax = fig.add_subplot(111, projection='3d')
+        #ax.scatter(nodes.T[0,:],nodes.T[1,:],nodes.T[2,:])
+        #plt.show()
+
+        #x=1
+        #creator_obj.build_elements()
+        #try:
+        #    os.mkdir('meshes')
+        #except:
+        #    pass
+
+        #mesh_path = r'meshes\mesh1.msh'
+        #creator_obj.save_gmsh_file(mesh_path)
+        #shutil.rmtree('meshes')
 
     def test_mpi_launcher(self):
         python_script = """from mpi4py import MPI
@@ -1204,10 +1413,11 @@ for s in sys.argv:
 
 if __name__ == '__main__':
     
-    main()  
-    #testobj = Test_Utils()
+    #main()  
+    testobj = Test_Utils()
     #testobj.test_dict2dfmap()
     #testobj.test_SelectionOperator_remove_duplicate_dofs()
     #testobj.test_SelectionOperator_build_B()
     #testobj.test_DomainCreator()
     #testobj.test_mpi_launcher()
+    testobj.test_PrismaCreator()

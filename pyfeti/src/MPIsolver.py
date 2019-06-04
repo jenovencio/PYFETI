@@ -17,7 +17,7 @@ import logging
 import time
 
 from pyfeti.src.utils import save_object, load_object, Log, getattr_mpi_attributes
-from pyfeti.src.feti_solver import CourseProblem, Solution, SolverManager, vector2localdict
+from pyfeti.src.feti_solver import CoarseProblem, Solution, SolverManager, vector2localdict
 from pyfeti.src import solvers
 from pyfeti.src.MPIlinalg import exchange_info, exchange_global_dict, pardot, RetangularLinearOperator, ParallelRetangularLinearOperator
 
@@ -36,7 +36,7 @@ class ParallelSolver(SolverManager):
         self.lampda_im = []
         self.lampda_ker = []
         
-        self.course_problem = CourseProblem(obj_id)
+        self.course_problem = CoarseProblem(obj_id)
 
         self.local2global_lambda_dofs = {}
         self.global2local_lambda_dofs = {}

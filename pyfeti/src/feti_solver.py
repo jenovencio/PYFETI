@@ -94,7 +94,7 @@ class SerialFETIsolver(FETIsolver):
 class SolverManager():
     def __init__(self,K_dict,B_dict,f_dict,pseudoinverse_kargs={'method':'svd','tolerance':1.0E-8},dual_interface_algorithm='PCPG',**kwargs):
         self.local_problem_dict = {}
-        self.course_problem = CourseProblem()
+        self.course_problem = CoarseProblem()
         self.local2global_lambda_dofs = {}
         self.global2local_lambda_dofs = {}
         self.local2global_alpha_dofs = {}
@@ -1062,7 +1062,7 @@ class LocalProblem():
         pass
         
 
-class CourseProblem():
+class CoarseProblem():
     counter = 0
     def __init__(self,id=None):
         
@@ -1077,13 +1077,13 @@ class CourseProblem():
         self.global2local_lambda_dofs = {}
         self.GGT = None
         self.GGT_inv = None
-        self.course_method = 'splu'
+        self.coarse_method = 'splu'
      
         if id is None:
-            self.id = CourseProblem.counter
+            self.id = CoarseProblem.counter
         else:
             self.id = id
-        CourseProblem.counter +=1 
+        CoarseProblem.counter +=1 
 
     def update_e_dict(self,local_e_dict):
         self.e_dict.update(local_e_dict)
@@ -1094,23 +1094,23 @@ class CourseProblem():
     def update_GGT_dict(self,local_GGT_dict):
         self.GGT_dict.update(local_GGT_dict)
     
-    def compute_GGT_inv(self,course_method=None,**kwargs):
+    def compute_GGT_inv(self,coarse_method=None,**kwargs):
 
 
         if self.GGT_inv is None:
-            if course_method is None:
-                course_method = self.course_method
+            if coarse_method is None:
+                coarse_method = self.coarse_method
 
             if self.GGT is None:
                 raise ValueError('GGT is None, but it must be a np.array!')
 
-            if course_method == 'splu':
+            if coarse_method == 'splu':
                 if not sparse.issparse(self.GGT):
                     self.GGT = sparse.csc_matrix(self.GGT)
                 GGT_inv  = sparse.linalg.splu(self.GGT)
                 self.GGT_inv = sparse.linalg.LinearOperator(shape=self.GGT.shape,matvec = lambda x : GGT_inv.solve(x)) 
                 
-            elif course_method == 'inv':
+            elif coarse_method == 'inv':
                 if sparse.issparse(self.GGT):
                     # convert to a dense matrix
                     self.GGT = self.GGT.A 

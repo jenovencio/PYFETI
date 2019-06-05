@@ -190,20 +190,20 @@ if __name__ == '__main__':
               |__ __ __ __ __ __ __ __ __ __ __ __|
 
             Script options
-            W  : float value for the width in [mm] of the 2D plane-stress body. Default = 60
-            H  : float value for the heigh in [mm] of the 2D plane-stress body. Default = 60
+            W  : float value for the width in [mm] for the 2D plane-stress body. Default = 60
+            H  : float value for the heigh in [mm] for the 2D plane-stress body. Default = 60
             divY : Number of division in the Y direction, Default = 24
             divX : Number of local division in the X direction, Default = 24
             domainX  : list of domains in the X direciton. Default = [1,2,3]
             domainY  : list of domains in the Y direciton. Default = [1,2,3]
-            method : Method to compute the local pseudoinverse, Default = splusps (splusps also avaliable)
+            method : Method to compute the local pseudoinverse, Default = splusps (svd also avaliable)
             FETI_algorithm : Type of FETI algorithm SerialFETIsolver of ParallelFETIsolver,  Default = ParallelFETIsolver
             tol : tolerance of PCPG error norm, Default = 1.0E-5
             precond : Preconditioner type : Default - Identity (options: Lumped, Dirichlet, LumpedDirichlet, SuperLumped)
             BC_type : type of Neumman B.C, Defult = RX, options {RX,G} RX is force in x at the right domains, G is gravity in Y
             strong : Boolean variable, if True perform strong scalability, if False, perform weak scalability, Default = True
             loglevel : INFO, DEBUG, ERROR, WARNING, CRITICAL. Default = WARNING
-            launcher_only : Boolean variable to create scripts to without launch mpi : Default = False
+            launcher_only : Boolean variable to create scripts without launch mpi : Default = False
             delete_files : Boolean variable to delete *.pkl files after mpirun : Default = True
             salomon : {} dict with salomon paramenters e.g. {'queue':'qexp','ncpus' : 24, 'default_time':30, 'effectivity': 0.7}.  Default = {}
                          'default_time' is given in minutes, an estimation of required HPC time will be computed based on it.

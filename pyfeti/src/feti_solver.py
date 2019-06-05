@@ -815,7 +815,7 @@ class LocalProblem():
         self.get_neighbors_id()
         self.compute_interface_dof_set()
         self.compute_interior_dof_set()
-        self.compute_neighbor_scalling_array()
+        self.compute_neighbor_scaling_array()
 
     def get_neighbors_id(self):
         for nei_id, obj in self.B_local.items():
@@ -842,7 +842,7 @@ class LocalProblem():
         self.interior_set.update(set(list(range(self.length)))-self.interface_set)
         return self.interior_set
 
-    def compute_neighbor_scalling_array(self):
+    def compute_neighbor_scaling_array(self):
         ''' This method compute an array with dimension
         equal to the self.length size, and values equal 
         to number of neighbors + 1
@@ -957,7 +957,7 @@ class LocalProblem():
 
         return self.get_interface_dict(f_scalling)
 
-    def crosspoints_dectection(self):
+    def crosspoints_detection(self):
         ''' This function detects cross points based on local 
         information, crosspoints are defined as tuples with more 
         the two intries, e.g. (1,2,3) a node is connected to 3 domains
@@ -1415,14 +1415,14 @@ class  Test_FETIsolver(TestCase):
             interior_dofs = local_obj.compute_interior_dof_set()
             np.testing.assert_equal(interior_dofs_target[i], list(interior_dofs))
 
-            scalling = local_obj.compute_neighbor_scalling_array()
+            scalling = local_obj.compute_neighbor_scaling_array()
             #u =  local_obj.expand_interface_gap(gap_dict[i])
             force_dict = local_obj.apply_schur_complement(gap_dict[i])
             force_dict = local_obj.apply_schur_complement(gap_dict[i],precond_type='SuperLumped')
             force_dict = local_obj.apply_schur_complement(gap_dict[i],precond_type='Dirichlet')
             force_dict = local_obj.apply_schur_complement(gap_dict[i],precond_type='LumpedDirichlet')
             
-            crosspoints_global_dict[i] = local_obj.crosspoints_dectection()
+            crosspoints_global_dict[i] = local_obj.crosspoints_detection()
 
         crosspoints_global_dict
 

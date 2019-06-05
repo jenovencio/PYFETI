@@ -1413,11 +1413,11 @@ for s in sys.argv:
 
 if __name__ == '__main__':
     
-    #main()  
-    testobj = Test_Utils()
+    main()  
+    #testobj = Test_Utils()
     #testobj.test_dict2dfmap()
     #testobj.test_SelectionOperator_remove_duplicate_dofs()
     #testobj.test_SelectionOperator_build_B()
     #testobj.test_DomainCreator()
     #testobj.test_mpi_launcher()
-    testobj.test_PrismaCreator()
+    #testobj.test_PrismaCreator()

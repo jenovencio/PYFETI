@@ -1208,12 +1208,12 @@ class PrismaCreator(DomainCreator):
 
         elem_dict = {}
         node_dict = self.create_node_points()
-        #linear_elem_dict = self.create_linear_elem()
+        linear_elem_dict = self.create_linear_elem()
         quad_elem_dict = self.create_quad_elem()
         hexa_elem_dict = self.create_hexa_elem()
         
         elem_dict.update({'node_point' : node_dict}) 
-        #elem_dict.update({'straight_line' : linear_elem_dict}) 
+        elem_dict.update({'straight_line' : linear_elem_dict}) 
         elem_dict.update({'Quad4' : quad_elem_dict})
         elem_dict.update({'Hexa8' : hexa_elem_dict})
 
@@ -1249,7 +1249,7 @@ class PrismaCreator(DomainCreator):
 
         return node_elem_dict
 
-    def create_quad_elem(self,tag_name='surface'):
+    def create_quad_elem(self,tag_prefix='surface_'):
         ''' This function create dict Quad4 elements
         with the key given by the tag_name
         
@@ -1261,20 +1261,82 @@ class PrismaCreator(DomainCreator):
             dict [tag_name] = elem_dict
         '''
         node_map = self.node_map()
-        quad_elem_nodes = lambda I,J,K : [(I,J,K),(I,J+1,K),(I+1,J+1,K),(I+1,J,K)]
+        quad_elem_nodes_K = lambda I,J,K : [(I,J,K),(I,J+1,K),(I+1,J+1,K),(I+1,J,K)]
+        quad_elem_nodes_J = lambda I,K,J : [(I,J,K),(I,J,K+1),(I+1,J,K+1),(I+1,J,K)]
+        quad_elem_nodes_I = lambda J,K,I : [(I,J,K),(I,J+1,K),(I,J+1,K+1),(I,J,K+1)]
 
-        quad_elem_dict = {tag_name : {}}
-        K = 0
-        count = 0
-        for elem_id_j in range(self.y_divisions - 1):
-            for elem_id_i in range(self.x_divisions-1):
-                quad_elem_dict[tag_name][count] =  list(map(node_map,quad_elem_nodes(elem_id_i,elem_id_j, K)))
-                count+=1
-        self.elem_num += count 
-        # update self.tag_dict with elem_dict information
-        self.tag_dict.update({tag_name : '30'}) 
+        
+        plane_list = [[0,self.z_divisions - 1],
+                      [0,self.y_divisions - 1],
+                      [0,self.x_divisions -1 ]] # [K, J, I]
+        plane_dict = { 0 : 'K' , 1 : 'J', 2 : 'I' }
+        plane_func_dict = { 0 : quad_elem_nodes_K , 1 : quad_elem_nodes_J, 2 : quad_elem_nodes_I}
+        clockwise_dict = { 0 : [0,1] , 1 : [1,0], 2 : [1,0]}
+        loop_pairs = [[self.y_divisions,self.x_divisions],
+                      [self.z_divisions,self.x_divisions],
+                      [self.z_divisions,self.y_divisions]]
+        quad_elem_dict = {}
+        for plane_id, plane in enumerate(plane_list):
+            for index_id, index in enumerate(plane):
+                tag_index =  str(2) + str(plane_id) + str(index)
+                tag_name = tag_prefix + tag_index
+                quad_elem_dict[tag_name] = {}
+                count = 0
+                for elem_id_j in range(loop_pairs[plane_id][0] - 1):
+                    for elem_id_i in range(loop_pairs[plane_id][1] - 1):
+                        quad_elem_nodes = plane_func_dict[plane_id]
+                        if clockwise_dict[plane_id][index_id] ==0:
+                            quad_elem_dict[tag_name][count] =  list(map(node_map,quad_elem_nodes(elem_id_i,elem_id_j, index)))
+                        else:
+                            quad_elem_dict[tag_name][count] =  list(map(node_map,quad_elem_nodes(elem_id_i,elem_id_j, index)[::-1]))
+                        count+=1
+                self.elem_num += count 
+                # update self.tag_dict with elem_dict information
+                self.tag_dict.update({tag_name : tag_index}) 
 
         return quad_elem_dict
+
+    def create_linear_elem(self,tag_prefix='line_'):
+        ''' This function create dict linear elements
+        with the key given by the tag_name
+        
+        Parameters
+            tag_name : string
+                key for the element dictionaty
+
+        Returns 
+            dict [tag_name] = elem_dict
+        '''
+        node_map = self.node_map()
+        linear_elem_nodes_K = lambda K,I,J : [(I,J,K),(I,J,K+1)]
+        linear_elem_nodes_J = lambda J,I,K : [(I,J,K),(I,J+1,K)]
+        linear_elem_nodes_I = lambda I,J,K : [(I,J,K),(I+1,J,K)]
+
+        
+        plane_list = [[[0,self.z_divisions - 1],[0,self.y_divisions - 1]],
+                      [[0,self.z_divisions - 1],[0,self.x_divisions - 1]],
+                      [[0,self.y_divisions - 1],[0,self.x_divisions - 1]]]
+        linear_dict = { 0 : 'K' , 1 : 'J', 2 : 'I' }
+        linear_func_dict = { 0 : linear_elem_nodes_I , 1 : linear_elem_nodes_J, 2 : linear_elem_nodes_K}
+        clockwise_dict = { 0 : [0,1] , 1 : [1,0], 2 : [1,0]}
+        loop_pairs = [self.x_divisions,self.y_divisions,self.z_divisions]
+        linear_elem_dict = {}
+        for plane_id, plane in enumerate(plane_list):
+            for indexI_id, K in enumerate(plane[0]):
+                for indexJ_id, J in enumerate(plane[1]):
+                    tag_index =  str(1) + str(plane_id) + str(J) + str(K)
+                    tag_name = tag_prefix + tag_index
+                    linear_elem_dict[tag_name] = {}
+                    count = 0
+                    for elem_id_i in range(loop_pairs[plane_id] - 1):
+                        linear_elem_nodes = linear_func_dict[plane_id]
+                        linear_elem_dict[tag_name][count] =  list(map(node_map,linear_elem_nodes(elem_id_i,J, K)))
+                        count+=1
+                    self.elem_num += count 
+                    # update self.tag_dict with elem_dict information
+                    self.tag_dict.update({tag_name : tag_index}) 
+
+        return linear_elem_dict
 
 
 class  Test_Utils(TestCase):
@@ -1318,7 +1380,7 @@ class  Test_Utils(TestCase):
         s.build_B(1)
 
     def test_DomainCreator(self):
-        creator_obj  = DomainCreator(x_divisions=4,y_divisions=3)
+        creator_obj  = DomainCreator(x_divisions=4,y_divisions=4)
         creator_obj.build_elements()
         try:
             os.mkdir('meshes')
@@ -1330,12 +1392,8 @@ class  Test_Utils(TestCase):
         shutil.rmtree('meshes')
 
     def test_PrismaCreator(self):
-        creator_obj  = PrismaCreator(width=20,heigh=5,thickness=5,
-                                       x_divisions=21,y_divisions=4,z_divisions=4)
-        nodes_dict = creator_obj.build_nodes()
-        nodes = creator_obj.nodesdict_2_array(nodes_dict)
-        creator_obj.create_hexa_elem()
-        
+        creator_obj  = PrismaCreator(width=10,heigh=2,thickness=1,
+                                       x_divisions=11,y_divisions=7,z_divisions=4)
         creator_obj.build_elements()
         try:
             os.mkdir('meshes')
@@ -1345,24 +1403,6 @@ class  Test_Utils(TestCase):
         mesh_path = os.path.join('meshes','mesh1.msh')
         creator_obj.save_gmsh_file(mesh_path)
         shutil.rmtree('meshes')
-        
-        #import matplotlib.pyplot as plt
-        #from mpl_toolkits.mplot3d import Axes3D
-        #fig = plt.figure()
-        #ax = fig.add_subplot(111, projection='3d')
-        #ax.scatter(nodes.T[0,:],nodes.T[1,:],nodes.T[2,:])
-        #plt.show()
-
-        #x=1
-        #creator_obj.build_elements()
-        #try:
-        #    os.mkdir('meshes')
-        #except:
-        #    pass
-
-        #mesh_path = r'meshes\mesh1.msh'
-        #creator_obj.save_gmsh_file(mesh_path)
-        #shutil.rmtree('meshes')
 
     def test_mpi_launcher(self):
         python_script = """from mpi4py import MPI
@@ -1413,11 +1453,11 @@ for s in sys.argv:
 
 if __name__ == '__main__':
     
-    main()  
-    #testobj = Test_Utils()
+    #main()  
+    testobj = Test_Utils()
     #testobj.test_dict2dfmap()
     #testobj.test_SelectionOperator_remove_duplicate_dofs()
     #testobj.test_SelectionOperator_build_B()
     #testobj.test_DomainCreator()
     #testobj.test_mpi_launcher()
-    #testobj.test_PrismaCreator()
+    testobj.test_PrismaCreator()

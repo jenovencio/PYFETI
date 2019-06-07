@@ -12,6 +12,7 @@ amfe2gmsh = {}
 amfe2gmsh['Quad4'] = '3'
 amfe2gmsh['straight_line'] = '1'
 amfe2gmsh['node_point'] = '15'
+amfe2gmsh['Hexa8'] = '5'
 
 
 # geting path of MPI executable
@@ -49,36 +50,57 @@ def get_platform():
         raise('Plataform %s is not supported  ' %sys.platform)
 
 class MPILauncher():
-    def __init__(self,python_file,mpi_size,**kwargs):
+    def __init__(self,python_file,mpi_size,save_log=False,**kwargs):
 
         self.python_file = python_file
         self.mpi_size = mpi_size #
-        self.log = True
+        self.log = save_log
         self.kwargs = kwargs
-        if 'tmp_folder' in self.kwargs :
+        if 'tmp_folder' in self.kwargs:
             self.tmp_folder = self.kwargs['tmp_folder']
         else:
             self.tmp_folder = 'tmp'
+        self.laucher_files_exist = False
+        self.local_folder = None
+        self.local_folder = None
+        self.os_script_name = None
+        self.bind_to_core = False
+        self.__dict__.update(kwargs)
 
-    def run(self):
+    def create_laucher(self):
         platform = get_platform()
         if platform=='Windows':
-            self.run_windows()
+            local_folder, os_script_name = self.windows_laucher()
         elif platform=='Linux':
-            self.run_linux()
+            local_folder, os_script_name =self.linux_laucher()
+        else:
+            raise NotImplemented('Platform %s not supported' %platform)
 
-    def run_linux(self):
+        self.laucher_files_exist = True
+        self.local_folder = local_folder
+        self.os_script_name = os_script_name
+        return local_folder, os_script_name
+
+    def linux_laucher(self):
         os_script_name= 'run_mpi.sh'
         header_string = '#!/bin/sh'
-        mpi_command = self.create_command_string(mpi_args='')
-        self.run_os(os_script_name,mpi_command,header_string)
+        mpi_args = ''
+        if self.bind_to_core:
+            mpi_args = mpi_args.join(['-bind-to core'])
+        mpi_command = self.create_command_string(mpi_args=mpi_args)
+        local_folder = self.create_laucher_files(os_script_name,mpi_command,header_string)
+        return local_folder, os_script_name
 
-    def run_windows(self):
+    def windows_laucher(self):
         os_script_name = 'run_mpi.bat'
         header_string = 'rem Windows bat file'
-        mpi_command = self.create_command_string(mpi_args='-l')
-        self.run_os(os_script_name,mpi_command,header_string)
-    
+        mpi_args = '-l '
+        if self.bind_to_core:
+            mpi_args = mpi_args.join(['-bind-to core'])
+        mpi_command = self.create_command_string(mpi_args=mpi_args)
+        local_folder = self.create_laucher_files(os_script_name,mpi_command,header_string)
+        return local_folder, os_script_name
+
     def create_command_string(self,mpi_args=''):
         ''' Create the command line to call mpi
             Parameters:
@@ -108,7 +130,7 @@ class MPILauncher():
             command += '  "' + str(key) + '=' + str(value) +  '" '
         return command
 
-    def run_os(self,os_script_name,mpi_command,header_string=''):
+    def create_laucher_files(self,os_script_name,mpi_command,header_string=''):
         ''' This function creates a OS script and
         run it. It is a common interface for every OS.
         
@@ -143,7 +165,21 @@ class MPILauncher():
         
         logging.info('Run directory = %s' %os.getcwd())
         logging.info('######################################################################')
+        return local_folder
+    
+    def run(self,local_folder=None, os_script_name=None):
+        if not self.laucher_files_exist:
+            local_folder, os_script_name = self.create_laucher()
 
+        if local_folder is None:
+            local_folder = self.local_folder
+
+        if os_script_name is None:
+            os_script_name = self.os_script_name
+
+        return self.run_os(local_folder, os_script_name)
+
+    def run_os(self,local_folder,os_script_name):
         # executing bat file
         try:    
             #subprocess.call(os_script_name,shell=True)
@@ -154,17 +190,55 @@ class MPILauncher():
             
         except:
             os.chdir(local_folder)
-            logging.error('Error during the simulation.')
-
+            logging.error('Error during MPI execution.')
         return None
 
     def remove_folder(self):
         try:
             shutil.rmtree(self.tmp_folder)
         except:
-            print('Could not remove the folder = %s' %(self.tmp_folder))
+            logging.warning('Could not remove the folder = %s' %(self.tmp_folder))
+
+def sysargs2keydict(system_argument):
+    ''' This function converts system arguments sys.argv
+    to a key pair dictionary
+
+    Parameters
+        system_argument : sys.args
+            sys.args must have the follow format
+            "method=python_func" "arg1=value1" "arg2=value2"
+
+            such that the python function that supports mpi has the
 
 
+        Return:
+            dict
+                {arg1:value1, arg2:value2}
+
+    '''
+    sys_kwargs = {}
+    for arg in system_argument[1:]:
+        try:
+            var, value = arg.split('=')
+            try:
+                sys_kwargs[var] = eval(value)
+                
+            except:
+                
+                if value[0]=='{' and value[-1]=='}':
+                    sys_kwargs[var] = {}
+                    print(value[1:-2])
+                    key_value_pairs = value[1:-2].split(',')
+
+                    for key_value_pair in key_value_pairs:
+                        key, val = key_value_pair.split(':')
+                        sys_kwargs[var] = {str(key) : val}
+                else:
+                    sys_kwargs[var] = value
+        except:
+            print('Commnad line argument not understood, arg = %s cannot be splited in variable name + value' %arg)
+
+    return sys_kwargs
 
 def getattr_mpi_attributes(system_argument):
     ''' This function call a function which supports mpi4py
@@ -656,7 +730,7 @@ class MapDofs():
         
         return local_map_dict
         
-def save_object(obj, filename,tries=2,sleep_delay=3 ):
+def save_object(obj, filename,tries=2,sleep_delay=3):
     filename = r"{}".format(filename)
     for i in range(tries):
         try:
@@ -694,8 +768,8 @@ def load_object(filename,tries=3,sleep_delay=5):
             time.sleep(sleep_delay)
             continue
     if obj is None:
-        print('Could not find the file path %s ' %filename)
-        raise FileNotFoundError
+        logging.warning('Could not find the file path %s ' %filename)
+        
     return obj
 
 def dict2dfmap(id_dict,column_labels=None):
@@ -825,9 +899,9 @@ def pyfeti_dir(filename=''):
 
 
 class DomainCreator():
-    def __init__(self,width=10,high=10,x_divisions=11,y_divisions=11,domain_id=1):
+    def __init__(self,width=10,heigh=10,x_divisions=11,y_divisions=11,domain_id=1):
         self.width = width
-        self.high = high
+        self.heigh = heigh
         self.x_divisions = x_divisions
         self.y_divisions = y_divisions
         self.domain_id = domain_id
@@ -846,7 +920,7 @@ class DomainCreator():
 
     def build_nodes(self):
         delta_x = self.width/(self.x_divisions-1)
-        delta_y = self.high/(self.y_divisions-1)
+        delta_y = self.heigh/(self.y_divisions-1)
         x0 = self.start_x
         y0 = self.start_y
         nodes_dict = {}
@@ -855,6 +929,14 @@ class DomainCreator():
                 nodes_dict[i,j] = [x0 + j*delta_x , y0 + i*delta_y, 0.0]
     
         return nodes_dict
+
+    def nodesdict_2_array(self,nodes_dict):
+        ''' create an array of nodes based on a dict of nodes
+        '''
+        nodes = []
+        for key, coord in nodes_dict.items():
+            nodes.append(coord) 
+        return np.array(nodes)
 
     def build_elements(self):
         ''' This function build linear and quad elements based on instance
@@ -1029,6 +1111,234 @@ class DomainCreator():
         elem_string += tag_elements_end
         return elem_string
 
+class PrismaCreator(DomainCreator):
+    def __init__(self,width=10,heigh=10,thickness=10,x_divisions=11,y_divisions=11,z_divisions=11,domain_id=1):
+        self.width = width
+        self.heigh = heigh
+        self.thickness = thickness
+        self.x_divisions = x_divisions
+        self.y_divisions = y_divisions
+        self.z_divisions = z_divisions
+        self.domain_id = domain_id
+        self.start_x = 0.0
+        self.start_y = 0.0
+        self.start_z = 0.0
+        self.elem_type = 'Hexa8'
+        self.gmsh_type = 1
+        self.elem_num = 0
+        self.tag_dict = {}
+    
+    def node_map(self):
+        a = 1
+        b = self.x_divisions 
+        c = self.x_divisions*self.y_divisions 
+        d = 1
+        return lambda tup : a*tup[0] + b*tup[1] + c*tup[2] + d
+
+    def build_nodes(self):
+        delta_x = self.width/(self.x_divisions-1)
+        delta_y = self.heigh/(self.y_divisions-1)
+        delta_z = self.thickness/(self.z_divisions-1)
+        x0 = self.start_x
+        y0 = self.start_y
+        z0 = self.start_z
+        nodes_dict = {}
+        for k in range(self.z_divisions):
+            for j in range(self.y_divisions):
+                for i in range(self.x_divisions):
+                    nodes_dict[i,j,k] = [x0 + i*delta_x , y0 + j*delta_y, z0 + k*delta_z]
+    
+        return nodes_dict
+    
+    def create_hexa_elem(self,tag_name='domain'):
+        ''' This function create dict Hexa8 elements
+        with the key given by the tag_name
+
+        Hexahedron:            
+
+               K
+        3----------2           
+        |\     ^   |\           
+        | \    |   | \          
+        |  \   |   |  \       
+        |   7------+---6      
+        |   |  +-- |-- | -> I 
+        0---+---\--1   |      
+         \  |    \  \  |      
+          \ |     \  \ |      
+           \|      J  \|      
+            4----------5
+        
+        Parameters
+            tag_name : string
+                key for the element dictionaty
+
+        Returns 
+            dict [tag_name] = elem_dict
+        '''
+        node_map = self.node_map()
+        elem_nodes = lambda I,J,K : [(I+0,J+0,K+0),
+                                     (I+1,J+0,K+0),
+                                     (I+1,J+0,K+1),
+                                     (I+0,J+0,K+1),
+                                     (I+0,J+1,K+0),
+                                     (I+1,J+1,K+0),
+                                     (I+1,J+1,K+1),
+                                     (I+0,J+1,K+1)]
+
+        hexa_elem_dict = {tag_name : {}}
+        count = 0
+        for elem_id_k in range(self.z_divisions - 1):
+            for elem_id_j in range(self.y_divisions-1):
+                for elem_id_i in range(self.x_divisions - 1):
+                    hexa_elem_dict[tag_name][count] =  list(map(node_map,elem_nodes(elem_id_i,elem_id_j,elem_id_k)))
+                    count+=1
+        self.elem_num += count 
+        # update self.tag_dict with elem_dict information
+        self.tag_dict.update({'domain' : '3'}) 
+
+        return hexa_elem_dict
+
+    def build_elements(self):
+        ''' This function build linear and quad elements based on instance
+        parameters
+        '''
+
+        self.elem_num = 0
+
+        elem_dict = {}
+        node_dict = self.create_node_points()
+        linear_elem_dict = self.create_linear_elem()
+        quad_elem_dict = self.create_quad_elem()
+        hexa_elem_dict = self.create_hexa_elem()
+        
+        elem_dict.update({'node_point' : node_dict}) 
+        elem_dict.update({'straight_line' : linear_elem_dict}) 
+        elem_dict.update({'Quad4' : quad_elem_dict})
+        elem_dict.update({'Hexa8' : hexa_elem_dict})
+
+        return elem_dict
+
+    def create_node_points(self):
+        ''' This function create dict node points 
+        
+        Returns 
+            dict [tag_name] = elem_dict
+        '''
+        node_map = self.node_map()
+        node_elem_dict = {'ijk' : {0 : [node_map((0,0,0))]} ,
+                          'Ijk' : {1 : [node_map((self.x_divisions-1,0,0))]} ,
+                          'iJk' : {2 : [node_map((0,self.y_divisions-1,0))]} ,
+                          'IJk' : {3 : [node_map((self.x_divisions-1,self.y_divisions-1,0))]},
+                          'ijK' : {4 : [node_map((0,0,self.z_divisions-1))]} ,
+                          'IjK' : {5 : [node_map((self.x_divisions-1,0,self.z_divisions-1))]} ,
+                          'iJK' : {6 : [node_map((0,self.y_divisions-1,self.z_divisions-1))]} ,
+                          'IJK' : {7 : [node_map((self.x_divisions-1,self.y_divisions-1,self.z_divisions-1))]}
+                          }
+        self.elem_num += 8
+        # update self.tag_dict with elem_dict information
+        self.tag_dict.update({'ijk' : '10' , 
+                              'Ijk' : '11' , 
+                              'iJk' : '12' , 
+                              'IJk' : '13',
+                              'ijK' : '14' , 
+                              'IjK' : '15' , 
+                              'iJK' : '16' , 
+                              'IJK' : '17',
+                              }) 
+
+        return node_elem_dict
+
+    def create_quad_elem(self,tag_prefix='surface_'):
+        ''' This function create dict Quad4 elements
+        with the key given by the tag_name
+        
+        Parameters
+            tag_name : string
+                key for the element dictionaty
+
+        Returns 
+            dict [tag_name] = elem_dict
+        '''
+        node_map = self.node_map()
+        quad_elem_nodes_K = lambda I,J,K : [(I,J,K),(I,J+1,K),(I+1,J+1,K),(I+1,J,K)]
+        quad_elem_nodes_J = lambda I,K,J : [(I,J,K),(I,J,K+1),(I+1,J,K+1),(I+1,J,K)]
+        quad_elem_nodes_I = lambda J,K,I : [(I,J,K),(I,J+1,K),(I,J+1,K+1),(I,J,K+1)]
+
+        
+        plane_list = [[0,self.z_divisions - 1],
+                      [0,self.y_divisions - 1],
+                      [0,self.x_divisions -1 ]] # [K, J, I]
+        plane_dict = { 0 : 'K' , 1 : 'J', 2 : 'I' }
+        plane_func_dict = { 0 : quad_elem_nodes_K , 1 : quad_elem_nodes_J, 2 : quad_elem_nodes_I}
+        clockwise_dict = { 0 : [0,1] , 1 : [1,0], 2 : [1,0]}
+        loop_pairs = [[self.y_divisions,self.x_divisions],
+                      [self.z_divisions,self.x_divisions],
+                      [self.z_divisions,self.y_divisions]]
+        quad_elem_dict = {}
+        for plane_id, plane in enumerate(plane_list):
+            for index_id, index in enumerate(plane):
+                tag_index =  str(2) + str(plane_id) + str(index)
+                tag_name = tag_prefix + tag_index
+                quad_elem_dict[tag_name] = {}
+                count = 0
+                for elem_id_j in range(loop_pairs[plane_id][0] - 1):
+                    for elem_id_i in range(loop_pairs[plane_id][1] - 1):
+                        quad_elem_nodes = plane_func_dict[plane_id]
+                        if clockwise_dict[plane_id][index_id] ==0:
+                            quad_elem_dict[tag_name][count] =  list(map(node_map,quad_elem_nodes(elem_id_i,elem_id_j, index)))
+                        else:
+                            quad_elem_dict[tag_name][count] =  list(map(node_map,quad_elem_nodes(elem_id_i,elem_id_j, index)[::-1]))
+                        count+=1
+                self.elem_num += count 
+                # update self.tag_dict with elem_dict information
+                self.tag_dict.update({tag_name : tag_index}) 
+
+        return quad_elem_dict
+
+    def create_linear_elem(self,tag_prefix='line_'):
+        ''' This function create dict linear elements
+        with the key given by the tag_name
+        
+        Parameters
+            tag_name : string
+                key for the element dictionaty
+
+        Returns 
+            dict [tag_name] = elem_dict
+        '''
+        node_map = self.node_map()
+        linear_elem_nodes_K = lambda K,I,J : [(I,J,K),(I,J,K+1)]
+        linear_elem_nodes_J = lambda J,I,K : [(I,J,K),(I,J+1,K)]
+        linear_elem_nodes_I = lambda I,J,K : [(I,J,K),(I+1,J,K)]
+
+        
+        plane_list = [[[0,self.z_divisions - 1],[0,self.y_divisions - 1]],
+                      [[0,self.z_divisions - 1],[0,self.x_divisions - 1]],
+                      [[0,self.y_divisions - 1],[0,self.x_divisions - 1]]]
+        linear_dict = { 0 : 'K' , 1 : 'J', 2 : 'I' }
+        linear_func_dict = { 0 : linear_elem_nodes_I , 1 : linear_elem_nodes_J, 2 : linear_elem_nodes_K}
+        clockwise_dict = { 0 : [0,1] , 1 : [1,0], 2 : [1,0]}
+        loop_pairs = [self.x_divisions,self.y_divisions,self.z_divisions]
+        linear_elem_dict = {}
+        for plane_id, plane in enumerate(plane_list):
+            for indexI_id, K in enumerate(plane[0]):
+                for indexJ_id, J in enumerate(plane[1]):
+                    tag_index =  str(1) + str(plane_id) + str(J) + str(K)
+                    tag_name = tag_prefix + tag_index
+                    linear_elem_dict[tag_name] = {}
+                    count = 0
+                    for elem_id_i in range(loop_pairs[plane_id] - 1):
+                        linear_elem_nodes = linear_func_dict[plane_id]
+                        linear_elem_dict[tag_name][count] =  list(map(node_map,linear_elem_nodes(elem_id_i,J, K)))
+                        count+=1
+                    self.elem_num += count 
+                    # update self.tag_dict with elem_dict information
+                    self.tag_dict.update({tag_name : tag_index}) 
+
+        return linear_elem_dict
+
+
 class  Test_Utils(TestCase):
     def test_OrderedSet(self):
         s = OrderedSet('abracadaba')
@@ -1059,7 +1369,6 @@ class  Test_Utils(TestCase):
         self.assertEqual( list(s.selection_dict[3])[0],3)
         self.assertEqual( list(s.selection_dict['internal']),[5,6,7])
 
-
     def test_SelectionOperator_build_B(self):
         id_df = pd.DataFrame(data={'x': [0, 2, 4, 6], 'y': [1, 3, 5, 7]})
         group_dict = OrderedDict()
@@ -1071,14 +1380,27 @@ class  Test_Utils(TestCase):
         s.build_B(1)
 
     def test_DomainCreator(self):
-        creator_obj  = DomainCreator(x_divisions=4,y_divisions=3)
+        creator_obj  = DomainCreator(x_divisions=4,y_divisions=4)
         creator_obj.build_elements()
         try:
             os.mkdir('meshes')
         except:
             pass
 
-        mesh_path = r'meshes\mesh1.msh'
+        mesh_path = os.path.join('meshes','mesh1.msh')
+        creator_obj.save_gmsh_file(mesh_path)
+        shutil.rmtree('meshes')
+
+    def test_PrismaCreator(self):
+        creator_obj  = PrismaCreator(width=10,heigh=2,thickness=1,
+                                       x_divisions=11,y_divisions=7,z_divisions=4)
+        creator_obj.build_elements()
+        try:
+            os.mkdir('meshes')
+        except:
+            pass
+
+        mesh_path = os.path.join('meshes','mesh1.msh')
         creator_obj.save_gmsh_file(mesh_path)
         shutil.rmtree('meshes')
 
@@ -1138,3 +1460,4 @@ if __name__ == '__main__':
     #testobj.test_SelectionOperator_build_B()
     #testobj.test_DomainCreator()
     #testobj.test_mpi_launcher()
+    #testobj.test_PrismaCreator()

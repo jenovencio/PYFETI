@@ -16,18 +16,18 @@ methods:
 
 """
 
-import logging 
+import os, logging, time
 from unittest import TestCase, main
 import numpy as np
+import scipy
 from scipy import sparse
 from scipy.sparse import csc_matrix, issparse, lil_matrix, linalg as sla
 from scipy import linalg
 from scipy.sparse.linalg import LinearOperator
-from scipy.sparse.linalg import inv as sparseinv
 
 import sys
 sys.path.append('../..')
-from pyfeti.src.utils import OrderedSet, Get_dofs, save_object, MapDofs
+from pyfeti.src.utils import OrderedSet, Get_dofs, save_object, MapDofs, pyfeti_dir, load_object
 
 
 def cholsps(A, tol=1.0e-8):    
@@ -128,6 +128,7 @@ def cholsps(A, tol=1.0e-8):
             
     return U, idf, R   
 
+#@profile
 def splusps(A,tol=1.0e-6):
     ''' This method return the upper traingular matrix based on superLU of A.
     This function works for positive semi-definite matrix. 
@@ -155,36 +156,51 @@ def splusps(A,tol=1.0e-6):
     if not isinstance(A,csc_matrix):  
         A = csc_matrix(A)
 
-    lu = sla.splu(A)
+    A_diag = A.diagonal()
+    Atrace = A_diag.sum()
+    avg_diag_A = A_diag/Atrace
 
-    #L = lu.L
+    start = time.time()
+    try:
+         # apply small perturbation in diagonal
+         lu = sla.splu(A,options={'DiagPivotThresh': 0.0,'SymmetricMode':True})
+         logging.info('Standard SuperLU.')
+    except:
+        B = A.tolil()
+        B += 1.0E-15*avg_diag_A*sparse.diags(np.ones(n))
+        A = B.tocsc()
+        del B
+        lu = sla.splu(A,options={'DiagPivotThresh': 0.0,'SymmetricMode':True})
+        logging.info('Perturbed SuperLU.')
+
+    elapsed_time = time.time() - start
+    logging.info('Time Duration of SuperLU factorization = %4.2e (s)' %(elapsed_time))
+
+
+    start = time.time()
     U = lu.U
-    Pr = csc_matrix((n, n))
-    Pc = csc_matrix((n, n))
+    Pc = lil_matrix((n, n))
     Pc[np.arange(n), lu.perm_c] = 1
-    Pr[lu.perm_r, np.arange(n)] = 1
-
-    #L1 = (Pr.T * L).A
-    #L2 = (U*Pc.T).A
-
-    Utrace = np.trace(U.A)
-
-    diag_U = np.diag(U.A)/Utrace
+    
+    U_diag = U.diagonal()
+    Utrace = U_diag.sum()
+    diag_U = U_diag/Utrace
 
     idf = np.where(abs(diag_U)<tol)[0].tolist()
     
     if len(idf)>0:
         R = calc_null_space_of_upper_trig_matrix(U,idf)
-        R = Pc.A.dot(R)
+        R = Pc.dot(R)
     else:
         R = np.array([])
 
-    #for v in R.T:
-    #    is_null_space(A,v, tol)
+    elapsed_time = time.time() - start
+    logging.info('Time Duration of Kernel computation = %4.2e (s)' %(elapsed_time))
 
     return  lu, idf, R
 
-def calc_null_space_of_upper_trig_matrix(U,idf=None):
+#@profile
+def calc_null_space_of_upper_trig_matrix(U,idf=None,orthonormal=True):
     ''' This function computer the Null space of
     a Upper Triangule matrix which is can be a singular
     matrix
@@ -194,62 +210,42 @@ def calc_null_space_of_upper_trig_matrix(U,idf=None):
             Upper triangular matrix
         idf: list
             index to fixed if the matrix is singular
-    
+        orthonormal : Boolean, Default =True
+            return a orthonormal bases
+
     return
         R : np.matrix
             null space of U
     
     '''
 
-    
-    # finding the null space
+    # finding the null space pivots
     n,n = U.shape
     rank_null =len(idf)
-    rank = n - rank_null
-    
-    U[np.ix_(idf),np.ix_(idf)] = 0
-
-    # finding the null space
-    idp = set(range(n))
-    for fid in idf:
-        idp.remove(fid)
-    
-    idp = list(idp)
-
-    R = None
+    all = set(range(n))
+    idp = list(all - set(idf))
+    R = np.zeros([n,rank_null])
     if rank_null>0:
-        Im = np.eye(rank_null)
-        
-        # Applying permutation to get an echelon form
-        
-        PA = np.zeros([n,n])
-        PA[:rank,:] = U.A[idp,:]
-        PA[rank:,:] = U.A[idf,:]
-        
-        # creating block matrix
-        A11 = np.zeros([rank,rank])
-        A12 = np.zeros([rank,rank_null])
-        
-        A11 = PA[:rank,idp]
-        A12 = PA[:rank,idf]
-        
-        
-        R11 = np.zeros([rank,rank_null])
-        R = np.zeros([n,rank_null])
-        
-        # backward substitution
-        for i in range(rank_null):
-            for j in range(rank-1,-1,-1):
-                if j==rank-1:
-                    R11[j,i] = -A12[j,i]/A11[j,j]
-                else:
-                    R11[j,i] = (-A12[j,i] - np.dot(R11[j+1:rank,i],A11[j,j+1:rank]) )/A11[j,j]
-                
-        # back to the original bases
-        R[idf,:] = Im
-        R[idp,:] = R11
+        U_lil = U.tolil()
 
-        return R
+        Ur = U_lil[:,idf].A
+        Ur[idf,:] = -np.eye(rank_null,rank_null)
+        
+        U_lil[idf,:] = 0.0
+        U_lil[:,idf] = 0.0
+        U_lil[idf,idf] = 1.0
+        U_csr = U_lil.tocsr()
+        R = -sla.spsolve_triangular(U_csr ,Ur, lower=False)
+
+        # free space im memory
+        del U_csr
+        del U_lil
+        del Ur
+
+        if orthonormal:
+            R = linalg.orth(R)
+
+    return R
 
 def pinv_and_null_space_svd(K,tol=1.0E-8):
     ''' calc pseudo inverve and
@@ -309,11 +305,82 @@ def is_null_space(K,v, tol=1.0E-3):
     else:
         return False
 
-def cal_schur_complement(K_ii, K_ib, K_bb):
-    K_ii_inv = SparseMatrix(K_ii.inverse())
-    K_bi = SparseMatrix(K_ib.data.T)
-    K_help = K_ii_inv.dot(K_ib.data)
-    return K_bb.data - K_bi.dot(K_help)
+
+def vector2localdict(v,map_dict):
+    ''' converts an array to a dict
+    based on map_dict such that map_dict[global_index] = key
+    '''
+    v_dict = {}
+    for global_index, local_info in map_dict.items():
+        for interface_id in local_info:
+            v_dict[interface_id] = v[np.ix_(global_index)]
+
+    return v_dict
+
+def array2localdict(v,map_dict):
+    ''' converts an array to a dict
+    based on map_dict such that map_dict[key] = global_index
+    '''
+    v_dict = {}
+    for interface_id, global_index in map_dict.items():
+        v_dict[interface_id] = v[np.ix_(global_index)]
+
+    return v_dict
+
+def localdict2array(v_dict,length,map_dict):
+    ''' converts an array to a dict
+    based on map_dict such that map_dict[key] = global_index
+    '''
+    v = np.zeros(length)
+    for interface_id, global_index in map_dict.items():
+        v[global_index] += v_dict[interface_id]
+
+    return v
+
+
+class RetangularLinearOperator(LinearOperator):
+    def __init__(self,A_dict,row_map_dict,column_map_dict,shape=(0,0),dtype=np.float):
+
+        super().__init__(dtype=dtype,shape=shape)
+
+        self.A_dict = A_dict
+        self.row_map_dict = row_map_dict
+        self.column_map_dict = column_map_dict
+
+    def vec2dict(self,v,**kwargs) :
+        return array2localdict(v, self.column_map_dict)
+
+    def dict2vec(self,v_dict,length,map_dict):
+        return localdict2array(v_dict,length,map_dict)
+
+    def _callback(self,a):
+        return a
+    
+    def _matvec(self,v, **kwargs):
+
+        logging.info(('v = ', v))
+        # convert vector to dict    
+        v_dict = self.vec2dict(v, **kwargs)
+
+        a = np.zeros(self.shape[0])
+        for (i,j), A in self.A_dict.items():
+            if j>=i:
+                pair = (i,j)
+            else:
+                pair = (j,i)
+
+            # transpose multiplication
+            try:
+                a[self.row_map_dict[i]] += A.dot(v_dict[pair])
+            except:
+                a[self.row_map_dict[pair]] += A.T.dot(v_dict[i])
+
+        
+        return self._callback(a)
+
+    def _transpose(self):
+        return RetangularLinearOperator(self.A_dict,self.column_map_dict,self.row_map_dict,
+                                        shape=(self.shape[1],self.shape[0]),dtype=self.dtype)
 
 class LinearSys():
     def __init__(self,A,M,alg='splu'):
@@ -333,7 +400,7 @@ class LinearSys():
         if self.alg=='splu':
             x = self.lu.solve(b_prime)
         elif self.alg=='cg':
-            x = sparse.linalg.cg(A,b_prime)[0]
+            x = sparse.linalg.cg(A,b_prime,atol=1.0E-10)[0]
         else:
             raise('Algorithm &s not supported' %self.alg)
             
@@ -407,8 +474,6 @@ class ProjectorOperator(LinearOperator):
     def _matvec(self,v):
         return self.PAP.dot(v)
         
-
-
 class DualLinearSys():      
     def __init__(self,A,B,nc,sigma=0.0,precond=None, projection=None):
         ''' Creates a linear operator such as
@@ -751,16 +816,11 @@ class Pseudoinverse():
             
             # add constraint in K matrix and applu SuperLu again
             if len(idf):
-                Kmod = K[:,:] # creating copy because np.array is a reference
-                idf_u = [np.argwhere(lu.perm_c==elem)[0][0] for elem in idf]
-                idf_l = [np.argwhere(lu.perm_r==elem)[0][0] for elem in idf]
-                Kmod[idf_u,:] = 0.0
-                Kmod[:,idf_u] = 0.0
-                Kmod[idf_u,idf_u] = K.diagonal().max()
-                lu, idf_garbage, R_garbage = splusps(Kmod,tol=tol)
-                idf = idf_u
+                Pr = lambda x : x - R.dot(R.T.dot(x))
+            else:
+                Pr = lambda x : x 
                 
-            K_pinv = lu.solve
+            K_pinv = lambda x : Pr(lu.solve(x))
             
         elif solver_opt=='cholsps':
             U,idf,R =cholsps(K,tol=tol)
@@ -803,9 +863,10 @@ class Pseudoinverse():
         idf = self.free_index
         
         # f must be orthogonal to the null space R.T*f = 0 
-        if idf:
-            f[idf] = 0.0
-        
+        #P = sparse.eye(f.shape[0]).tolil()
+        #if idf:
+        #    P[idf,idf] = 0.0
+        #     f = P.dot(f)
         #if self.solver_opt == 'cholsps':
         #    f[idf] = 0.0
         
@@ -892,6 +953,8 @@ class Matrix():
         '''
         Matrix.counter+=1
         self.id = Matrix.counter
+        if isinstance(K,np.matrix):
+            K = np.array(K)
         self.data = K
         self.key_dict = key_dict
         self.type = None
@@ -923,8 +986,8 @@ class Matrix():
     
     @property 
     def trace(self):
-        return np.trace(self.data)
-    
+        return self.data.diagonal().sum()
+         
     @property 
     def det(self):
         return np.linalg.det(self.data)
@@ -935,10 +998,10 @@ class Matrix():
         return np.sort(w)[::-1]
 
     def dot(self,x):
-        return np.dot(self.data, x)
+        return K.dot(x)
         
     def inverse(self):
-        return np.inv(self.data)
+        pass
         
     @property
     def kernel(self):
@@ -983,19 +1046,27 @@ class Matrix():
         
         if isinstance(dof_ids,str):
             dofs = list(self.key_dict[dof_ids])
+        elif isinstance(dof_ids,int):
+            dofs = list(self.key_dict[dof_ids])
         else:
             dofs = list(dof_ids)
         
         if list(dofs)[0] is None:
             return 
- 
+        
+        if issparse(self.data):
+            self.data = self.data.tolil()
         dirichlet_stiffness = self.trace/self.shape[0]       
         self.data[dofs,:] = 0.0
         self.data[:,dofs] = 0.0
         self.data[dofs,dofs] = dirichlet_stiffness
         self.eliminated_id.update(dofs)
-        return self.data
-        
+
+        if issparse(self.data):
+            return self.data.tocsr()
+        else:
+            return self.data
+
     def save_to_file(self,filename=None):
         if filename is None:
             filename = self.name + '.pkl'
@@ -1009,13 +1080,6 @@ class SparseMatrix(Matrix):
     '''
     def __init__(self,K,key_dict={}):
         super().__init__(K,key_dict={})
-        if not issparse(K):
-            self.data = csc_matrix(K)
-
-    def inverse(self):
-        return sparseinv(self.data)
-
-
 
 
 class Vector():
@@ -1057,29 +1121,202 @@ class Vector():
 
 
 class  Test_linalg(TestCase):
+
+    def create_pinv_matrix_and_vector_1(self,mult=1.0,case_id=None):
+        
+        A = np.array([[1.,-1.,0.,0.],[-1.,2.,-1.,0.],[0.,-1.,2.,-1.],[0.,0.,-1.,1.]])
+        R = np.array([[1,1,1,1]])
+        b = mult*np.array([-1.,0.,0.,1.])
+
+        return A, b
+
+    def create_pinv_matrix_and_vector_2(self,mult=1.0,case_id=0):
+        cases = {}
+        cases[0] = 'case_18'
+        cases[1] = 'case_800'
+        matrices_path = pyfeti_dir(os.path.join('cases','matrices',cases[case_id]))
+        K = load_object(os.path.join(matrices_path,'K.pkl'))
+        B1 = load_object(os.path.join(matrices_path,'B_left.pkl'))
+        B2 = load_object(os.path.join(matrices_path,'B_right.pkl'))
+
+        ones = np.ones(B1.shape[0])
+
+        f = B2.T.dot(ones) - B1.T.dot(ones) 
+
+
+        R = scipy.linalg.null_space(K.A)
+        Pr = (np.eye(f.shape[0]) - R.dot(R.T))
+        fr = Pr.dot(f)
+
+        null_space_force = R.T.dot(fr)
+
+        return K, mult*fr
+
     def test_ProjectorOperator(self):
 
-        A = 3*np.array([[2,-1,0],[-1,2,0],[0,-1,2]])
-        P = np.array([[1,0,0],[0,1,0],[0,0,0]])
+        A = 3*np.array([[2.,-1.,0.],[-1.,2.,0.],[0.,-1.,2.]])
+        P = np.array([[1.,0.,0.],[0.,1.,0.],[0.,0.,0.]])
         PA = ProjectorOperator(A,P,shape=(3,3))
-        b = np.array([-2,4,0])
+        b = np.array([-2.,4.,0.])
         b1 = PA.dot(b)
 
         np.testing.assert_almost_equal(b1,P.dot(b1),decimal=10)
 
     def test_ProjectorOperator_with_minres(self):
-        A = 3*np.array([[2,-1,0],[-1,2,0],[0,-1,2]])
-        P = np.array([[1,0,0],[0,1,0],[0,0,0]])
+        A = 3.0*np.array([[2,-1,0],[-1,2,0],[0,-1,2]])
+        P = 1.0*np.array([[1,0,0],[0,1,0],[0,0,0]])
         PA = ProjectorOperator(A,P,shape=(3,3))
         Asingular = P.dot(A.dot(P))
         b = np.array([-2,4,0])
 
-        x_cg, info = sparse.linalg.cg(PA,b)
+        x_cg, info = sparse.linalg.cg(PA,b,atol=1.0E-10)
         x_minres, info = sparse.linalg.minres(PA,b)
         x_svd = (np.linalg.pinv(Asingular)).dot(b)
 
         np.testing.assert_almost_equal(x_cg,x_svd,decimal=10)
         np.testing.assert_almost_equal(x_minres,x_svd,decimal=10)
 
+    def test_slusps(self):
+        K, f = self.create_pinv_matrix_and_vector_1(100.0)
+        Kpinv = np.linalg.pinv(K)
+
+        # compute the pinv with numpy method
+        xsol = Kpinv.dot(f)
+        error_target = K.dot(xsol) - f
+
+        # compute the pinv with superLU
+        lu, idf, R = splusps(K)
+        x = lu.solve(f)
+        error = K.dot(x) - f
+
+        np.testing.assert_almost_equal(error,error_target,decimal=10)
+        
+    def test_pinv_class(self):
+
+        cases = []
+        cases.append(self.create_pinv_matrix_and_vector_1)
+        cases.append(self.create_pinv_matrix_and_vector_2)
+        cases.append(self.create_pinv_matrix_and_vector_2)
+
+        cases_id = [0,0,1]
+        for i in range(len(cases_id)):
+            K, f = cases[i](1.0E10,case_id=cases_id[i])
+
+            # maybe the matrix is sparse
+            try:
+                Kpinv = np.linalg.pinv(K.A)
+            except:
+                Kpinv = np.linalg.pinv(K)
+            norm_f = np.linalg.norm(f)
+            # compute the pinv with numpy method
+            xsol = Kpinv.dot(f)
+            error_target = (K.dot(xsol) - f)/norm_f
+
+            Kinv, R = pinv_and_null_space_svd(K,tol=1.0E-8)
+            xpinv = np.array(Kinv.dot(f)).flatten()
+            error_pinv = (K.dot(xpinv) - f)/norm_f
+            np.testing.assert_almost_equal(error_pinv,error_target,decimal=10)
+
+
+            pinv = Pseudoinverse(method='splusps',tolerance=1.0E-8)
+            pinv.compute(K)
+            x = pinv.apply(f)
+            error = (K.dot(x) - f)/norm_f
+            np.testing.assert_almost_equal(error,error_target,decimal=10)
+            np.testing.assert_almost_equal(R.T.dot(x)/np.linalg.norm(x),0.0,decimal=10)
+
+    def test_splusps_and_lu_2(self):
+
+        from scipy.linalg import lu_factor, lu_solve
+        A = 1.0*np.array([[2, 5, 8, 7], [5, 2, 2, 8], [7, 5, 6, 6], [5, 4, 4, 8]])
+        lu, piv = lu_factor(A)
+        b = 1.0*np.array([1, 1, 1, 1])
+
+        x = lu_solve((lu, piv), b)
+
+        lu, idf, R = splusps(A)
+
+        x_splu = lu.solve(b)
+
+        np.testing.assert_almost_equal(x,x_splu,decimal=10)
+
+    def test_splusps_and_lu(self):
+        # three beams problem
+        #    |> ------ 0 --------0-------<|
+
+        from scipy.linalg import lu_factor, lu_solve
+        A = np.array([[2., -1., 0., 0., 0., 0.], 
+                      [-1., 1., 0., 0., 0., 0.], 
+                      [ 0., 0., 1., -1, 0., 0.], 
+                      [ 0., 0., -1., 1., 0., 0.],
+                      [ 0., 0., 0., 0., 1., -1], 
+                      [ 0., 0., 0., 0., -1., 2.]])
+
+        
+        # kernel of the matrix
+        r = np.array([0.,0.,1.,1.,0.,0.])
+        
+        np.testing.assert_almost_equal(A.dot(r),r*0,decimal=15)
+
+        A = sparse.csc_matrix(A)
+        lu, idf, R = splusps(A)
+
+        b1 = np.array([0., 1., 0. , 0., -1., 0.0])
+        x1 = lu.solve(b1)
+
+        np.testing.assert_almost_equal(A.dot(x1) - b1, b1*0 ,decimal=12)
+        np.testing.assert_almost_equal(x1[0:2],np.array([1.0,2.0]),decimal=12)
+        np.testing.assert_almost_equal(x1[2],x1[2],decimal=12)
+        np.testing.assert_almost_equal(x1[4:],np.array([-2.0,-1.0]),decimal=12)
+
+        b2 = np.array([0., 1., 1., -1., -1., 0.0])
+        x2 = lu.solve(b2)
+        np.testing.assert_almost_equal(A.dot(x2) - b2, b2*0 ,decimal=14)
+
+
+        b3 = np.array([0., 1., 1000., -1000., -1., 0.0])
+        x3 = lu.solve(b3)
+        np.testing.assert_almost_equal(b3*0, A.dot(x3) - b3, decimal=14)
+
+    def test_splusps_and_lu_3(self):
+        # singular beam problem
+        #    0-------0
+
+        from scipy.linalg import lu_factor, lu_solve
+        A = np.array([[ 1., -1., 0., 0., 0., 0.], 
+                       [-1.,  2., -1., 0., 0., 0.], 
+                       [ 0., -1.,  2.,-1, 0., 0.], 
+                       [ 0.,  0., -1., 2., -1, 0.],
+                       [ 0., 0., 0., -1., 2., -1,], 
+                       [ 0., 0., 0., 0., -1., 1,]])
+        
+        r = np.array([1.,1.,1.,1.,1.,1.])
+        
+        np.testing.assert_almost_equal(A.dot(r),r*0,decimal=12)
+
+        lu, idf, R = splusps(A)
+
+        b1 = np.array([1.0, 1.0, 0. , 0., -1.0, -1.0])
+        np.testing.assert_almost_equal(r.dot(b1),0.0,decimal=12)
+        x1 = lu.solve(b1)
+        Pr = scipy.eye(b1.shape[0]) - R.dot(R.T)
+        xp = Pr.dot(x1)
+        np.testing.assert_almost_equal(A.dot(x1) - b1, b1*0 ,decimal=12)
+        np.testing.assert_almost_equal(A.dot(xp) - b1, b1*0 ,decimal=12)
+
+        # checking orthogonality in the solution
+        np.testing.assert_almost_equal(r.dot(xp), 0.0 ,decimal=12)
+
+        Apinv = scipy.linalg.pinv(A)
+        xinv = Apinv.dot(b1)
+        np.testing.assert_almost_equal(xp, xinv ,decimal=12)
+
 if __name__ == '__main__':
     main()
+
+    #testobj = Test_linalg() 
+    #testobj.test_splusps_and_lu()
+    #testobj.test_splusps_and_lu_3()
+    #testobj.test_slusps()
+    #testobj.test_pinv_class()
+    #testobj.create_pinv_matrix_and_vector_2()

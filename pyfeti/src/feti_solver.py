@@ -5,7 +5,7 @@ import pandas as pd
 import os
 from scipy import sparse
 from scipy.sparse.linalg import LinearOperator
-from scipy.sparse import csc_matrix, csr_matrix, lil_matrix, issparse
+from scipy.sparse import csc_matrix, issparse
 from unittest import TestCase, main
 import logging
 import time
@@ -15,9 +15,10 @@ import shutil
 sys.path.append('../..')
 from pyfeti.src.utils import OrderedSet, Get_dofs, save_object, load_object, pyfeti_dir, MPILauncher
 from pyfeti.src.linalg import Matrix, Vector, elimination_matrix_from_map_dofs, \
-                              expansion_matrix_from_map_dofs, ProjLinearSys, ProjPrecondLinearSys
+                              expansion_matrix_from_map_dofs, ProjLinearSys, ProjPrecondLinearSys, \
+                              vector2localdict
+
 from pyfeti.src import solvers
-from pyfeti.src.preconditioner import *
 
 
 # geting path of MPI executable
@@ -37,6 +38,7 @@ except:
     print("Warning! Using python in global path")
     python_path = None
     python_exec = 'python'
+
 
 class FETIsolver():
     def __init__(self,K_dict,B_dict,f_dict,**kwargs):
@@ -64,27 +66,35 @@ class SerialFETIsolver(FETIsolver):
         
     def solve(self):
        manager = self.manager
+
+       start_time = time.time()
        manager.assemble_local_G_GGT_and_e()
        manager.assemble_cross_GGT()
        manager.build_local_to_global_mapping()
-       
+       build_local_matrix_time = time.time() - start_time
+
        G = manager.assemble_G()
        GGT = manager.assemble_GGT()
        e = manager.assemble_e()
-
-       manager.assemble_preconditioner()
        
-       lambda_sol,alpha_sol, rk, proj_r_hist, lambda_hist = manager.solve_dual_interface_problem()
+       start_time = time.time()
+       lambda_sol,alpha_sol, rk, proj_r_hist, lambda_hist, info_dict = manager.solve_dual_interface_problem()
+       elaspsed_time_PCPG = time.time() - start_time
+
        u_dict, lambda_dict, alpha_dict = manager.assemble_solution_dict(lambda_sol,alpha_sol)
+
+       elapsed_time = time.time() - start_time
        return Solution(u_dict, lambda_dict, alpha_dict,rk, proj_r_hist, lambda_hist,
                        lambda_map=self.manager.local2global_lambda_dofs,alpha_map=self.manager.local2global_alpha_dofs,
                        u_map=self.manager.local2global_primal_dofs,lambda_size=self.manager.lambda_size,
-                       alpha_size=self.manager.alpha_size)
+                       alpha_size=self.manager.alpha_size,
+                       solver_time=elapsed_time,local_matrix_time = build_local_matrix_time, 
+                       time_PCPG = elaspsed_time_PCPG)
         
 class SolverManager():
-    def __init__(self,K_dict,B_dict,f_dict,pseudoinverse_kargs={'method':'svd','tolerance':1.0E-8},dual_interface_algorithm={'method':'PCPG', 'preconditioner': 'assembled', 'local_preconditioner': 'None'}):
+    def __init__(self,K_dict,B_dict,f_dict,pseudoinverse_kargs={'method':'svd','tolerance':1.0E-8},dual_interface_algorithm='PCPG',**kwargs):
         self.local_problem_dict = {}
-        self.course_problem = CourseProblem()
+        self.course_problem = CoarseProblem()
         self.local2global_lambda_dofs = {}
         self.global2local_lambda_dofs = {}
         self.local2global_alpha_dofs = {}
@@ -102,56 +112,76 @@ class SolverManager():
         self.G = None
         self.e = None
         self.GGT = None
-        self.num_partitions = len(K_dict.keys())
+        self.num_partitions =  len(K_dict.keys())
         self.map_dofs = None
-        self.tolerance = 1.e-10
         self.pseudoinverse_kargs = pseudoinverse_kargs
-        self.dual_interface_algorithm = dual_interface_algorithm['method']
+        self.dual_interface_algorithm = dual_interface_algorithm
         self.is_local_G_GGT_and_e_computed = False
+        
+        # transform key args in object variables
+        self.__dict__.update(kwargs)
+        self.kwargs = kwargs
 
-        if 'preconditioner' not in dual_interface_algorithm or dual_interface_algorithm['preconditioner'] is 'assembled':
-            self.preconditioner = PreconditionerAssembler()
-        else:
-            print('WARNING: Global preconditioner ', dual_interface_algorithm['preconditioner'], ' not implemented and set to default assembler.')
-            self.preconditioner = PreconditionerAssembler()
-
-        if 'local_preconditioner' in dual_interface_algorithm:
-            self.preconditioner_type_local = dual_interface_algorithm['local_preconditioner']
-        else:
-            self.preconditioner_type_local = 'None'
-
-        self._create_local_problems(K_dict, B_dict, f_dict)
-
+        self._create_local_problems(K_dict,B_dict,f_dict)
+        
     @property
     def GGT_inv(self):
         return self.course_problem.compute_GGT_inv()
 
     def _create_local_problems(self,K_dict,B_dict,f_dict):
-
+        
         for key, obj in K_dict.items():
             B_local_dict = B_dict[key]
             self.local_problem_id_list.append(key)
-            self.local_problem_dict[key] = LocalProblem(obj,B_local_dict,f_dict[key],id=key,pseudoinverse_kargs=self.pseudoinverse_kargs, preconditioner_type_local = self.preconditioner_type_local)
+            self.local_problem_dict[key] = LocalProblem(obj,B_local_dict,f_dict[key],id=key,pseudoinverse_kargs=self.pseudoinverse_kargs)
             for interface_id, B in B_local_dict.items():
                 self.local_lambda_length_dict[interface_id] = B.shape[0]
         
         self.local_problem_id_list.sort()
 
-    def assemble_preconditioner(self):
+    def dict2array(self,A_dict):
+        ''' This function transform a local dictionary 
+        into a scipy block matrix
+        and then provide the dict with chunks
+        Parameters:
+            A_dict : dict
+                local dictionary with array or sparse.matrix
 
-        self.preconditioner.preallocate(self.lambda_size)
-        for problem_id, local_problem in self.local_problem_dict.items():
-            local_precond_dict = local_problem.preconditioner_local
+        return 
+            sparse matrix
+            dict with chunks
+        '''
+        chunck_dict = {} # [position, length]
+        A_list = []
+        count = 0
+        for key, A in A_dict.items():
+            length = A.shape[1]
+            chunck_dict[key] = [count,length]
+            count += length
+            if not sparse.issparse(A):
+                A = sparse.csc_matrix(A)
+            A_list.append(A)
+            
+        return sparse.hstack(A_list), chunck_dict
 
-            for interface_id, local_precond in local_precond_dict.items():
-                if interface_id[1] > interface_id[0]:
-                    global_indices = self.local2global_lambda_dofs[interface_id]
-                else:
-                    global_indices = self.local2global_lambda_dofs[(interface_id[1], interface_id[0])]
+    def array2dict(self,A,chunck_dict):
+        ''' inverse of dict2array , break a 2D sparse array
+        in dict 
 
-                local_precond_expanded = lil_matrix((self.lambda_size, self.lambda_size))
-                local_precond_expanded[np.ix_(global_indices, global_indices)] = local_precond
-                self.preconditioner.assemble(local_precond_expanded)
+        Parameters
+            A : sparse matrix
+                horizontal sparse matrix
+            chunck_dict : dict
+                dict with position and lengh of local blocks
+            
+        return 
+            dict
+                dict with block sparse matrix
+        '''
+        A_dict = {}
+        for key,(pos,length) in chunck_dict.items():
+            A_dict[key] = A[:,pos:pos+length]
+        return A_dict        
 
     def assemble_local_G_GGT_and_e(self):
         
@@ -181,7 +211,7 @@ class SolverManager():
         GGT_local_dict = {}
         for (local_i, nei_i) , Gi in self.course_problem.G_dict.items():
             for (local_j, nei_j), Gj in self.course_problem.G_dict.items():
-                if local_i==nei_j and nei_i==local_j:
+                if local_i!=local_j and local_i==nei_j and nei_i==local_j:
                     try:
                         if Gi.shape[0]>0 and Gj.shape[0]>0:
                             GGT_local_dict[local_i,local_j] = Gi.dot(Gj.T)
@@ -211,8 +241,17 @@ class SolverManager():
             raise('Build local to global mapping before calling this function')
     
     def compute_lambda_im(self):
-        return  self.G.T.dot((self.GGT_inv).dot(self.e))
+        return  self.G.T.dot(self.GGT_inv.dot(self.e))
         
+    def get_vdot(self):
+        return lambda v,w : np.dot(v,w)
+
+    def get_projection(self):
+        G = self.G
+        GGT_inv = self.GGT_inv
+
+        return lambda r : r - G.T.dot(GGT_inv.dot(G.dot(r)))
+
     def solve_interface_gap(self,v_dict=None, external_force=False):
         u_dict = {}
         for problem_id, local_problem in self.local_problem_dict.items():
@@ -228,44 +267,102 @@ class SolverManager():
                 gap = u_dict[local_id,nei_id] + u_dict[nei_id,local_id]
                 gap_dict[local_id, nei_id] = gap
                 gap_dict[nei_id, local_id] = -gap
+            elif nei_id==local_id:
+                logging.warning('Dirichlet B.C set to 0!')
+                gap = u_dict[local_id,nei_id] 
+                gap_dict[local_id, nei_id] = gap
+
         return gap_dict
+
+    def solve_interface_force(self,gap_dict,**kwargs):
+        gap_f_dict = {}
+        for problem_id, local_problem in self.local_problem_dict.items():
+            f_dict_local = local_problem.apply_schur_complement(gap_dict,**kwargs)
+            gap_f_dict.update(f_dict_local)
+
+
+        # compute interface force avg
+        f_dict = {}
+        for interface_id in gap_dict:
+            local_id, nei_id = interface_id
+            if nei_id>local_id:
+                gap = gap_f_dict[local_id,nei_id] + gap_f_dict[nei_id,local_id]
+                f_dict [local_id, nei_id] = gap
+                f_dict [nei_id, local_id] = gap
+            elif nei_id==local_id:
+                gap = u_dict[local_id,nei_id] 
+                f_dict[local_id, nei_id] = gap
+
+
+        return f_dict
 
     def solve_dual_interface_problem(self,algorithm=None):
         
         if algorithm is None:
             algorithm = self.dual_interface_algorithm
 
+        logging.info('Solving lambda image')
+        t1 = time.time()
         lambda_im = self.compute_lambda_im()
-        G = self.G
-        GGT_inv = self.GGT_inv
-        I = np.eye(self.lambda_size)
-        Projection_action = lambda r : (I - G.T.dot(GGT_inv.dot(G))).dot(r)
-        F_action = lambda lambda_ker : self.apply_F(lambda_ker)
-        precondition = lambda search_dirs : self.preconditioner.precondition(search_dirs)
-        residual = -self.apply_F(lambda_im, external_force=True)
+        logging.info('elapsed_time_lambda_im = %2.4f' %(time.time() - t1) )
 
+        Projection_action = self.get_projection()
+        F_action = lambda lambda_ker : self.apply_F(lambda_ker)
+        vdot = self.get_vdot()
+
+        Precondicioner_action = None
+        try:
+            precond_type = self.precond_type
+            if self.precond_type is not None:
+                Precondicioner_action = lambda gap_u : self.apply_F_inv(gap_u,precond_type=precond_type )
+                logging.info('Preconditioner type = %s' %precond_type)
+            else:
+                logging.info('Preconditioner type = Identity')
+        except:
+            self.precond_type = None
+            
+
+        logging.info('Computing global residual')
+        t1 = time.time()
+        residual = -self.apply_F(lambda_im, external_force=True,global_exchange=False)
+        norm_d = np.sqrt(vdot(residual,residual))
+        t1 = time.time()
+        logging.info('{"elaspsed_global_residual" : %2.2e} # Elapsed time [s]' %(time.time() - t1))
+
+        logging.info('Dual Interface algorithm = %s' %algorithm)
         method_to_call = getattr(solvers, algorithm)
 
-        lambda_ker, rk, proj_r_hist, lambda_hist = method_to_call(F_action,residual,Projection_action=Projection_action,
-                                                         lambda_init=None,
-                                                         Precondicioner_action=precondition,
-                                                         tolerance=self.tolerance,max_int=max(self.lambda_size*4,10))
+        try:
+            self.tolerance = norm_d*self.tolerance 
+        except:
+            self.tolerance = None # using default tolerance of the choosen interface algorithm
+           
+        try:
+            max_int = self.max_int
+        except:
+            max_int = None # using default max_int of the choosen interface algorithm
+
+        lambda_ker, rk, proj_r_hist, lambda_hist, info_dict = method_to_call(F_action,residual,
+                                                                             Projection_action=Projection_action,
+                                                                             lambda_init=None,
+                                                                             Precondicioner_action=Precondicioner_action,
+                                                                             tolerance=self.tolerance,
+                                                                             max_int=max_int,
+                                                                             vdot=vdot)
 
         lambda_sol = lambda_im + lambda_ker
+        
+        G = self.G
+        GGT_inv = self.GGT_inv
+        Fdot_lambda_ker = self.apply_F(lambda_ker, external_force=False,global_exchange=False)
+        alpha_sol = GGT_inv.dot(G.dot(residual - Fdot_lambda_ker))
 
-        alpha_sol = GGT_inv.dot(G.dot(residual - self.apply_F(lambda_ker)))
-
-        return lambda_sol,alpha_sol, rk, proj_r_hist, lambda_hist
+        return lambda_sol,alpha_sol, rk, proj_r_hist, lambda_hist, info_dict
 
     def vector2localdict(self,v,map_dict):
-        v_dict = {}
-        for global_index, local_info in map_dict.items():
-            for interface_id in local_info:
-                v_dict[interface_id] = v[np.ix_(global_index)]
+        return vector2localdict(v,map_dict)
 
-        return v_dict
-
-    def apply_F(self, v,  external_force=False):
+    def apply_F(self, v,  external_force=False, **kwargs):
        
         v_dict = self.vector2localdict(v, self.global2local_lambda_dofs)
         gap_dict = self.solve_interface_gap(v_dict,external_force)
@@ -275,6 +372,18 @@ class SolverManager():
             d[global_index] += gap_dict[interface_id]
 
         return -d
+
+    def apply_F_inv(self,v,**kwargs):
+        # map array to domains dict and then solve force gap
+        v_dict = self.vector2localdict(v, self.global2local_lambda_dofs)
+        gap_dict = self.solve_interface_force(v_dict,**kwargs)
+
+        # assemble vector based on dict
+        d = np.zeros(self.lambda_size)
+        for interface_id,global_index in self.local2global_lambda_dofs.items():
+            d[global_index] += gap_dict[interface_id]
+
+        return d
 
     def build_local_to_global_mapping(self):
         ''' This method create maps between local domain and the global
@@ -317,7 +426,8 @@ class SolverManager():
                 self.global2local_alpha_dofs[tuple(global_alpha_index)] = {local_id:local_alpha_dofs}
                     
             for nei_id in local_problem.neighbors_id:
-                if nei_id>local_id:
+                # nei_id==local_id represents non-physical domains, e.g. Boundary conditions
+                if nei_id>=local_id:
                     try:
                         local_lambda_length = self.local_lambda_length_dict[local_id,nei_id]
                         local_dofs = np.arange(local_lambda_length) 
@@ -542,16 +652,18 @@ class SolverManager():
 
 
 class ParallelSolverManager(SolverManager):
-    def __init__(self,K_dict,B_dict,f_dict,pseudoinverse_kargs={'method':'svd','tolerance':1.0E-8},dual_interface_algorithm={'method':'PCPG', 'preconditioner': 'assembled', 'local_preconditioner': 'Dirichlet'}, temp_folder='temp',**kwargs):
+    def __init__(self,K_dict,B_dict,f_dict,pseudoinverse_kargs={'method':'svd','tolerance':1.0E-8},temp_folder='temp',**kwargs):
         self.temp_folder = temp_folder
         self.local_problem_path = {}
         self.prefix = 'local_problem_'
         self.ext = '.pkl'
         self.log = True
-        self.pseudoinverse_kargs = pseudoinverse_kargs
-        super().__init__(K_dict,B_dict,f_dict,dual_interface_algorithm=dual_interface_algorithm, **kwargs)
+        self.launcher_only = False
+        self.mpi_obj = None
+        super().__init__(K_dict,B_dict,f_dict,pseudoinverse_kargs=pseudoinverse_kargs,**kwargs)
         
     def _create_local_problems(self,K_dict,B_dict,f_dict,temp_folder=None):
+        start_time = time.time()
         if temp_folder is None:
             temp_folder = self.temp_folder
         else:
@@ -572,7 +684,7 @@ class ParallelSolverManager(SolverManager):
         for key, obj in K_dict.items():
             B_local_dict = B_dict[key]
             self.local_problem_id_list.append(key)
-            self.local_problem_dict[key] = LocalProblem(obj,B_local_dict,f_dict[key],id=key)
+            self.local_problem_dict[key] = LocalProblem(obj,B_local_dict,f_dict[key],id=key,pseudoinverse_kargs=self.pseudoinverse_kargs)
             for interface_id, B in B_local_dict.items():
                 self.local_lambda_length_dict[interface_id] = B.shape[0]
 
@@ -580,38 +692,75 @@ class ParallelSolverManager(SolverManager):
             self.local_problem_path[key] = local_path
             save_object(self.local_problem_dict[key] , local_path)
 
+        elapsed_time = time.time() - start_time
+        logging.info('{"serializing_local_problems" : %4.5e} #Elapsed time (s)' %elapsed_time)
+
     def launch_mpi_process(self):
         python_file = pyfeti_dir(os.path.join('src','MPIsolver.py'))
 
-        mpi_obj = MPILauncher(python_file,
+        start_time = time.time()
+        
+        self.mpi_obj = MPILauncher(python_file,
                               mpi_size=self.num_partitions,
                               module = 'MPIsolver',
                               method = 'launch_ParallelSolver',
                               tmp_folder=self.temp_folder ,
                               prefix = self.prefix, 
-                              ext = self.ext)
-        mpi_obj.run()
+                              ext = self.ext,
+                              **self.kwargs)
+        
+        elapsed_time = time.time() - start_time
+        logging.info('{"mpi_launcher" : %f} #Elapsed time (s)' %elapsed_time)
 
+        start_time = time.time()
+        localtime = time.asctime( time.localtime(time.time()) )
+        logging.info('Local Time before mpi run: %s' %localtime)
+        self.mpi_obj.create_laucher()
+        if not self.launcher_only:
+            self.mpi_obj.run()
+            elapsed_time = time.time() - start_time
+            logging.info('{"mpi_run" : %f} #Elapsed time (s)' %elapsed_time)
+            localtime = time.asctime( time.localtime(time.time()))
+            logging.info('Local Time after mpi run: %s' %localtime)
 
     def read_results(self):
-        solution_path = os.path.join(self.temp_folder,'solution.pkl')
-        u_dict = {}
-        alpha_dict = {}
-        for i in range(1,self.num_partitions+1):
-            displacement_path = os.path.join(self.temp_folder,'displacement_' + str(i) + '.pkl')
-            u_dict[i] =  load_object(displacement_path)
-            try:
-                alpha_path = os.path.join(self.temp_folder,'alpha_' + str(i) + '.pkl')
+        try:
+            logging.info('Reading results from MPISolver')
+            start_time = time.time()
+            solution_path = os.path.join(self.temp_folder,'solution.pkl')
+            u_dict = {}
+            alpha_dict = {}
+            read_solution = True
+            for i in range(1,self.num_partitions+1):
+                displacement_path = os.path.join(self.temp_folder,'displacement_' + str(i) + '.pkl')
+                u_dict[i] =  load_object(displacement_path,tries=1,sleep_delay=0)
+                if u_dict[i] is None:    
+                    read_solution = False
+                    raise ValueError('No results!')
+                else:
+                    os.remove(displacement_path)
+                
+                alpha_path = os.path.join(self.temp_folder,'alpha_' + str(i) + '.pkl')                
                 alpha_dict[i] =  load_object(alpha_path,tries=1,sleep_delay=0)
-            except:
-                pass
-            
-            
+                if alpha_dict[i] is None:
+                    continue
+                else:
+                    os.remove(alpha_path)
 
-        sol_obj = load_object(solution_path)
-        sol_obj.u_dict = u_dict
-        sol_obj.alpha_dict = alpha_dict
-        return sol_obj
+        except:
+            read_solution = False                        
+
+        if read_solution:
+            sol_obj = load_object(solution_path)
+            sol_obj.u_dict = u_dict
+            sol_obj.alpha_dict = alpha_dict
+
+            elapsed_time = time.time() - start_time
+            logging.info('{ "load_results": %f} #Elapsed time (s)' %elapsed_time)
+            return sol_obj
+        else:
+            logging.warning('No results to read!')
+            return None
 
     def delete(self):
         shutil.rmtree(self.temp_folder)
@@ -636,8 +785,12 @@ class ParallelFETIsolver(FETIsolver):
 
 class LocalProblem():
     counter = 0
-    def __init__(self,K_local, B_local, f_local,id,pseudoinverse_kargs={'method':'svd','tolerance':1.0E-8}, preconditioner_type_local='None'):
+    def __init__(self,K_local, B_local, f_local,id,pseudoinverse_kargs={'method':'svd','tolerance':1.0E-8}):
         LocalProblem.counter+=1
+
+        if not isinstance(K_local,csc_matrix):  
+            K_local = sparse.csc_matrix(K_local)
+
         if isinstance(K_local,Matrix):
             self.K_local = K_local
         else:
@@ -651,39 +804,18 @@ class LocalProblem():
 
         self.B_local = B_local
         self.solution = None
+        
         self.id = id
         self.interface_size =  0
         self.neighbors_id = []
         self.crosspoints = {}
+        self.interface_set = set()
+        self.interior_set = set()
+        self.scalling = None
         self.get_neighbors_id()
-        self.interior_dofs = None
-        self.interface_dofs = None
-        self.initialize_local_preconditioner(preconditioner_type_local)
-
-
-    @property
-    def preconditioner_local(self):
-        preconditioner_local_dict = {}
-        for interface_id, Bij in self.B_local.items():
-            if not issparse(Bij):
-                Bij = csr_matrix(Bij)
-            preconditioner_local_dict[interface_id] = self.preconditioner_local_obj.build_local_preconditioner(Bij)
-        return preconditioner_local_dict
-
-    def initialize_local_preconditioner(self, preconditioner_type_local):
-        self.preconditioner_local_obj = self._create_preconditioner_obj(preconditioner_type_local, self.K_local, self.B_local)
-
-    def _create_preconditioner_obj(self, preconditioner_type_local, K, B):
-        if preconditioner_type_local is 'None':
-            preconditioner_local = NoPreconditioner(K, B)
-        elif preconditioner_type_local is 'Dirichlet':
-            preconditioner_local = DirichletPreconditioner(K, B)
-        elif preconditioner_type_local is 'Lumped':
-            preconditioner_local = LumpedPreconditioner(K, B)
-        else:
-            print('Wrong local preconditioner-type ', preconditioner_type_local, '. Using no preconditioner.')
-            preconditioner_local = NoPreconditioner(K, B)
-        return preconditioner_local
+        self.compute_interface_dof_set()
+        self.compute_interior_dof_set()
+        self.compute_neighbor_scaling_array()
 
     def get_neighbors_id(self):
         for nei_id, obj in self.B_local.items():
@@ -691,7 +823,141 @@ class LocalProblem():
             self.interface_size += obj.shape[0]
         self.neighbors_id.sort()
 
-    def crosspoints_dectection(self):
+    def compute_interface_dof_set(self):
+        ''' This function compute the set of dofs at the 
+        interface based on local B matrices
+        '''
+        for key, B in self.B_local.items():
+            self.interface_set.update(B.nonzero()[1])
+            
+        return self.interface_set
+
+    def compute_interior_dof_set(self):
+        ''' This function compute the set of dofs at the 
+        interior based on interface set dofs
+        '''
+        if not self.interface_set:
+            self.compute_interface_dof_set()
+        
+        self.interior_set.update(set(list(range(self.length)))-self.interface_set)
+        return self.interior_set
+
+    def compute_neighbor_scaling_array(self):
+        ''' This method compute an array with dimension
+        equal to the self.length size, and values equal 
+        to number of neighbors + 1
+        '''
+        
+        scalling = np.ones(self.length, dtype=np.int)
+        for key, B in self.B_local.items():
+            scalling[B.nonzero()[1]] += 1 
+
+        self.scalling = scalling
+        return self.scalling
+
+    def expand_interface_gap(self,gap_dict):
+        ''' This method expands a u gap_dict given at the interface
+        pairs to the whole domain, named [ub, ui] based on 
+        scalling B.T expation.
+        
+        u = scalling sum [B i u ij]
+
+        ub_dict = self.get_interface(u)
+
+        returns:
+            u : np.array
+                array with primal variables 
+        '''
+        u = np.zeros(self.length)
+        for interface_id, B in self.B_local.items():
+                (local_id,nei_id) = interface_id
+                if local_id>nei_id:
+                    interface_id = (nei_id,local_id) 
+                u += B.T.dot(gap_dict[interface_id])
+
+        # scalling gap
+        u = sparse.diags(1.0/self.scalling).dot(u)
+        
+        return u
+
+    def apply_schur_complement(self,gap_dict,precond_type='Lumped'):
+        ''' This method computes the force at the interface, 
+        such that produces the gap at the interface given by te gap_dict
+        which is defined as the primal variable at the interface given
+        the interface pair dictionary
+        '''
+
+        
+        interface_id = list(self.interface_set)
+        interior_id = list(self.interior_set)
+        f = np.zeros(self.length)
+        u = self.expand_interface_gap(gap_dict)
+        ub = u[interface_id]
+        K = self.K_local.data
+        # creating Kbb matrix in the first try
+        try:
+            Kbb = self._Kbb
+        except AttributeError:
+            self._Kbb = K[np.ix_(interface_id,interface_id)]
+            Kbb = self._Kbb
+
+        if precond_type=='Lumped':
+            f[interface_id] += Kbb.dot(ub)
+
+        elif precond_type=='SuperLumped':
+            f[interface_id] += np.diag(Kbb.diagonal()).dot(ub)
+
+        elif precond_type=='LumpedDirichlet':
+            try:
+                Kib = self._Kib
+            except AttributeError:
+                Kib = self.K_local.data[np.ix_(interior_id,interface_id)]
+                self._Kib = Kib
+
+            try:
+                Kii = self._Kii_inv
+            except AttributeError:
+                self._Kii_inv = sparse.diags(1.0/(K.diagonal()[interior_id]))
+                Kii = self._Kii_inv
+
+            f_exp = Kib.dot(ub)    
+            ui = self._Kii_inv.dot(f_exp) 
+
+            f[interface_id] += Kbb.dot(ub) - Kib.T.dot(ui)
+        
+        elif precond_type=='Dirichlet':
+            
+            try:
+                Kib = self._Kib
+            except AttributeError:
+                Kib = self.K_local.data[np.ix_(interior_id,interface_id)]
+                self._Kib = Kib
+            
+            f_exp = np.zeros(self.length)
+            f_exp[interior_id] += Kib.dot(ub)
+            try:
+                ui = self._lu.solve(f_exp[interior_id])
+            except AttributeError:
+                Kii = K[np.ix_(interior_id,interior_id)].tocsc()
+                self._lu = sparse.linalg.splu(Kii,options={'SymmetricMode':True})
+                ui = self._lu.solve(f_exp[interior_id])
+            except MemoryError:
+                looging.error('Memory error during Dirichlet Preconditioner Applications')
+                raise MemoryError('Memory error during Dirichlet Preconditioner Applications')
+            except Exception as e:
+                raise Exception('Excepiton occurs during Dirichlet Preconditioner Applications')
+            #ui = self.K_local.apply_inverse(f_exp)[interior_id]
+            f[interface_id] += Kbb.dot(ub) - Kib.T.dot(ui)
+
+        else:
+            logging.error('Schur complement type not supported!')
+
+        
+        f_scalling = sparse.diags(1.0/self.scalling).dot(f)
+
+        return self.get_interface_dict(f_scalling)
+
+    def crosspoints_detection(self):
         ''' This function detects cross points based on local 
         information, crosspoints are defined as tuples with more 
         the two intries, e.g. (1,2,3) a node is connected to 3 domains
@@ -796,7 +1062,7 @@ class LocalProblem():
         pass
         
 
-class CourseProblem():
+class CoarseProblem():
     counter = 0
     def __init__(self,id=None):
         
@@ -811,13 +1077,13 @@ class CourseProblem():
         self.global2local_lambda_dofs = {}
         self.GGT = None
         self.GGT_inv = None
-        self.course_method = 'inv'
+        self.coarse_method = 'splu'
      
         if id is None:
-            self.id = CourseProblem.counter
+            self.id = CoarseProblem.counter
         else:
             self.id = id
-        CourseProblem.counter +=1 
+        CoarseProblem.counter +=1 
 
     def update_e_dict(self,local_e_dict):
         self.e_dict.update(local_e_dict)
@@ -828,19 +1094,29 @@ class CourseProblem():
     def update_GGT_dict(self,local_GGT_dict):
         self.GGT_dict.update(local_GGT_dict)
     
-    def compute_GGT_inv(self,course_method=None,**kwargs):
+    def compute_GGT_inv(self,coarse_method=None,**kwargs):
+
 
         if self.GGT_inv is None:
-            if course_method is None:
-                course_method = self.course_method
+            if coarse_method is None:
+                coarse_method = self.coarse_method
 
-            if course_method == 'splu':
-                GGT = scipy.sparse.matrix.csr(self.GGT)
-                self.GGT_inv.dot = lambda x : scipy.sparse.linalg.splu(GGT).solve 
-            elif course_method == 'inv':
+            if self.GGT is None:
+                raise ValueError('GGT is None, but it must be a np.array!')
+
+            if coarse_method == 'splu':
+                if not sparse.issparse(self.GGT):
+                    self.GGT = sparse.csc_matrix(self.GGT)
+                GGT_inv  = sparse.linalg.splu(self.GGT)
+                self.GGT_inv = sparse.linalg.LinearOperator(shape=self.GGT.shape,matvec = lambda x : GGT_inv.solve(x)) 
+                
+            elif coarse_method == 'inv':
+                if sparse.issparse(self.GGT):
+                    # convert to a dense matrix
+                    self.GGT = self.GGT.A 
                 self.GGT_inv = np.linalg.inv(self.GGT)
             else:
-                raise('G@G.T is not defined.')
+                raise ValueError('G@G.T is not defined.')
 
         return self.GGT_inv
     
@@ -855,7 +1131,7 @@ class CourseProblem():
         return GGT_inv_columns
             
     def assemble_block_matrix(self,M_dict,row_map_dict,column_map_dict,shape):
-        M = np.zeros(shape)
+        M = sparse.lil_matrix(shape)
         for row_key, row_dofs in row_map_dict.items():
             for col_key, column_dofs in column_map_dict.items():
                 if isinstance(col_key,int):
@@ -868,11 +1144,11 @@ class CourseProblem():
                         l_key.remove(row_key)
                         column_key = l_key[0]
                 try:        
-                    M[np.ix_(row_dofs,column_dofs)] += M_dict[row_key,column_key]
+                    M[np.ix_(row_dofs,column_dofs)] = M_dict[row_key,column_key]
                 except:
                     continue
 
-        return M
+        return M.tocsc()
             
     def assemble_block_vector(self,v_dict,map_dict,length):
         v = np.zeros(length)
@@ -893,12 +1169,12 @@ class CourseProblem():
 
 class Solution():
     def __init__(self,u_dict, lambda_dict, alpha_dict,rk=None, proj_r_hist=None, lambda_hist=None, 
-                 lambda_map=None,alpha_map=None,u_map=None,lambda_size=None,alpha_size=None):
+                 lambda_map=None,alpha_map=None,u_map=None,lambda_size=None,alpha_size=None,**kwargs):
         
         self.lambda_dict=lambda_dict 
         self.alpha_dict=alpha_dict
         self.rk=rk 
-        self.proj_r_hist=proj_r_hist, 
+        self.proj_r_hist=proj_r_hist 
         self.lambda_hist=lambda_hist
         self.lambda_map = lambda_map
         self.alpha_map = alpha_map
@@ -908,6 +1184,7 @@ class Solution():
         self._rebuild_lambda_map()
         self.domain_list = None
         self.u_dict = u_dict
+        self.__dict__.update(kwargs)
 
     @property
     def u_dict(self):
@@ -918,13 +1195,24 @@ class Solution():
         self._u_dict = u_dict
         self.domain_list = np.sort(list(u_dict.keys()))
 
+    @property
+    def PCGP_iterations(self):
+        return len(self.proj_r_hist)
+
+    @property
+    def projected_residual(self):
+        try:
+            return self.proj_r_hist[-1]
+        except:
+            return 0
+
     def _rebuild_lambda_map(self):
 
         local_dict ={}
         try:
             for key, interface_dict in self.lambda_dict.items():
                 for (dom_id,nei_id),values in interface_dict.items():
-                    if nei_id>dom_id:
+                    if nei_id>=dom_id:
                          local_dict[dom_id,nei_id] = values
             self.lambda_dict = local_dict
         except:
@@ -1085,21 +1373,65 @@ class  Test_FETIsolver(TestCase):
 
 
         # Using PyFETI to solve the probrem described above
-        K_dict = {1:K1,2:K2, 3:K3, 4:K4}
+        K1 = sparse.csc_matrix(K1)
+        K2 = sparse.csc_matrix(K2)
+        K_dict = {1:K1,2:K2, 3:K2, 4:K2}
         B_dict = {1 : {(1,2) : B12, (1,3) : B13, (1,4) : B14}, 
                   2 : {(2,1) : B21, (2,4) : B24,(2,3) : B23}, 
                   3 : {(3,1) : B31, (3,4) : B34, (3,2) : B32}, 
                   4 : {(4,2) : B42, (4,3) : B43, (4,1) : B41}}
 
         q_dict = {1:q1 ,2:q2, 3:q3, 4:q4}
+
+        #solver_obj = FETIManager(K_dict,B_dict,q_dict)
+
+        #nc = FETIManager.lambda_size
+        #solver_obj.apply_F(np.ones(nc))
+
         crosspoints_global_dict = {}
+
+        interface_dofs_target = {1: [1,2,3],
+                                 2 : [0,2,3],
+                                 3 : [0,1,2],
+                                 4 : [0,1,3]}
+        
+        interior_dofs_target = {1: [0],
+                                 2 : [1],
+                                 3 : [3],
+                                 4 : [2]}
+
+
+        import copy   
+        gap_dict = copy.deepcopy(B_dict)
+        for i,B in gap_dict.items():
+            for key, item in B.items():
+                B[key] = np.ones(item.shape[0])
+
         for i in range(1,5):
             local_obj = LocalProblem(K_dict[i], B_dict[i],q_dict[i],id=i)
-            crosspoints_global_dict[i] = local_obj.crosspoints_dectection()
+            interface_dofs = local_obj.compute_interface_dof_set()
+            np.testing.assert_equal(interface_dofs_target[i], list(interface_dofs))
+
+            interior_dofs = local_obj.compute_interior_dof_set()
+            np.testing.assert_equal(interior_dofs_target[i], list(interior_dofs))
+
+            scalling = local_obj.compute_neighbor_scaling_array()
+            #u =  local_obj.expand_interface_gap(gap_dict[i])
+            force_dict = local_obj.apply_schur_complement(gap_dict[i])
+            force_dict = local_obj.apply_schur_complement(gap_dict[i],precond_type='SuperLumped')
+            force_dict = local_obj.apply_schur_complement(gap_dict[i],precond_type='Dirichlet')
+            force_dict = local_obj.apply_schur_complement(gap_dict[i],precond_type='LumpedDirichlet')
+            
+            crosspoints_global_dict[i] = local_obj.crosspoints_detection()
 
         crosspoints_global_dict
 
-        x=1
+
+        # test expansion
+
+        
+
+
 
 if __name__=='__main__':
 

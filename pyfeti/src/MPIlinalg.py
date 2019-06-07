@@ -6,7 +6,200 @@ from unittest import TestCase, main
 import logging
 import time
 from mpi4py import MPI
-from .utils import MPILauncher, getattr_mpi_attributes, pyfeti_dir
+from pyfeti.src.utils import MPILauncher, getattr_mpi_attributes, pyfeti_dir
+from scipy.sparse.linalg import LinearOperator
+from pyfeti.src.linalg import RetangularLinearOperator, vector2localdict, array2localdict
+
+comm = MPI.COMM_WORLD
+rank = comm.Get_rank()
+size = comm.Get_size()
+
+def exchange_info(local_var,sub_id,nei_id,tag_id=15,isnumpy=False):
+    ''' This function exchange info (lists, dicts, arrays, etc) with the 
+    neighbors subdomains. Every subdomain has a master objective which receives 
+    the info and do some calculations based on it.
+    
+    Inpus:
+        local_var  : python obj
+            local object to send and receive
+        sub_id: int
+            id of the subdomain
+        nei_id : int
+            neighbor subdomain to send and receive
+        isnumpy : Boolean
+            sending numpy arrays
+    returns
+        nei_var : object of the neighbor
+    
+    '''    
+    logging.debug('Init exchange_info')
+
+    #init neighbor variable
+    var_nei = None
+    if nei_id>0:
+        #checking data type
+        if isnumpy:
+            
+                # sending message to neighbors
+                comm.Send(local_var, dest = nei_id-1)
+                # receiving messages from neighbors
+                var_nei = np.empty(local_var.shape)
+                comm.Recv(var_nei,source=nei_id-1)
+        else:
+            
+            var_nei  = comm.sendrecv(local_var,dest=nei_id-1,source=nei_id-1)
+
+    logging.debug('End exchange_info')
+    return var_nei
+
+def exchange_global_dict(local_dict,local_id,partitions_list):
+    
+    list_of_dicts = comm.allgather(local_dict)
+    
+    global_dict = {}
+    for item in list_of_dicts:
+        try:
+            global_dict.update(item)
+        except:
+            continue
+    
+    return global_dict
+
+def exchange_global_dict_of_arrays(local_dict,local_id,partitions_list):
+    
+    logging.debug('Init exchange_global_dict')
+    logging.debug(('local_dict =' ,local_dict))
+    for global_id in partitions_list:
+        if global_id!=local_id:
+            nei_dict =  exchange_info(local_dict,local_id,global_id)
+            if nei_dict:
+                local_dict.update(nei_dict)
+
+    logging.debug('End exchange_global_dict')
+    return local_dict
+    
+def exchange_global_array(local_array,local_id,partitions_list=None):
+    ''' This function receives an array and send it to all mpi ranks
+    which is equivalente to a broadcast, and create a dict of arrays
+
+    parameters: 
+        local_array : np.array
+            array to send to all mpi ranks
+        local_id : int
+            id of the local domain, rank + 1
+        partitions_list : list Default : None
+            list of all domains
+
+    returns:
+        local_dict : dict
+            dict with domain keys and arrays as values
+
+    '''
+    
+    if partitions_list is None:
+        size = comm.Get_size()
+        partitions_list = list(range(1,size+1))
+
+    local_dict = {}
+    local_dict[local_id] = local_array
+    for global_id in partitions_list:
+        if global_id!=local_id:
+            nei_array =  exchange_info(local_array,local_id,global_id,isnumpy=False)
+            local_dict[global_id] = nei_array
+
+    return local_dict
+
+def All2Allreduce(local_var):
+    ''' sum up all local_var in all mpi ranks
+
+    Parameters:
+        local_var : float or 0D np.array
+
+    returns:
+        global_var : 0D np.array
+            summation of all local variables
+
+    '''
+    try:
+        dtype = local_var.dtype
+    except AttributeError:
+        logging.warning('setting local dtype as np.float in ALL2ALLreduce')
+        dtype = np.float
+        local_var = np.array(local_var, dtype=dtype)
+        
+
+    global_var = np.array(0.0, dtype=dtype)
+    # sending message to neighbors
+    comm.Allreduce(local_var, global_var, op=MPI.SUM)
+    return global_var
+
+def All2All_array(local_array,size_list,global_array_length,dtype=np.float):
+    ''' Exchange numpy array with all mpi ranks
+    Paramenters:
+
+    local_array : np.array
+        local numpy array
+
+    size_list : list
+        list of expected mpi array lenghts
+
+    global_array_length : int
+        global array
+
+    dtype : np.dtype
+        type of numpy array
+
+    returns
+        np.array
+            a global numpy array
+    '''
+    
+    sizes = size_list
+
+    # build the displacement of the buffer vector
+    disp = [0]
+    disp.extend(list(np.cumsum(sizes)[:-1]))
+    
+    # build global buffer array
+    global_array = np.zeros(global_array_length, dtype=dtype)
+    
+    # Global exchange
+    comm.Allgatherv([local_array,sizes[rank]],[global_array,(size_list,disp)])
+    
+    return global_array
+
+def pardot(v,w,local_id,neighbors_id,global2local_map,partitions_list=None):
+    ''' This function computes a parallel dot product v * w
+    based on mpi operations
+
+    parameters:
+        v : np.array
+            array to perform v.dot(w)
+        w : np.array
+            array to perform w.dot(v)
+        local_id : int
+            id of local problem
+        neighbors_id : list
+            list of neighbor ids
+        global2local_map : callable
+            function to convert array to dict of arrays
+        partitions_list: list, Default=None
+            list of all the mpi
+    
+    returns
+        float
+            dot product of vector v and w
+
+    '''
+    t1 = time.time()
+    logging.info('starting pardot')
+    local_var = np.dot(v,w)
+    # global Reduce 
+
+    v_dot_w = All2Allreduce(local_var)
+    logging.info('elaspsed_time_All2Allreduce %2.4f' %(time.time() - t1))
+    
+    return 0.5*v_dot_w
 
 def get_chunks(number_of_chuncks,size):
     ''' create chuncks based on number of mpi process
@@ -18,6 +211,171 @@ def get_chunks(number_of_chuncks,size):
     chunck_sizes = np.linspace(default_size,n,number_of_chuncks,dtype=np.int)
     chunck_sizes[-1] += remaining
     return chunck_sizes
+
+def matvec(A,v,n=2):
+    ''' Parallel matrix multiplication
+    u = A.dot(v)
+
+    A :  csr sparse matrix
+        sparse matrix 
+    v : np.array
+
+    
+    '''
+
+    if n==1:
+        u = A.dot(v)
+    else:
+
+        parallel_matrix_obj = ParallelMatrix(A,n)
+        parallel_vec_obj = ParallelVector(v,n)
+
+        u = parallel_launcher(n,
+                         module = 'MPIlinalg',
+                         method = 'parallel_matvec',
+                         tmp_dir = parallel_matrix_obj.tmp_dir,
+                         prefix_matrix = parallel_matrix_obj.prefix,
+                         ext_matrix =  parallel_matrix_obj.ext,
+                         prefix_array = parallel_vec_obj.prefix,
+                         ext_array = parallel_vec_obj.ext)
+
+    return u
+
+def parallel_launcher(n=2,**kwargs):
+    # execute only if run as a script
+    python_file = pyfeti_dir(os.path.join('src','MPIlinalg.py'))
+    mpi_size = n
+    
+    mip_obj = MPILauncher(python_file,mpi_size,**kwargs)
+    mip_obj.run()
+
+    filearr = os.path.join(kwargs['tmp_dir'],kwargs['prefix_array'] + '.'+  kwargs['ext_array'])   
+
+    y = np.load(filearr)
+    return y
+
+def parallel_matvec(tmp_dir='tmp',prefix_matrix='A_',ext_matrix= 'npz',prefix_array='v_',ext_array='npy'):
+    
+    # getting mpi info
+    comm = MPI.COMM_WORLD
+    rank = comm.Get_rank()
+    size = comm.Get_size()
+
+    # Define rank master
+    rank_master = 0
+
+    # loading matrix in local mpi rank
+    file = os.path.join(prefix_matrix+ str(rank) + '.' + ext_matrix)        
+    Ai = sparse.load_npz(file)
+
+    # loading vector in local mpi rank
+    filearr = os.path.join(prefix_array + str(rank)  + '.' + ext_array)   
+    vi = np.load(filearr)
+
+    # local matrix and vector multiplication
+    yi = Ai.dot(vi) 
+
+    # Gather local vector to rank 0 
+    global_vector_size = Ai.shape[0]
+    sendbuf = yi
+    recvbuf = None
+    if rank==rank_master:
+        recvbuf = np.empty([size, global_vector_size], dtype='d')
+
+    comm.Gather(sendbuf, recvbuf, root=rank_master)
+
+    # save 
+    if rank == rank_master:
+        y = np.sum(recvbuf.T,axis=1)
+        np.save(prefix_array, y)
+
+
+class ParallelRetangularLinearOperator(RetangularLinearOperator):
+    def __init__(self,A_dict,row_map_dict,column_map_dict,shape=(0,0),dtype=np.float,**kwargs):
+        super().__init__(A_dict,row_map_dict,column_map_dict,shape,dtype)
+        self.local_id = rank + 1
+        self.kwargs = kwargs
+        self.__dict__.update(kwargs)
+        self.row_size_list = self.get_size_list(row_map_dict)
+        self.column_list = self.get_size_list(column_map_dict)
+
+    def get_size_list(self,map_dict):
+        ''' create size list
+        '''
+        mpi_size = comm.Get_size()
+        partitions_list = list(range(1,mpi_size+1))
+        size_list = []
+        for key in partitions_list:
+            try:
+                size = len(map_dict[key])
+            except:
+                size = 0
+
+            size_list.append(size)
+
+        return size_list
+
+    def _matvec(self,v, **kwargs):
+
+        local_id = self.local_id
+        # convert vector to dict    
+        v_dict = self.vec2dict(v, **kwargs)
+        a = np.zeros(self.shape[0])
+        for nei_id in self.neighbors_id:
+            if nei_id>=local_id:
+                pair = (local_id,nei_id)
+            else:
+                pair = (nei_id,local_id)
+            
+            # Try matvec, except is the Transpose multiplication
+            if (self.local_id,nei_id) in self.A_dict:
+                A = self.A_dict[self.local_id,nei_id]
+                try:
+                    # A.dot(x) implementation
+                    a[self.row_map_dict[self.local_id]] += A.dot(v_dict[pair])
+                except:
+                    # A.T.dot(x) implementation
+                    a[self.row_map_dict[pair]] += A.T.dot(v_dict[self.local_id])
+            else:
+                pass
+
+        return self._callback(a)
+
+    def _callback(self,a):
+        local_id = self.local_id
+        try:       
+            if isinstance(list(self.row_map_dict.keys())[0],int):
+                vec2dict = array2localdict(a, self.row_map_dict)
+                local_array = np.empty(0) 
+                if self.local_id in vec2dict:
+                    local_array = vec2dict[self.local_id]
+                a = All2All_array(local_array, size_list = self.row_size_list ,global_array_length=self.shape[0])
+                
+            else:
+                
+                vec2dict = array2localdict(a, self.row_map_dict)
+                for nei_id in self.neighbors_id:
+                    if nei_id!=local_id:
+                        if nei_id>local_id:
+                            pair = (local_id,nei_id)
+                        else:
+                            pair = (nei_id,local_id)
+
+                        local_var = vec2dict[pair]
+                        nei_var = exchange_info(local_var,rank+1,nei_id,isnumpy=True)    
+                        vec2dict[pair] = local_var + nei_var
+                    else:
+                        pass
+                
+                a = self.dict2vec(vec2dict,a.shape[0],self.row_map_dict)
+        except:
+            pass
+
+        return a 
+
+    def _transpose(self):
+        return ParallelRetangularLinearOperator(self.A_dict,self.column_map_dict,self.row_map_dict,
+                                        shape=(self.shape[1],self.shape[0]),dtype=self.dtype,**self.kwargs)
 
 
 class ParallelMatrix():
@@ -146,86 +504,7 @@ class ParallelVector():
          filearr = os.path.join(self.tmp_dir,self.prefix + str(rank)  + '.' + self.ext)   
          return np.load(filearr)
 
-def matvec(A,v,n=2):
-    ''' Parallel matrix multiplication
-    u = A.dot(v)
-
-    A :  csr sparse matrix
-        sparse matrix 
-    v : np.array
-
-    
-    '''
-
-    if n==1:
-        u = A.dot(v)
-    else:
-
-        parallel_matrix_obj = ParallelMatrix(A,n)
-        parallel_vec_obj = ParallelVector(v,n)
-
-        u = parallel_launcher(n,
-                         module = 'MPIlinalg',
-                         method = 'parallel_matvec',
-                         tmp_dir = parallel_matrix_obj.tmp_dir,
-                         prefix_matrix = parallel_matrix_obj.prefix,
-                         ext_matrix =  parallel_matrix_obj.ext,
-                         prefix_array = parallel_vec_obj.prefix,
-                         ext_array = parallel_vec_obj.ext)
-
-    return u
-
-def parallel_launcher(n=2,**kwargs):
-    # execute only if run as a script
-    python_file = pyfeti_dir(os.path.join('src','MPIlinalg.py'))
-    mpi_size = n
-    
-    mip_obj = MPILauncher(python_file,mpi_size,**kwargs)
-    mip_obj.run()
-
-    filearr = os.path.join(kwargs['tmp_dir'],kwargs['prefix_array'] + '.'+  kwargs['ext_array'])   
-
-    y = np.load(filearr)
-    return y
-
-
-def parallel_matvec(tmp_dir='tmp',prefix_matrix='A_',ext_matrix= 'npz',prefix_array='v_',ext_array='npy'):
-    
-    # getting mpi info
-    comm = MPI.COMM_WORLD
-    rank = comm.Get_rank()
-    size = comm.Get_size()
-
-    # Define rank master
-    rank_master = 0
-
-    # loading matrix in local mpi rank
-    file = os.path.join(prefix_matrix+ str(rank) + '.' + ext_matrix)        
-    Ai = sparse.load_npz(file)
-
-    # loading vector in local mpi rank
-    filearr = os.path.join(prefix_array + str(rank)  + '.' + ext_array)   
-    vi = np.load(filearr)
-
-    # local matrix and vector multiplication
-    yi = Ai.dot(vi) 
-
-    # Gather local vector to rank 0 
-    global_vector_size = Ai.shape[0]
-    sendbuf = yi
-    recvbuf = None
-    if rank==rank_master:
-        recvbuf = np.empty([size, global_vector_size], dtype='d')
-
-    comm.Gather(sendbuf, recvbuf, root=rank_master)
-
-    # save 
-    if rank == rank_master:
-        y = np.sum(recvbuf.T,axis=1)
-        np.save(prefix_array, y)
        
-
-    
 class  Test_Parallel(TestCase):
     def test_parallel_matvec(self):
 
@@ -304,9 +583,7 @@ class  Test_Parallel(TestCase):
 
 
 if __name__=='__main__':
-    comm = MPI.COMM_WORLD
-    rank = comm.Get_rank()
-    size = comm.Get_size()
+    
 
     if size==1:
 

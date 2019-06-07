@@ -63,25 +63,22 @@ def query_yes_no(question, default="yes"):
 
 config = {
     'name': 'PYFETI',
-    'version': '0.12',
+    'version': '0.1',
     'description': 'Python FETI standalone library .',
-    'long_description': 'Python FETI standalone library which provides data structure to solve Dual Domain Decompositon'
-                        'methods and implement new versions ',
+    'long_description': 'Python FETI standalone library which provides data structure to solve Dual Domain Decompositon methods and implement new versions ',
     'author': 'Guilherme Jenovencio',
-    'url': 'https://gitlab.lrz.de/AM/pyfeti',
+    'url': 'https://github.com/jenovencio/contpy',
     'download_url': 'Where to download it.',
     'author_email': 'guilherme.jenovencio@tum.de',
     'maintainer': 'Guilherme Jenovencio',
     'maintainer_email': 'guilherme.jenovencio@tum.de',
-    'python_requires': '>=3.7',
     'install_requires': ['numpy>=1.10', 'scipy>=0.17', 'pandas', 'matplotlib', 'numdifftools','dill','mpi4py'],
     'tests_require': ['nose'],
-    'packages': ['pyfeti',
-                 'pyfeti.src'],
+    'packages': ['pyfeti'],
     'scripts': [],
     'entry_points': {},
     'provides': 'pyfeti',
-    'platforms': 'Linux, Windows',
+    'platforms': 'Windows',
     'license': None
 }
 

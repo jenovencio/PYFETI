@@ -28,18 +28,26 @@ def get_case_matrices(case_id):
     return K, f, B_left, B_right, B_bottom, B_top, s
     
 
-class CreateFETIcase():
-    def __init__(self,domains_x,domains_y, K, f, B_left, B_right, B_bottom, B_top,s):
+class FETIcase_builder():
+    '''
+    Build FETI case
+
+    Parameters
+    BC_type : str
+    type of Neumann Boundary Condition 
+    BC_type = 'RX', Force applyed in the x direction at the domains in the Right
+    BC_type = 'G', Gravity force
+    '''
+    def __init__(self,domains_x,domains_y, K, f, B_dict,s,BC_type='RX',**kwargs):
         self.K = K
         self.f = f
-        self.B_dict = {}        
-        self.B_dict['left'] = B_left
-        self.B_dict['right'] = B_right
-        self.B_dict['bottom'] = B_bottom
-        self.B_dict['top'] = B_top
+        self.B_dict = B_dict       
         self.s = s
         self.domains_x = domains_x
         self.domains_y = domains_y
+        self.BC_type = BC_type
+        self.force_scaling = 1.0
+        self.__dict__.update(kwargs)
 
     def two2one_map(self,tuple_index):
         a = 1
@@ -67,6 +75,26 @@ class CreateFETIcase():
 
         return neighbors_dict
 
+    def compute_gravity_force(self,g=9800,direction=[0.,1.],neighbors_list=None):
+        nnodes = int(len(self.f)/2)
+        force = g*np.array(nnodes*direction)
+        W = self.get_scalling_neighbors_matrix(neighbors_list)
+        return W.dot(force)
+
+    def get_scalling_neighbors_matrix(self,neighbors_list=None):
+        
+        if neighbors_list is None:
+            neighbors_list = list(self.s.selection_dict.keys())
+            nei_array = np.zeros(self.f.shape)
+        else:
+            nei_array = np.ones(self.f.shape)
+        
+        for nei_key, set_values in self.s.selection_dict.items():
+            if nei_key in neighbors_list:
+                nei_array[list(set_values)] +=1
+
+        return sparse.diags(1.0/nei_array)
+
     def build_subdomain_matrices(self):
 
         K_dict = {}
@@ -74,31 +102,61 @@ class CreateFETIcase():
         f_dict = {}
         for j in range(self.domains_y):
             for i in range(self.domains_x):
-                Neumann_mult = 0.0
+                
                 K = copy.deepcopy(self.K)
                 f = copy.deepcopy(self.f)
                 global_id = self.two2one_map((i,j))
-                if i==0:
-                    #apply dirichelt B.C
-                    K_dir_obj = Matrix(K.todense(),self.s.selection_dict)
-                    K = sparse.csr_matrix(K_dir_obj.eliminate_by_identity('left'))
+                
 
-                if i==(self.domains_x-1):
-                    Neumann_mult = 1.0
-
-                K_dict[global_id] = K
-                f_dict[global_id] = Neumann_mult*f
+                
                 B_dict[global_id] = {}
+                neighbors_list = []
                 for bool_key, nei_index in self.get_neighbors_dict(i,j).items():
                     global_nei_id = self.two2one_map(nei_index)
                     if global_nei_id is not None:
                         try:
                             B_dict[global_id][global_id,global_nei_id] = np.sign(global_nei_id-global_id)*self.B_dict[bool_key]
+                            neighbors_list.append(global_nei_id)
                         except:
                             pass
 
+                if self.BC_type=='RX':
+                    if i==(self.domains_x-1):
+                        Neumann_mult = 1.0
+                    else:
+                        Neumann_mult = 0.0
+                    force = Neumann_mult*f
+                elif self.BC_type=='G':
+                    force = self.compute_gravity_force(g=1.0e7,neighbors_list=neighbors_list)
+                else:
+                    raise NotImplemented('Boundary condition named %s not implemented' %self.BC_type)
+
+
+                if i==0:
+                    #apply dirichelt B.C
+                    K_dir_obj = Matrix(K,self.s.selection_dict)
+                    try:
+                        K = sparse.csr_matrix(K_dir_obj.eliminate_by_identity('left'))
+                    except:
+                        K = sparse.csr_matrix(K_dir_obj.eliminate_by_identity(1))
+                        force[list(self.s.selection_dict[1])] = 0.0 
+
+
+                K_dict[global_id] = K
+                f_dict[global_id] = self.force_scaling*force
+
         return K_dict, B_dict, f_dict
 
+
+
+class CreateFETIcase(FETIcase_builder):
+    def __init__(self,domains_x,domains_y, K, f, B_left, B_right, B_bottom, B_top,s):
+        B_dict = {}
+        B_dict['left'] = B_left
+        B_dict['right'] = B_right
+        B_dict['bottom'] = B_bottom
+        B_dict['top'] = B_top
+        super().__init__(domains_x,domains_y, K, f, B_dict ,s)
 
 def create_FETI_case(case_id,dim_x,dim_y):
     K, f, B_left, B_right, B_bottom, B_top, s = get_case_matrices(case_id)
@@ -114,4 +172,6 @@ if __name__ == '__main__':
     #case_obj = CreateFETIcase(2,1,K, f, B_left, B_right, B_bottom, B_top, s)
     #K_dict, B_dict, f_dict = case_obj.build_subdomain_matrices()
     K_dict, B_dict, f_dict = create_FETI_case(case_id,dim_x,dim_y)
+
+
 

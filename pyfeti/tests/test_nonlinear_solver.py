@@ -620,7 +620,7 @@ class  Test_NonlinearSolver(TestCase):
     def test_intercont_1d_Duffing(self):
 
         a = 1.0 #5.e0
-        b = 1
+        b = 0.05
         nH = 1
         ndof = 1
         d = 0.01
@@ -635,7 +635,6 @@ class  Test_NonlinearSolver(TestCase):
         dfnl_ = lambda w : lambda x, n = 3 : np.array([[FFT(dfnl(iFFT(x),n))[0]]])
 
         dfnl_num = lambda w : lambda x : copt.complex_jacobian(lambda x : fnl_(x),n=1)(x)
-
 
         f = lambda x,w : -w**2*x[0] + x[0] + d*1J*w*x[0] + fnl_(x[0]) - b
         dfx = lambda w : lambda x : -w**2 + 1.0 - d*1J*w +  dfnl_(w)(x)
@@ -665,16 +664,14 @@ class  Test_NonlinearSolver(TestCase):
         v3 = dfrc(p)(x)
 
 
-        p_range=(0.0,1.0)
+        p_range=(0.0,3.0)
         start_time = time.time()
         
-        y_list, p_list, info_dict = newton_krylov_cont(f,x0=x,p_range=p_range,p0=0.0,step=0.05,max_int=100)
-
-        plt.plot(p_list,'o')
-
-        plt.figure()
-        plt.plot(p_list,np.abs(y_list)[0,:],'o')
-        plt.show()
+        #y_list, p_list, info_dict = newton_krylov_cont(f,x0=x,p_range=p_range,p0=0.0,step=0.05,max_int=100)
+        #plt.plot(p_list,'o')
+        #plt.figure()
+        #plt.plot(p_list,np.abs(y_list)[0,:],'o')
+        #plt.show()
 
         x_sol, p_sol, info_dict = copt.continuation(f,x0=x,p_range=p_range,p0=0.0,
                                                     step=0.1,correction_method='optimize_matcont',max_int_corr=10) # 
@@ -689,10 +686,6 @@ class  Test_NonlinearSolver(TestCase):
         fscale = 1.0
         Rb,nc,nH, nonlin_obj_list,JRb = self.setup_nonlinear_problem(nH,c,beta,alpha,fscale=fscale) 
         
-        
-
-        
-        
         tol = 1.0e-8
         scale = 0.8
         l0 = np.ones(nc, dtype=np.complex)
@@ -703,17 +696,14 @@ class  Test_NonlinearSolver(TestCase):
         nl1 = nonlin_obj_list[0]
         nl1.map = map_dict
 
-
         p_range=(0.1,0.5)
         R = lambda l, w : Rb(np.array([w]))(l)
         JR = lambda w : lambda l : JRb(np.array([w]))(l)
         start_time = time.time()
-        x_sol, p_sol, info_dict = copt.continuation(R,x0=l0,p_range=p_range,step=0.05,jacx=JR,correction_method='matcont')
+        x_sol, p_sol, info_dict = copt.continuation(R,x0=l0,p_range=p_range,step=0.05,jacx=JR,correction_method='matcont',max_int_corr=5,tol=1.0e-3)
         elapsed_time = time.time() - start_time
         print('{"Continuation elapsed time" : %f} #Elapsed time (s)' %elapsed_time)
         
-        
-                
         u1_list = []
         for w, l in zip(p_sol,x_sol.T):
             u1 = nl1.solve_displacement(l,np.array([w]))
@@ -722,18 +712,15 @@ class  Test_NonlinearSolver(TestCase):
             
             u1_list.append(u1)
 
-
         plt.plot(p_sol,np.abs(x_sol)[0,:],'o')
         plt.title('$\lambda$')
         
-
         plt.figure()
         plt.plot(p_sol, np.abs(np.array(u1_list)),'*')
         plt.title('displacement 1')
         plt.show()
 
         x=1
-        
         
     def _test_NonLinearLocalProblem(self):
 
@@ -768,6 +755,6 @@ if __name__=='__main__':
     #testobj.test_1D_linear_localproblem_2()
     #testobj.Test_NonlinearSolverManager()
     #testobj.test_intercont()
-    #testobj.test_linear_freq_response_cont()
-    testobj.test_intercont_1d_Duffing()
+    testobj.test_linear_freq_response_cont()
+    #testobj.test_intercont_1d_Duffing()
     #testobj.test_NonLinearLocalProblem()

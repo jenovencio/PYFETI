@@ -8,7 +8,7 @@ import time
 sys.path.append('../..')
 from pyfeti.src.utils import OrderedSet, Get_dofs, save_object, MapDofs
 from pyfeti.src.linalg import Matrix, Vector,  elimination_matrix_from_map_dofs, expansion_matrix_from_map_dofs
-from pyfeti.src.feti_solver import ParallelFETIsolver, SerialFETIsolver
+from pyfeti.src.feti_solver import ParallelFETIsolver, SerialFETIsolver, LocalProblem
 from pyfeti.src.solvers import PCPG
 from pyfeti.src.MPIlinalg import ParallelRetangularLinearOperator
 from pyfeti.src.linalg import RetangularLinearOperator
@@ -711,6 +711,33 @@ class  Test_FETIsolver(TestCase):
         for key, G in G_dict.items():
             np.testing.assert_array_equal(G,G_calc_dict[key].A)
 
+    def test_FETIsolver_create_localproblems(self):
+            K1 = np.array([[1,-1],[-1,1]])
+            K2 = np.array([[1,-1],[-1,1]])
+            B0 = np.array([[-1,0]])
+            B1 = np.array([[0,1]]) 
+            B2 = np.array([[-1,0]]) 
+
+            f1 = np.array([0.,0.])                
+            f2 = np.array([0.,1.])                
+                
+            # Using PyFETI to solve the probrem described above
+            K_dict = {1:K1,2:K2}
+            B_dict = {1 : {(1,2) : B1, (1,1): B0}, 2 : {(2,1) : B2}}
+            f_dict = {1:f1,2:f2}
+
+            solver_obj = SerialFETIsolver(K_dict,B_dict,f_dict)
+            local_dict = solver_obj.create_local_problems()
+
+            l1 = LocalProblem(K1,B_dict[1],f1,id=1)
+            l2 = LocalProblem(K2,B_dict[2],f2,id=2)
+
+            np.testing.assert_array_equal(l1.K_local.data.A,local_dict[1].K_local.data.A)        
+            np.testing.assert_array_equal(l1.f_local.data,local_dict[1].f_local.data)        
+
+            np.testing.assert_array_equal(l2.K_local.data.A,local_dict[2].K_local.data.A)        
+            np.testing.assert_array_equal(l2.f_local.data,local_dict[2].f_local.data)        
+
         
 
 
@@ -738,3 +765,4 @@ if __name__=='__main__':
     #test_obj.test_compare_svd_splusps()
     #test_obj.test_total_FETI_approach()
     #test_obj.test_dict2array_method()
+    #test_obj.test_FETIsolver_create_localproblems()

@@ -75,7 +75,7 @@ class FETIcase_builder():
 
         return neighbors_dict
 
-    def compute_gravity_force(self,g=9800,direction=[0.,1.],neighbors_list=None):
+    def compute_gravity_force(self,g=9800,direction=[0.,-1.],neighbors_list=None):
         nnodes = int(len(self.f)/2)
         force = g*np.array(nnodes*direction)
         W = self.get_scalling_neighbors_matrix(neighbors_list)

@@ -497,10 +497,6 @@ class DualLinearSys():
         self.u_dofs = self.ndofs - nc
         self.sigma = sigma
         
-        
-        
-
-        
         if projection is None:
             self.P = sparse.eye(self.u_dofs )
            
@@ -508,7 +504,7 @@ class DualLinearSys():
             self.P = projection
            
         self.M = self.P.conj().T.dot(B[:self.u_dofs,:self.u_dofs]).dot(self.P)
-        self.K = self.P.conj().T.dot(A[:self.u_dofs,:self.u_dofs]).dot(self.P)
+        self.K = A[:self.u_dofs,:self.u_dofs]
         self.lu = sparse.linalg.splu(self.K - self.sigma*self.M)
         #lu = sparse.linalg.splu(self.K - sigma*self.M)
         #self.K_inv = lu.solve
@@ -521,7 +517,6 @@ class DualLinearSys():
     def F_operator(self,b):
     
         return self.C.dot(self.K_inv(self.C.conj().T.dot(b))) 
-    
     
     def solve(self,b):
         A = self.A

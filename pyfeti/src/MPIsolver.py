@@ -25,7 +25,7 @@ from mpi4py import MPI
 import os
 
 
-class ParallelSolver(SolverManager):
+class LocalSolverManager(SolverManager):
     def __init__(self,obj_id, local_problem, **kwargs):
         
 
@@ -495,7 +495,7 @@ if __name__ == "__main__":
         logging.info('{"load_object": %2.5e} # Elapsed time in seconds' %elapsed_time)
         
         start_time = time.time()
-        parsolver = ParallelSolver(obj_id,local_problem,**mpi_kwargs)
+        parsolver = LocalSolverManager(obj_id,local_problem,**mpi_kwargs)
         u_i = parsolver.mpi_solver()
         
         comm.Barrier()

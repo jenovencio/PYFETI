@@ -840,23 +840,23 @@ def create_selection_operator(node_df,element_df,tag='phys_group',remove_duplica
     get_connectivity_from_elem_id = lambda elem_id : list(element_df['connectivity'].iloc[elem_id])
     get_dof_list_from_elem_id = lambda elem_id : list(map(get_dof_from_node,get_connectivity_from_elem_id(elem_id)))
     get_elements_from_group_id = lambda group_id : list(element_df.loc[element_df[tag] == group_id].index)
-    get_dof_list_from_group_id = lambda group_id : np.array(list(map(get_dof_list_from_elem_id,get_elements_from_group_id(group_id)))).flatten()
+    get_dof_list_from_group_id = lambda group_id : np.sort(np.array(list(map(get_dof_list_from_elem_id,get_elements_from_group_id(group_id)))).flatten())
     
     
-    group_set = set(element_df[tag])
+    group_set = OrderedSet(element_df[tag])
     if unique_id in group_set:
         print('Group tag uses the unique id %i, please ')
         raise(Exception)
     
-    all_dofs = set(node_df.values.flatten())
+    all_dofs = OrderedSet(node_df.values.flatten())
     dof_dict = {}
     dofs = set()
     for group_id in set(element_df[tag]):
         group_dofs = get_dof_list_from_group_id(group_id)
-        dof_dict[group_id] = set(group_dofs)
+        dof_dict[group_id] = OrderedSet(group_dofs)
         dofs.update(group_dofs)
 
-    dof_dict[unique_id] = list(all_dofs - dofs)   
+    dof_dict[unique_id] = OrderedSet(list(all_dofs - dofs))   
 
     return SelectionOperator(dof_dict,node_df,remove_duplicated = remove_duplicated)
 
@@ -1419,12 +1419,12 @@ for s in sys.argv:
         except:
             pass
 
-        dummy_script = r'tmp\test.py' 
         dummy_file = 'test.py'
+        dummy_script = os.path.join(tmp_folder,dummy_file) 
         with open(dummy_script,'w') as f:
             f.write(python_script)
 
-        mpi_launcher = MPILauncher(dummy_file,2,solver='PCG',pseudoinverse='SuperLU')
+        mpi_launcher = MPILauncher(dummy_file,2,solver='PCG',pseudoinverse='SuperLU',save_log=True)
         mpi_launcher.run()
 
         target_string = '''[1]UnitTest from rank = 1
@@ -1437,13 +1437,16 @@ for s in sys.argv:
 [0]pseudoinverse=SuperLU'''
 
         string_list = target_string.split('\n')
-        with open(os.path.join('tmp','mpi.log'),'r') as f:
+        with open(os.path.join(tmp_folder,'mpi.log'),'r') as f:
             txt_string = f.readlines()
 
-            
         #checking only the first line and last line
-        self.assertEqual( txt_string[0][3:-3],string_list[0][3:-2])
-        self.assertEqual( txt_string[-1][3:-3],string_list[-1][3:-2])
+        if txt_string[0][0]=='[':
+            self.assertEqual(txt_string[0][3:-3],string_list[0][3:-2])
+            self.assertEqual(txt_string[-1][3:-3],string_list[-1][3:-2])
+        else:
+            self.assertEqual(txt_string[0][0:-3],string_list[0][3:-2])
+            self.assertEqual(txt_string[-1][0:-3],string_list[-1][3:-2])
 
         try:
             shutil.rmtree(tmp_folder)

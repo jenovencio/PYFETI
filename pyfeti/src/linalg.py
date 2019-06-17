@@ -1021,7 +1021,7 @@ class Matrix():
     def get_block(self,row_key,column_key):
         pass
      
-    def eliminate_by_identity(self,dof_ids):
+    def eliminate_by_identity(self,dof_ids,multiplier=1.0):
         ''' This function eliminates matrix rows and columns
         by replacing rows and columns by identity matrix
         
@@ -1051,7 +1051,7 @@ class Matrix():
         
         if issparse(self.data):
             self.data = self.data.tolil()
-        dirichlet_stiffness = self.trace/self.shape[0]       
+        dirichlet_stiffness = multiplier*self.trace/self.shape[0]       
         self.data[dofs,:] = 0.0
         self.data[:,dofs] = 0.0
         self.data[dofs,dofs] = dirichlet_stiffness

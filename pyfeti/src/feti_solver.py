@@ -41,59 +41,53 @@ except:
 
 
 class FETIsolver():
-    def __init__(self,K_dict,B_dict,f_dict,**kwargs):
+    def __init__(self,K_dict,B_dict,f_dict,pseudoinverse_kargs={'method':'svd','tolerance':1.0E-8},**kwargs):
         self.K_dict = K_dict
         self.B_dict = B_dict
         self.f_dict = f_dict
         self.x_dict = None
         self.lambda_dict = None
         self.alpha_dict = None
+        self.pseudoinverse_kargs = pseudoinverse_kargs
         self.__dict__.update(kwargs)
         
-        
     def solve(self):
-        pass
+        return self.manager.solve()
         
     def serialize(self):
-        for obj in [self.K_dict,self.B_dict,self.f_dict]:
-            for key, item in obj:
-                pass
+        pass
+    
+    def create_local_problems(self):
+        ''' This method created a dictionary of LocalProblem objects based on 
+        local variables
+
+        returns: dict 
+            dictionary with LocalProbrem objects
+        '''
+        local_problem_dict = {}
+        for key, K_local in self.K_dict.items():
+            B_local_dict = self.B_dict[key]
+            f_local = self.f_dict[key]
+            local_problem_dict[key] = LocalProblem(K_local,B_local_dict,f_local,id=key,pseudoinverse_kargs=self.pseudoinverse_kargs)
+
+        return local_problem_dict
+
                 
 class SerialFETIsolver(FETIsolver):
     def __init__(self,K_dict,B_dict,f_dict,**kwargs):
         super().__init__(K_dict,B_dict,f_dict,**kwargs)
-        self.manager = SerialSolverManager(self.K_dict,self.B_dict,self.f_dict,**kwargs) 
-        
-    def solve(self):
-       manager = self.manager
+        self.manager = SerialSolverManager(self.create_local_problems(),**kwargs) 
 
-       start_time = time.time()
-       manager.assemble_local_G_GGT_and_e()
-       manager.assemble_cross_GGT()
-       manager.build_local_to_global_mapping()
-       build_local_matrix_time = time.time() - start_time
 
-       G = manager.assemble_G()
-       GGT = manager.assemble_GGT()
-       e = manager.assemble_e()
-       
-       start_time = time.time()
-       lambda_sol,alpha_sol, rk, proj_r_hist, lambda_hist, info_dict = manager.solve_dual_interface_problem()
-       elaspsed_time_PCPG = time.time() - start_time
+class ParallelFETIsolver(FETIsolver):
+    def __init__(self,K_dict,B_dict,f_dict,temp_folder='temp',delete_folder=False,**kwargs):
+        super().__init__(K_dict,B_dict,f_dict,**kwargs)
+        self.manager = ParallelSolverManager(self.create_local_problems(),temp_folder=temp_folder,delete_folder=delete_folder,**kwargs) 
 
-       u_dict, lambda_dict, alpha_dict = manager.assemble_solution_dict(lambda_sol,alpha_sol)
 
-       elapsed_time = time.time() - start_time
-       return Solution(u_dict, lambda_dict, alpha_dict,rk, proj_r_hist, lambda_hist,
-                       lambda_map=self.manager.local2global_lambda_dofs,alpha_map=self.manager.local2global_alpha_dofs,
-                       u_map=self.manager.local2global_primal_dofs,lambda_size=self.manager.lambda_size,
-                       alpha_size=self.manager.alpha_size,
-                       solver_time=elapsed_time,local_matrix_time = build_local_matrix_time, 
-                       time_PCPG = elaspsed_time_PCPG)
-        
 class SolverManager():
-    def __init__(self,K_dict,B_dict,f_dict,pseudoinverse_kargs={'method':'svd','tolerance':1.0E-8},dual_interface_algorithm='PCPG',**kwargs):
-        self.local_problem_dict = {}
+    def __init__(self,local_problem_dict,dual_interface_algorithm='PCPG',**kwargs):
+        self.local_problem_dict = local_problem_dict
         self.course_problem = CoarseProblem()
         self.local2global_lambda_dofs = {}
         self.global2local_lambda_dofs = {}
@@ -112,9 +106,8 @@ class SolverManager():
         self.G = None
         self.e = None
         self.GGT = None
-        self.num_partitions =  len(K_dict.keys())
+        self.num_partitions =  len(local_problem_dict)
         self.map_dofs = None
-        self.pseudoinverse_kargs = pseudoinverse_kargs
         self.dual_interface_algorithm = dual_interface_algorithm
         self.is_local_G_GGT_and_e_computed = False
         
@@ -122,22 +115,50 @@ class SolverManager():
         self.__dict__.update(kwargs)
         self.kwargs = kwargs
 
-        self._create_local_problems(K_dict,B_dict,f_dict)
+        self._preprocessing()
         
     @property
     def GGT_inv(self):
         return self.course_problem.compute_GGT_inv()
 
-    def _create_local_problems(self,K_dict,B_dict,f_dict):
-        
-        for key, obj in K_dict.items():
-            B_local_dict = B_dict[key]
+    def _preprocessing(self):    
+        for key, local_obj in self.local_problem_dict.items():
             self.local_problem_id_list.append(key)
-            self.local_problem_dict[key] = LocalProblem(obj,B_local_dict,f_dict[key],id=key,pseudoinverse_kargs=self.pseudoinverse_kargs)
-            for interface_id, B in B_local_dict.items():
+            for interface_id, B in local_obj.B_local.items():
                 self.local_lambda_length_dict[interface_id] = B.shape[0]
         
         self.local_problem_id_list.sort()
+
+    def solve(self):
+        ''' Build linear operators, G, GGT, e,  and 
+        solve the dual interface problem
+
+        returns Solution obj
+        '''            
+
+        start_time = time.time()
+        self.assemble_local_G_GGT_and_e()
+        self.assemble_cross_GGT()
+        self.build_local_to_global_mapping()
+        build_local_matrix_time = time.time() - start_time
+
+        G = self.assemble_G()
+        GGT = self.assemble_GGT()
+        e = self.assemble_e()
+        
+        start_time = time.time()
+        lambda_sol,alpha_sol, rk, proj_r_hist, lambda_hist, info_dict = self.solve_dual_interface_problem()
+        elaspsed_time_PCPG = time.time() - start_time
+
+        u_dict, lambda_dict, alpha_dict = self.assemble_solution_dict(lambda_sol,alpha_sol)
+
+        elapsed_time = time.time() - start_time
+        return Solution(u_dict, lambda_dict, alpha_dict,rk, proj_r_hist, lambda_hist,
+                        lambda_map=self.local2global_lambda_dofs,alpha_map=self.local2global_alpha_dofs,
+                        u_map=self.local2global_primal_dofs,lambda_size=self.lambda_size,
+                        alpha_size=self.alpha_size,
+                        solver_time=elapsed_time,local_matrix_time = build_local_matrix_time, 
+                        time_PCPG = elaspsed_time_PCPG)
 
     def dict2array(self,A_dict):
         ''' This function transform a local dictionary 
@@ -652,7 +673,7 @@ class SolverManager():
 
 
 class ParallelSolverManager(SolverManager):
-    def __init__(self,K_dict,B_dict,f_dict,pseudoinverse_kargs={'method':'svd','tolerance':1.0E-8},temp_folder='temp',**kwargs):
+    def __init__(self,local_problem_dict,temp_folder='temp',delete_folder=True, **kwargs):
         self.temp_folder = temp_folder
         self.local_problem_path = {}
         self.prefix = 'local_problem_'
@@ -660,9 +681,11 @@ class ParallelSolverManager(SolverManager):
         self.log = True
         self.launcher_only = False
         self.mpi_obj = None
-        super().__init__(K_dict,B_dict,f_dict,pseudoinverse_kargs=pseudoinverse_kargs,**kwargs)
-        
-    def _create_local_problems(self,K_dict,B_dict,f_dict,temp_folder=None):
+        self.delete_folder = delete_folder 
+        super().__init__(local_problem_dict,**kwargs)
+        self._serialize()
+
+    def _serialize(self,temp_folder=None):
         start_time = time.time()
         if temp_folder is None:
             temp_folder = self.temp_folder
@@ -681,16 +704,30 @@ class ParallelSolverManager(SolverManager):
         except:
             pass
             
-        for key, obj in K_dict.items():
-            B_local_dict = B_dict[key]
-            self.local_problem_id_list.append(key)
-            self.local_problem_dict[key] = LocalProblem(obj,B_local_dict,f_dict[key],id=key,pseudoinverse_kargs=self.pseudoinverse_kargs)
-            for interface_id, B in B_local_dict.items():
-                self.local_lambda_length_dict[interface_id] = B.shape[0]
-
+        for key, local_obj in self.local_problem_dict.items():
             local_path =  os.path.join(temp_folder, self.prefix + str(key) + self.ext)
             self.local_problem_path[key] = local_path
-            save_object(self.local_problem_dict[key] , local_path)
+            save_object(local_obj , local_path)
+
+        elapsed_time = time.time() - start_time
+        logging.info('{"serializing_local_problems" : %4.5e} #Elapsed time (s)' %elapsed_time)
+
+    def solve(self):
+        ''' Launch mpi process to solve Dual 
+        interfac e problem in parallel
+        and read results.
+
+        returns Solution obj
+        '''         
+        
+       
+        self.launch_mpi_process()
+        sol_obj = self.read_results()
+
+        if self.delete_folder:
+            self.delete()
+
+        return sol_obj
 
         elapsed_time = time.time() - start_time
         logging.info('{"serializing_local_problems" : %4.5e} #Elapsed time (s)' %elapsed_time)
@@ -765,23 +802,6 @@ class ParallelSolverManager(SolverManager):
     def delete(self):
         shutil.rmtree(self.temp_folder)
 
-
-class ParallelFETIsolver(FETIsolver):
-    def __init__(self,K_dict,B_dict,f_dict,temp_folder='temp',delete_folder=False,**kwargs):
-        super().__init__(K_dict,B_dict,f_dict,**kwargs)
-        self.manager = ParallelSolverManager(self.K_dict,self.B_dict,self.f_dict,temp_folder=temp_folder,**kwargs) 
-        self.delete_folder = delete_folder
-
-    def solve(self):
-        manager = self.manager        
-        manager.launch_mpi_process()
-        sol_obj = manager.read_results()
-
-        if self.delete_folder:
-            manager.delete()
-
-        return sol_obj
-        
 
 class LocalProblem():
     counter = 0

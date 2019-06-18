@@ -22,11 +22,12 @@ contpy.egg-info
 docs/_build
 results/
 build/
+tmp/
+temp/
 dist/
 private/
 .idea/
 .spyproject/
 .vs/
-.vscode
 __pycache__/
 .egg-info

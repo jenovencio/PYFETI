@@ -8,7 +8,7 @@ import time
 sys.path.append('../..')
 from pyfeti.src.utils import OrderedSet, Get_dofs, save_object, MapDofs
 from pyfeti.src.linalg import Matrix, Vector,  elimination_matrix_from_map_dofs, expansion_matrix_from_map_dofs
-from pyfeti.src.feti_solver import ParallelFETIsolver, SerialFETIsolver
+from pyfeti.src.feti_solver import ParallelFETIsolver, SerialFETIsolver, LocalProblem
 from pyfeti.src.solvers import PCPG
 from pyfeti.src.MPIlinalg import ParallelRetangularLinearOperator
 from pyfeti.src.linalg import RetangularLinearOperator
@@ -639,13 +639,122 @@ class  Test_FETIsolver(TestCase):
         lambda_ = solution_obj.interface_lambda
         alpha =  solution_obj.alpha
         
+        print('End Total FETI solver ..........')
+        
+    def test_ParallelRetangularLinearOperator(self):
 
-        solver_obj = ParallelFETIsolver(K_dict,B_dict,f_dict)
+        print('Test RetangularLinearOperator')
+        algorithm = SerialFETIsolver
+        case_id,nx,ny = 1,3,2
+        K_dict, B_dict, f_dict = create_FETI_case(case_id,nx,ny)
+        solver_obj = algorithm(K_dict,B_dict,f_dict,dual_interface_algorithm='PCPG',precond_type=None)
+        manager = solver_obj.manager 
+        manager.assemble_local_G_GGT_and_e()
+        manager.assemble_cross_GGT()
+        manager.build_local_to_global_mapping()
 
+        G_dict = manager.course_problem.G_dict
+        G = manager.assemble_G()
+        local2global_alpha_dofs = manager.local2global_alpha_dofs 
+        local2global_lambda_dofs = manager.local2global_lambda_dofs
+        alpha_size = manager.alpha_size
+        lambda_size = manager.lambda_size
+
+        LO = RetangularLinearOperator(G_dict,local2global_alpha_dofs,local2global_lambda_dofs,(alpha_size , lambda_size))
+
+        v = np.ones(lambda_size)
+        np.random.seed(seed=1)
+        v = 30.0*np.random.rand(lambda_size)
+        
+        a = LO.dot(v)
+        a_target = G.dot(v)
+        np.testing.assert_almost_equal(a,a_target,decimal=12)
+        
+        f_target = G.T.dot(a)
+        f = LO.T.dot(a)
+        np.testing.assert_almost_equal(f,f_target,decimal=12)
+
+        #LO.dict2vec( v_dict= {} ,10 ,map_dict=local2global_alpha_dofs)
+
+    def test_dict2array_method(self):
+        print('Test dict2array method')
+        algorithm = SerialFETIsolver
+        case_id,nx,ny = 1,3,2
+        K_dict, B_dict, f_dict = create_FETI_case(case_id,nx,ny)
+        solver_obj = algorithm(K_dict,B_dict,f_dict,dual_interface_algorithm='PCPG',precond_type=None)
+        manager = solver_obj.manager 
+        manager.assemble_local_G_GGT_and_e()
+        manager.assemble_cross_GGT()
+        manager.build_local_to_global_mapping()
+
+        G_dict = manager.course_problem.G_dict
+
+        G_array, chunck_map = manager.dict2array(G_dict)
+
+        G_calc_dict = manager.array2dict(G_array,chunck_map)
+
+        for key, G in G_dict.items():
+            np.testing.assert_array_equal(G,G_calc_dict[key].A)
+
+    def test_FETIsolver_create_localproblems(self):
+            K1 = np.array([[1,-1],[-1,1]])
+            K2 = np.array([[1,-1],[-1,1]])
+            B0 = np.array([[-1,0]])
+            B1 = np.array([[0,1]]) 
+            B2 = np.array([[-1,0]]) 
+
+            f1 = np.array([0.,0.])                
+            f2 = np.array([0.,1.])                
+                
+            # Using PyFETI to solve the probrem described above
+            K_dict = {1:K1,2:K2}
+            B_dict = {1 : {(1,2) : B1, (1,1): B0}, 2 : {(2,1) : B2}}
+            f_dict = {1:f1,2:f2}
+
+            solver_obj = SerialFETIsolver(K_dict,B_dict,f_dict)
+            local_dict = solver_obj.create_local_problems()
+
+            l1 = LocalProblem(K1,B_dict[1],f1,id=1)
+            l2 = LocalProblem(K2,B_dict[2],f2,id=2)
+
+            np.testing.assert_array_equal(l1.K_local.data.A,local_dict[1].K_local.data.A)        
+            np.testing.assert_array_equal(l1.f_local.data,local_dict[1].f_local.data)        
+
+            np.testing.assert_array_equal(l2.K_local.data.A,local_dict[2].K_local.data.A)        
+            np.testing.assert_array_equal(l2.f_local.data,local_dict[2].f_local.data)        
+
+        
+    def test_total_FETI_approach(self):
+        ''' This test incorporate Dirichlet constraint in the Boolean matrix
+        The constraint are considered the 0-th Neighbor
+                                           F->
+        |>0   0-----0-----0    0-----0-----0
+        Dir        D1                D2 
+        '''
+        
+        print('Test Total FETI solver ..........')
+        K1 = np.array([[1,-1],[-1,1]])
+        K2 = np.array([[1,-1],[-1,1]])
+        B0 = np.array([[-1,0]])
+        B1 = np.array([[0,1]]) 
+        B2 = np.array([[-1,0]]) 
+        f1 = np.array([0.,0.])                
+        f2 = np.array([0.,1.])                
+               
+        # Using PyFETI to solve the probrem described above
+        K_dict = {1:K1,2:K2}
+        B_dict = {1 : {(1,2) : B1, (1,1): B0}, 2 : {(2,1) : B2}}
+        f_dict = {1:f1,2:f2}
+
+        solver_obj = SerialFETIsolver(K_dict,B_dict,f_dict)
         solution_obj = solver_obj.solve()
-
+        u_dual = solution_obj.displacement
+        lambda_ = solution_obj.interface_lambda
+        alpha =  solution_obj.alpha
+        
+        solver_obj = ParallelFETIsolver(K_dict,B_dict,f_dict)
+        solution_obj = solver_obj.solve()
         solver_obj.manager.delete()
-
         u_dual_par = solution_obj.displacement
         lambda_par = solution_obj.interface_lambda
         alpha_par =  solution_obj.alpha
@@ -738,3 +847,4 @@ if __name__=='__main__':
     #test_obj.test_compare_svd_splusps()
     #test_obj.test_total_FETI_approach()
     #test_obj.test_dict2array_method()
+    #test_obj.test_FETIsolver_create_localproblems()

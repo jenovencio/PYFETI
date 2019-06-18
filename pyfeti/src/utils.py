@@ -899,14 +899,14 @@ def pyfeti_dir(filename=''):
 
 
 class DomainCreator():
-    def __init__(self,width=10,heigh=10,x_divisions=11,y_divisions=11,domain_id=1):
+    def __init__(self,width=10,heigh=10,x_divisions=11,y_divisions=11,start_x =0,start_y=0,domain_id=1):
         self.width = width
         self.heigh = heigh
         self.x_divisions = x_divisions
         self.y_divisions = y_divisions
         self.domain_id = domain_id
-        self.start_x = 0.0
-        self.start_y = 0.0
+        self.start_x = start_x
+        self.start_y = start_y
         self.elem_type = 'Quad4'
         self.gmsh_type = 1
         self.elem_num = 0
@@ -1112,7 +1112,8 @@ class DomainCreator():
         return elem_string
 
 class PrismaCreator(DomainCreator):
-    def __init__(self,width=10,heigh=10,thickness=10,x_divisions=11,y_divisions=11,z_divisions=11,domain_id=1):
+    def __init__(self,width=10,heigh=10,thickness=10,x_divisions=11,y_divisions=11,z_divisions=11,domain_id=1,
+    start_x = 0.0,start_y = 0.0, start_z = 0.0):
         self.width = width
         self.heigh = heigh
         self.thickness = thickness
@@ -1120,9 +1121,9 @@ class PrismaCreator(DomainCreator):
         self.y_divisions = y_divisions
         self.z_divisions = z_divisions
         self.domain_id = domain_id
-        self.start_x = 0.0
-        self.start_y = 0.0
-        self.start_z = 0.0
+        self.start_x = start_x
+        self.start_y = start_y
+        self.start_z = start_z
         self.elem_type = 'Hexa8'
         self.gmsh_type = 1
         self.elem_num = 0
@@ -1338,6 +1339,77 @@ class PrismaCreator(DomainCreator):
 
         return linear_elem_dict
 
+class DiskCreator(DomainCreator):
+    def __init__(self,r_in=10,r_out=20,sector_angle=10,angle_divisions=11,radial_divisions=11,theta_0=0,
+                 start_x=0,start_y=0,domain_id=1):
+        
+        self.r_in = r_in
+        self.r_out = r_out
+        self.sector_angle = sector_angle
+        self.angle_divisions = angle_divisions
+        self.radial_divisions = radial_divisions
+        self.domain_id = domain_id
+        self.theta_0 = -np.deg2rad(theta_0)
+        super().__init__(width = (r_out - r_in), heigh=sector_angle,x_divisions=angle_divisions,y_divisions=radial_divisions,
+                          start_x=start_x,start_y=start_y,domain_id=domain_id)
+
+    def build_nodes(self):
+
+        x0 = self.start_x 
+        y0 = self.start_y
+        theta_0 = self.theta_0
+        rx = lambda theta : x0 + self.r_in*np.cos(theta)
+        ry = lambda theta : y0 + self.r_in*np.sin(theta)
+        d_theta = np.deg2rad(self.sector_angle/(self.angle_divisions-1))
+        dr = (self.r_out - self.r_in)/(self.radial_divisions-1)
+        theta = lambda i,j : j*d_theta-theta_0
+        x = lambda i,j : rx(theta(i,j)) + i*dr*np.cos(theta(i,j))
+        y = lambda i,j : ry(theta(i,j)) + i*dr*np.sin(theta(i,j))
+        nodes_dict = {}
+        for i in range(self.y_divisions):
+            for j in range(self.x_divisions):
+                nodes_dict[i,j] = [x(i,j) , y(i,j), 0.0]
+    
+        return nodes_dict
+        
+
+class DiskCreator_3D(PrismaCreator):
+    def __init__(self,r_in=10,r_out=20,sector_angle=10,angle_divisions=11,radial_divisions=11,theta_0=0,
+                 start_x=0,start_y=0,start_z=0,domain_id=1,thickness=10,z_divisions=11):
+
+        self.r_in = r_in
+        self.r_out = r_out
+        self.sector_angle = sector_angle
+        self.angle_divisions = angle_divisions
+        self.radial_divisions = radial_divisions
+        self.domain_id = domain_id
+        self.theta_0 = -np.deg2rad(theta_0)
+        super().__init__(width=(r_out-r_in),heigh=sector_angle,thickness=10,x_divisions=angle_divisions,
+                         y_divisions=radial_divisions,z_divisions=z_divisions,
+                         start_x=start_x,start_y=start_y,start_z=start_z,domain_id=domain_id)
+
+    def build_nodes(self):
+
+        x0 = self.start_x 
+        y0 = self.start_y
+        theta_0 = self.theta_0
+        rx = lambda theta : x0 + self.r_in*np.cos(theta)
+        ry = lambda theta : y0 + self.r_in*np.sin(theta)
+        dz = self.thickness/(self.z_divisions-1)
+        z0 = self.start_z
+        d_theta = np.deg2rad(self.sector_angle/(self.angle_divisions-1))
+        dr = (self.r_out - self.r_in)/(self.radial_divisions-1)
+        theta = lambda i,j : j*d_theta-theta_0
+        x = lambda i,j : rx(theta(i,j)) + i*dr*np.cos(theta(i,j))
+        y = lambda i,j : ry(theta(i,j)) + i*dr*np.sin(theta(i,j))
+        nodes_dict = {}
+        for k in range(self.z_divisions):
+            for j in range(self.y_divisions):
+                for i in range(self.x_divisions):
+                    nodes_dict[i,j,k] = [x(j,i) , y(j,i), z0+k*dz ]
+    
+        return nodes_dict        
+
 
 class  Test_Utils(TestCase):
     def test_OrderedSet(self):
@@ -1404,6 +1476,42 @@ class  Test_Utils(TestCase):
         creator_obj.save_gmsh_file(mesh_path)
         shutil.rmtree('meshes')
 
+    def test_DiskCreator(self):
+        
+        try:
+            os.mkdir('meshes')
+        except:
+            pass
+
+        creator_obj  = DiskCreator(r_in=10,r_out=30,
+                                   sector_angle=180,
+                                   angle_divisions=21,
+                                   radial_divisions=11,
+                                   theta_0=0,
+                                   start_x=10,
+                                   start_y=5)
+        mesh_path = os.path.join('meshes','mesh1.msh')
+        creator_obj.save_gmsh_file(mesh_path)
+        shutil.rmtree('meshes')
+
+    def test_DiskCreator_3D(self):
+        
+        try:
+            os.mkdir('meshes')
+        except:
+            pass
+
+        creator_obj  = DiskCreator_3D(r_in=10,r_out=30,
+                                   sector_angle=90,
+                                   angle_divisions=11,
+                                   radial_divisions=4,
+                                   theta_0=0,
+                                   start_x=0,
+                                   start_y=0)
+        mesh_path = os.path.join('meshes','mesh1.msh')
+        creator_obj.save_gmsh_file(mesh_path)
+        shutil.rmtree('meshes')
+
     def test_mpi_launcher(self):
         python_script = """from mpi4py import MPI
 import sys\ncomm = MPI.COMM_WORLD
@@ -1464,3 +1572,5 @@ if __name__ == '__main__':
     #testobj.test_DomainCreator()
     #testobj.test_mpi_launcher()
     #testobj.test_PrismaCreator()
+    #testobj.test_DiskCreator()
+    #testobj.test_DiskCreator_3D()

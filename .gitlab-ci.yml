@@ -18,6 +18,9 @@ unittest:
   stage: unittest
   when: always
   script:
+    - export PYTHON_ENV="/home/gitlab-runner/anaconda3/bin"
     - export PATH="/home/gitlab-runner/anaconda3/bin:$PATH"
+    - export MPIDIR=""
+    - mpiexec -h
     - python setup.py develop
     - nosetests

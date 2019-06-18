@@ -2,7 +2,6 @@
 Preconditioning module for PYFETI
 """
 from scipy.sparse import csr_matrix, lil_matrix, identity
-from pyfeti.src.linalg import cal_schur_complement, SparseMatrix
 import numpy as np
 
 all = ['PreconditionerAssembler',

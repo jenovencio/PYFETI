@@ -357,17 +357,50 @@ class OrderedSet(collections.MutableSet):
 
 
 class DofManager():
-    def __init__(self,id_map_df ):
-        ''' 
+    ''' 
         paramentes:
-        id_map_df: pandas.DataFrame
-            id_map_df is a pandas dataframe where columns
-            represent directions and rows represent nodes id
+        element_df : pandas.DataFrame
+            element dataframe  with column as rows as element ids
+
+        node_df: pandas.DataFrame
+            it is a pandas dataframe where columns
+            represent directions coordinates and rows represent nodes id
     
-        '''
-        self.id_map_df = id_map_df
+        tag : string
+            column string to select element in element_df
+
+    '''
+    def __init__(self,element_df,node_df,tag='phys_group'):
+        self.element_df = element_df
+        self.node_df = node_df
+        self.tag = tag
+    
+    def get_dof_from_node(self,node_id):
+        node_df = self.node_df
+        return list(node_df.iloc[node_id])
         
-    def get(self,global_node_list, direction ='xyz'):
+    def get_connectivity_from_elem_id(self,elem_id): 
+        element_df = self.element_df
+        return list(element_df['connectivity'].iloc[elem_id])
+    
+    def get_dof_list_from_elem_id(self,elem_id):
+        return list(map(self.get_dof_from_node,self.get_connectivity_from_elem_id(elem_id)))
+    
+    def get_elements_from_group_id(self,group_id):
+        element_df = self.element_df
+        tag = self.tag
+        return list(element_df.loc[element_df[tag] == group_id].index)
+    
+    def get_dof_list_from_group_id(self,group_id): 
+        return np.sort(np.array(list(map(self.get_dof_list_from_elem_id,self.get_elements_from_group_id(group_id)))).flatten())
+    
+    def get_node_list_from_group_id(self,group_id):
+        node_list = []
+        for elem_id in self.get_elements_from_group_id(group_id): 
+            node_list.extend(self.get_connectivity_from_elem_id(elem_id))
+        return np.sort(node_list)
+        
+    def get_dofs_from_node_list(self,global_node_list, direction ='xyz'):
         ''' get dofs given a submesh and a global id_matrix
         
         parameters:
@@ -381,16 +414,21 @@ class DofManager():
                 # list with Dirichlet dofs
         '''
      
-        dir_dofs = []
-        for dir in ['x','y','z']:
-            if dir in direction:
-                try:
-                    dir_dofs.extend(list(self.id_map_df[dir][global_node_list]))
-                except:
-                    print('Not possible to local dof based on the given node list')
-                
-        dir_dofs.sort()
-        return dir_dofs
+        select_dof = ['x' in direction,
+                      'y' in direction,
+                      'z' in direction]
+            
+        dof_list = []
+        for node_id in global_node_list:
+            dofs = np.array(self.get_dof_from_node(node_id))
+            dof_list.extend(list(dofs[select_dof[:len(dofs)]]))
+
+        return dof_list
+
+    def get(self,global_node_list, direction ='xyz'):
+        ''' alias for back compatibility
+        '''
+        return self.get_dofs_from_node_list(lobal_node_list, direction=direction)
 
  
 class SelectionOperator():
@@ -434,7 +472,6 @@ class SelectionOperator():
                 local_dof_counter += 1
         
         
-        self.P = self.create_permutation_matrix(self.local_indexes)
         self.ndof = max(self.id_map_df.max()) + 1
     
     @property
@@ -607,7 +644,7 @@ class SelectionOperator():
             set of the union off dofs
             
         '''
-        node_set = set()
+        node_set = set() 
         for key in key_list:
             node_set.update(self.selection_dict[key])
             

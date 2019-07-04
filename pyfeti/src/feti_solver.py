@@ -41,7 +41,7 @@ except:
 
 
 class FETIsolver():
-    def __init__(self,K_dict,B_dict,f_dict,pseudoinverse_kargs={'method':'svd','tolerance':1.0E-8},**kwargs):
+    def __init__(self,K_dict,B_dict,f_dict,dtype=np.float,pseudoinverse_kargs={'method':'svd','tolerance':1.0E-8},**kwargs):
         self.K_dict = K_dict
         self.B_dict = B_dict
         self.f_dict = f_dict
@@ -49,6 +49,7 @@ class FETIsolver():
         self.lambda_dict = None
         self.alpha_dict = None
         self.pseudoinverse_kargs = pseudoinverse_kargs
+        self.dtype = dtype
         self.__dict__.update(kwargs)
         
     def solve(self):
@@ -68,7 +69,7 @@ class FETIsolver():
         for key, K_local in self.K_dict.items():
             B_local_dict = self.B_dict[key]
             f_local = self.f_dict[key]
-            local_problem_dict[key] = LocalProblem(K_local,B_local_dict,f_local,id=key,pseudoinverse_kargs=self.pseudoinverse_kargs)
+            local_problem_dict[key] = LocalProblem(K_local,B_local_dict,f_local,id=key,dtype=self.dtype,pseudoinverse_kargs=self.pseudoinverse_kargs)
 
         return local_problem_dict
 
@@ -86,9 +87,9 @@ class ParallelFETIsolver(FETIsolver):
 
 
 class SolverManager():
-    def __init__(self,local_problem_dict,dual_interface_algorithm='PCPG',**kwargs):
+    def __init__(self,local_problem_dict,dual_interface_algorithm='PCPG',dtype=np.float,**kwargs):
         self.local_problem_dict = local_problem_dict
-        self.course_problem = CoarseProblem()
+        self.course_problem = CoarseProblem(dtype=dtype)
         self.local2global_lambda_dofs = {}
         self.global2local_lambda_dofs = {}
         self.local2global_alpha_dofs = {}
@@ -110,7 +111,7 @@ class SolverManager():
         self.map_dofs = None
         self.dual_interface_algorithm = dual_interface_algorithm
         self.is_local_G_GGT_and_e_computed = False
-        
+        self.dtype = dtype
         # transform key args in object variables
         self.__dict__.update(kwargs)
         self.kwargs = kwargs
@@ -245,21 +246,23 @@ class SolverManager():
             self.e = self.course_problem.assemble_e(self.local2global_alpha_dofs,self.alpha_size)
             return  self.e
         except:
-            raise('Build local to global mapping before calling this function')
+            logging.error(('local2global_alpha_dofs = ',self.local2global_alpha_dofs))
+            logging.error(('alpha_size = ',self.alpha_size))
+            raise ValueError('Build local to global mapping before calling this function')
 
     def assemble_GGT(self):
         try:
             self.GGT = self.course_problem.assemble_GGT(self.local2global_alpha_dofs,(self.alpha_size ,self.alpha_size))
             return self.GGT
         except:
-            raise('Build local to global mapping before calling this function')
+            raise ValueError('Build local to global mapping before calling this function')
     
     def assemble_G(self):
         try:
             self.G = self.course_problem.assemble_G(self.local2global_alpha_dofs,self.local2global_lambda_dofs,(self.alpha_size ,self.lambda_size))
             return self.G
         except:
-            raise('Build local to global mapping before calling this function')
+            raise ValueError('Build local to global mapping before calling this function')
     
     def compute_lambda_im(self):
         return  self.G.T.dot(self.GGT_inv.dot(self.e))
@@ -388,7 +391,7 @@ class SolverManager():
         v_dict = self.vector2localdict(v, self.global2local_lambda_dofs)
         gap_dict = self.solve_interface_gap(v_dict,external_force)
         
-        d = np.zeros(self.lambda_size)
+        d = np.zeros(self.lambda_size, dtype=self.dtype)
         for interface_id,global_index in self.local2global_lambda_dofs.items():
             d[global_index] += gap_dict[interface_id]
 
@@ -400,7 +403,7 @@ class SolverManager():
         gap_dict = self.solve_interface_force(v_dict,**kwargs)
 
         # assemble vector based on dict
-        d = np.zeros(self.lambda_size)
+        d = np.zeros(self.lambda_size,dtype=self.dtype)
         for interface_id,global_index in self.local2global_lambda_dofs.items():
             d[global_index] += gap_dict[interface_id]
 
@@ -805,7 +808,7 @@ class ParallelSolverManager(SolverManager):
 
 class LocalProblem():
     counter = 0
-    def __init__(self,K_local, B_local, f_local,id,pseudoinverse_kargs={'method':'svd','tolerance':1.0E-8}):
+    def __init__(self,K_local, B_local, f_local,id,dtype=np.float,pseudoinverse_kargs={'method':'svd','tolerance':1.0E-8}):
         LocalProblem.counter+=1
 
         if not isinstance(K_local,csc_matrix):  
@@ -836,6 +839,7 @@ class LocalProblem():
         self.compute_interface_dof_set()
         self.compute_interior_dof_set()
         self.compute_neighbor_scaling_array()
+        self.dtype = dtype
 
     def get_neighbors_id(self):
         for nei_id, obj in self.B_local.items():
@@ -888,7 +892,7 @@ class LocalProblem():
             u : np.array
                 array with primal variables 
         '''
-        u = np.zeros(self.length)
+        u = np.zeros(self.length, dtype=self.dtype)
         for interface_id, B in self.B_local.items():
                 (local_id,nei_id) = interface_id
                 if local_id>nei_id:
@@ -1028,7 +1032,7 @@ class LocalProblem():
     def solve(self, lambda_dict,external_force_bool=False):
        
         if not external_force_bool:
-            f = np.zeros(self.f_local.data.shape)
+            f = np.zeros(self.f_local.data.shape, dtype=self.dtype)
         else:
             f = np.copy(self.f_local.data)
 
@@ -1084,7 +1088,7 @@ class LocalProblem():
 
 class CoarseProblem():
     counter = 0
-    def __init__(self,id=None):
+    def __init__(self,id=None,dtype=np.float):
         
         self.G_dict = {}
         self.e_dict = {}
@@ -1098,6 +1102,7 @@ class CoarseProblem():
         self.GGT = None
         self.GGT_inv = None
         self.coarse_method = 'splu'
+        self.dtype = dtype
      
         if id is None:
             self.id = CoarseProblem.counter
@@ -1128,7 +1133,8 @@ class CoarseProblem():
                 if not sparse.issparse(self.GGT):
                     self.GGT = sparse.csc_matrix(self.GGT)
                 GGT_inv  = sparse.linalg.splu(self.GGT)
-                self.GGT_inv = sparse.linalg.LinearOperator(shape=self.GGT.shape,matvec = lambda x : GGT_inv.solve(x)) 
+                self.GGT_inv = sparse.linalg.LinearOperator(shape=self.GGT.shape,matvec = lambda x : GGT_inv.solve(x),
+                                                            dtype=self.GGT.dtype) 
                 
             elif coarse_method == 'inv':
                 if sparse.issparse(self.GGT):
@@ -1151,7 +1157,8 @@ class CoarseProblem():
         return GGT_inv_columns
             
     def assemble_block_matrix(self,M_dict,row_map_dict,column_map_dict,shape):
-        M = sparse.lil_matrix(shape)
+
+        M = sparse.lil_matrix(shape,dtype=self.dtype)
         for row_key, row_dofs in row_map_dict.items():
             for col_key, column_dofs in column_map_dict.items():
                 if isinstance(col_key,int):
@@ -1171,7 +1178,9 @@ class CoarseProblem():
         return M.tocsc()
             
     def assemble_block_vector(self,v_dict,map_dict,length):
-        v = np.zeros(length)
+
+        data_type = self.dtype
+        v = np.zeros(length,dtype=data_type)
         for row_keys, row_dofs in map_dict.items():
             v[np.ix_(row_dofs)] += v_dict[row_keys]
         return v
@@ -1269,6 +1278,20 @@ class Solution():
 SerialSolverManager = SolverManager
 FETIManager = SerialSolverManager
 
+def FETI_eig(K_dict,M_dict,B_dict,num_of_modes=20,use_precond=True):
+
+    K_feti_obj = SerialFETIsolver(Ks_dict,Bs_dict,fs_dict)
+    M_feti_obj = SerialFETIsolver(Ms_dict,Bs_dict,fs_dict)
+
+    def system(u,tol=1.0e-6):
+        f = P.T.dot(M.dot(P.dot(u)))
+        f_dict = manager.vector2localdict(f,manager.global2local_primal_dofs)
+        feti_obj = SerialFETIsolver(K_dict,B_dict,f_dict,tolerance=tol)
+        solution_obj = feti_obj.solve()
+        u_dict = solution_obj.u_dict
+        return solution_obj.displacement
+
+
 
 def cyclic_eig(K_dict,M_dict,B_dict,f_dict,num_of_modes=20,use_precond=True):
     ''' This method compute the cyclic eigenvalues and eigenvector of
@@ -1298,8 +1321,12 @@ def cyclic_eig(K_dict,M_dict,B_dict,f_dict,num_of_modes=20,use_precond=True):
     info_dict['Start'] = time.time()
 
 
-    feticase = FETIManager(K_dict,B_dict,f_dict)
-    feticase2 = FETIManager(M_dict,B_dict,f_dict)
+    feticase_ = SerialFETIsolver(K_dict,B_dict,f_dict)
+    feticase2_ = SerialFETIsolver(M_dict,B_dict,f_dict)
+    
+    feticase = feticase_.manager
+    feticase2 = feticase2_.manager
+
     K_global, f_global = feticase.assemble_global_K_and_f()
     M_global, f_global = feticase2.assemble_global_K_and_f()
     B = feticase.assemble_global_B()
@@ -1323,7 +1350,7 @@ def cyclic_eig(K_dict,M_dict,B_dict,f_dict,num_of_modes=20,use_precond=True):
     omega = np.sqrt(eigenvalues)
     frequency = omega/(2.0*np.pi)
 
-    local_dofs = K_dict[0].shape[0]
+    local_dofs = K_dict[1].shape[0]
     modes_dict = {}
     
     for key in f_dict:

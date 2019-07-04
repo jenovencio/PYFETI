@@ -415,7 +415,7 @@ class LinearSys():
         return LinearOperator((self.ndof,self.ndof), matvec=self.solve)  
         
 class ProjLinearSys():      
-    def __init__(self,A,M,P,precond=None,linear_solver=None,solver_tol=1.0E-10):
+    def __init__(self,A,M,P,precond=None,linear_solver=None,solver_tol=1.0E-10,dtype=np.complex):
         self.A = A
         self.M = M
         self.P = P
@@ -425,7 +425,7 @@ class ProjLinearSys():
         self.linear_solver = linear_solver
         self.solver_tol = solver_tol
         self.Ap = P.conj().T.dot(A.dot(P))
-        
+        self.dtype = dtype
 
     def solve(self,b):
         M = self.M
@@ -454,7 +454,7 @@ class ProjLinearSys():
         
     def getLinearOperator(self):
         ndof = self.A.shape[0]
-        return LinearOperator((ndof,ndof), matvec=self.solve , dtype=np.complex)  
+        return LinearOperator((ndof,ndof), matvec=self.solve , dtype=self.dtype)  
     
 class ProjectorOperator(LinearOperator):    
     ''' This interface provides a interface for the Projected Operator

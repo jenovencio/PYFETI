@@ -29,5 +29,6 @@ private/
 .idea/
 .spyproject/
 .vs/
+.vscode
 __pycache__/
 .egg-info

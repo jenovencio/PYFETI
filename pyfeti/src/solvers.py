@@ -224,7 +224,7 @@ def alpha_calc(vn1,pk,Fpk,vdot=None):
         vdot = lambda v,w : np.dot(v,w)
 
     aux2 = vdot(pk,Fpk)
-    alpha = float(vn1/aux2)
+    alpha = vn1/aux2
     return alpha
 
 def pminres(F_action,residual,Projection_action=None,lambda_init=None,

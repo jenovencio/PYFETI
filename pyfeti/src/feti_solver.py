@@ -357,7 +357,7 @@ class SolverManager():
         method_to_call = getattr(solvers, algorithm)
 
         try:
-            self.tolerance = norm_d*self.tolerance 
+            self.tolerance = max(norm_d*self.tolerance, self.tolerance )
         except:
             self.tolerance = None # using default tolerance of the choosen interface algorithm
            
@@ -674,6 +674,16 @@ class SolverManager():
         '''
         return -self.apply_F(np.array(self.lambda_size*[0.0]), external_force=True)
 
+    def assemble_global_scaling(self):
+        ''' assembles the local scaling factor to a global 
+        vector
+        '''
+        scaling_list = []
+        
+        for local_id in self.local_problem_id_list:
+            scaling_list.append(self.local_problem_dict[local_id].scalling)
+            
+        return np.concatenate(scaling_list)
 
 class ParallelSolverManager(SolverManager):
     def __init__(self,local_problem_dict,temp_folder='temp',delete_folder=True, **kwargs):
@@ -914,7 +924,7 @@ class LocalProblem():
         
         interface_id = list(self.interface_set)
         interior_id = list(self.interior_set)
-        f = np.zeros(self.length)
+        f = np.zeros(self.length, self.dtype)
         u = self.expand_interface_gap(gap_dict)
         ub = u[interface_id]
         K = self.K_local.data
@@ -957,7 +967,7 @@ class LocalProblem():
                 Kib = self.K_local.data[np.ix_(interior_id,interface_id)]
                 self._Kib = Kib
             
-            f_exp = np.zeros(self.length)
+            f_exp = np.zeros(self.length,self.dtype)
             f_exp[interior_id] += Kib.dot(ub)
             try:
                 ui = self._lu.solve(f_exp[interior_id])

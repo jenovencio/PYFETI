@@ -88,6 +88,7 @@ class Contact():
         self.connectivity = connectivity
         self.contact_elem_dict = {}
         self.master_normal_dict = {}
+        self.tol_radius = tol_radius
 
         if nodes_coord_slave is None:
             self.nodes_coord_slave = nodes_coord
@@ -100,7 +101,7 @@ class Contact():
             print('Type of contact not implemented!')
             return None
     
-    def find_node_pairs(self, tol_radius = 1e-6):
+    def find_node_pairs(self, tol_radius = None):
         ''' find node pairs for contact given two submeshs
 
        
@@ -113,6 +114,9 @@ class Contact():
                     dict that poitns master nodes to slaves
 
         '''
+
+        if tol_radius is None:
+            tol_radius = self.tol_radius
 
         get_node_coord = lambda node_id : np.array(self.nodes_coord[node_id])
         get_node_coord_slave = lambda node_id : np.array(self.nodes_coord_slave[node_id])

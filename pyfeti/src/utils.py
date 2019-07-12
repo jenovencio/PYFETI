@@ -442,7 +442,7 @@ class SelectionOperator():
                 dict with string and dofs
         
         '''
-        self.selection_dict = copy.deepcopy(selection_dict)
+        self.selection_dict = selection_dict.copy()
         self.id_map_df = id_map_df
         if remove_duplicated:
             self._remove_duplicate_dofs()

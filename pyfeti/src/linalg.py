@@ -597,7 +597,7 @@ def map_matrix(map_dofs,**kargs):
     global_dof_lenth = map_obj.global_dofs_length()
     dof_list = np.arange(total_dof_length)
     
-    L = lil_matrix(shape=(global_dof_lenth,total_dof_length)) 
+    L = lil_matrix((global_dof_lenth,total_dof_length)) 
     domain_list = list(map_obj.get_local_map_dict)
     for domain_id in domain_list:
         local_rows = map_obj.get_domain_rows(domain_id)

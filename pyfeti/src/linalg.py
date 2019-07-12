@@ -611,7 +611,7 @@ def elimination_matrix_from_map_dofs(map_dofs,**kargs):
     L = map_matrix(map_dofs,**kargs)
 
     for i,row in enumerate(L):
-        scale = sum(row)
+        scale = row.sum()
         if scale>1.0:
             L[i,:] = (1.0/scale)*L[i,:]
     return L

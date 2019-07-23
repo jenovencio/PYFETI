@@ -276,7 +276,10 @@ class  Test_FETIsolver(TestCase):
         
         f_primal = L@f_dual
         K_primal = L@K_dual@Lexp
-        u_primal = np.linalg.solve(K_primal,f_primal)
+        if  sparse.issparse(K_primal):
+            u_primal = sparse.linalg.spsolve(K_primal,f_primal)
+        else:
+            u_primal = np.linalg.solve(K_primal,f_primal)
         u_dual_calc = Lexp@u_primal
         norm1 = np.linalg.norm(u_dual)
         norm2 = np.linalg.norm(u_dual_calc)
@@ -361,8 +364,8 @@ class  Test_FETIsolver(TestCase):
             u_dual = np.append(u_dual,u_dict[domain_id])
 
 
-        L_calc = solver_obj.manager.assemble_global_L()
-        Lexp_calc = solver_obj.manager.assemble_global_L_exp()
+        L_calc = solver_obj.manager.assemble_global_L().A
+        Lexp_calc = solver_obj.manager.assemble_global_L_exp().A
 
         n = L_target .shape[0]
         #testing orthogonality

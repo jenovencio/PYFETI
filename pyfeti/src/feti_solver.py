@@ -42,16 +42,35 @@ except:
 
 class FETIsolver():
     def __init__(self,K_dict,B_dict,f_dict,dtype=np.float,pseudoinverse_kargs={'method':'svd','tolerance':1.0E-8},**kwargs):
-        self.K_dict = K_dict
-        self.B_dict = B_dict
-        self.f_dict = f_dict
+        self._K_dict = K_dict
+        self._B_dict = B_dict
+        self._f_dict = f_dict
         self.x_dict = None
         self.lambda_dict = None
         self.alpha_dict = None
         self.pseudoinverse_kargs = pseudoinverse_kargs
         self.dtype = dtype
+        self.manager = None
         self.__dict__.update(kwargs)
         
+    @property
+    def f_dict(self):
+        return self._f_dict 
+
+    @f_dict.setter
+    def f_dict(self,f_dict):   
+        self._f_dict = f_dict
+        for local_id,local_problem in self.manager.local_problem_dict.items():
+            local_problem.f_local = f_dict[local_id]
+
+    @property
+    def B_dict(self):
+        return self._B_dict
+
+    @property
+    def K_dict(self):
+        return self._K_dict
+
     def solve(self):
         return self.manager.solve()
         
@@ -103,6 +122,7 @@ class SolverManager():
         self.lambda_size = None
         self.alpha_size = None
         self.primal_size = None
+        self.number_of_righthand_sides = 1
         self.e_dict = {}
         self.G = None
         self.e = None
@@ -111,7 +131,9 @@ class SolverManager():
         self.map_dofs = None
         self.dual_interface_algorithm = dual_interface_algorithm
         self.is_local_G_GGT_and_e_computed = False
+        self.is_local_matrix_computed = False
         self.dtype = dtype
+        self.tolerance = None
         # transform key args in object variables
         self.__dict__.update(kwargs)
         self.kwargs = kwargs
@@ -130,6 +152,31 @@ class SolverManager():
         
         self.local_problem_id_list.sort()
 
+    def _build_local_matrix(self,force_update=False):
+        """
+        build local Matrices G, GGT and array e
+        and also build the maps from global to local domains
+        """
+        if not self.is_local_matrix_computed or force_update:
+            #building local matrix
+            self.assemble_local_G_GGT_and_e()
+            self.assemble_cross_GGT()
+
+            # defining global map
+            self.build_local_to_global_mapping()
+
+            # assembling global matrices
+            self.assemble_G()
+            self.assemble_GGT()
+            self.assemble_e()
+            self.is_local_matrix_computed = True
+            return True
+
+        else:
+            self.update_global_e()
+            self.assemble_e()
+            return False
+
     def solve(self):
         ''' Build linear operators, G, GGT, e,  and 
         solve the dual interface problem
@@ -138,15 +185,9 @@ class SolverManager():
         '''            
 
         start_time = time.time()
-        self.assemble_local_G_GGT_and_e()
-        self.assemble_cross_GGT()
-        self.build_local_to_global_mapping()
+        self._build_local_matrix()
         build_local_matrix_time = time.time() - start_time
 
-        G = self.assemble_G()
-        GGT = self.assemble_GGT()
-        e = self.assemble_e()
-        
         start_time = time.time()
         lambda_sol,alpha_sol, rk, proj_r_hist, lambda_hist, info_dict = self.solve_dual_interface_problem()
         elaspsed_time_PCPG = time.time() - start_time
@@ -205,29 +246,50 @@ class SolverManager():
             A_dict[key] = A[:,pos:pos+length]
         return A_dict        
 
-    def assemble_local_G_GGT_and_e(self):
+    def assemble_local_G_GGT_and_e(self,force_update=False):
         
+        if  (not self.is_local_G_GGT_and_e_computed) or force_update:
+            for problem_id, local_problem in self.local_problem_dict.items():
+                R = local_problem.get_kernel()
+                if R.shape[0]>0:
+                    self.assemble_local_e(R,local_problem.f_local.data,problem_id)
+                    self.number_of_righthand_sides = local_problem.f_local.data.ndim
+                    self.local_alpha_length_dict[problem_id] = R.shape[1]
+                    G_local_dict = {}
+                    GGT_local_dict = {}
+                    for key, B_local in local_problem.B_local.items():
+                        local_id, nei_id = key
+                        G = (-B_local.dot(R)).T
+                        G_local_dict[key] = G
+                        try:
+                            GGT_local_dict[local_id,local_id] += G.dot(G.T)
+                        except:
+                            GGT_local_dict[local_id,local_id] = G.dot(G.T)
+
+                    self.course_problem.update_G_dict(G_local_dict)
+                    self.course_problem.update_GGT_dict(GGT_local_dict)
+            self.course_problem.number_of_righthand_sides = self.number_of_righthand_sides
+        
+        self.is_local_G_GGT_and_e_computed = True
+
+    def assemble_local_e(self,R,f_local,problem_id):
+        """ Assemble local e= R_i *f_i  arrays for subdomains
+        """
+        self.e_dict[problem_id] = -R.T.dot(f_local)
+        self.course_problem.update_e_dict(self.e_dict)
+        
+    def update_global_e(self):
+        """
+        updates global array e based on R and f 
+        """
         for problem_id, local_problem in self.local_problem_dict.items():
             R = local_problem.get_kernel()
             if R.shape[0]>0:
-                self.e_dict[problem_id] = -R.T.dot(local_problem.f_local.data)
-                self.course_problem.update_e_dict(self.e_dict)
-                self.local_alpha_length_dict[problem_id] = R.shape[1]
-                G_local_dict = {}
-                GGT_local_dict = {}
-                for key, B_local in local_problem.B_local.items():
-                    local_id, nei_id = key
-                    G = (-B_local.dot(R)).T
-                    G_local_dict[key] = G
-                    try:
-                        GGT_local_dict[local_id,local_id] += G.dot(G.T)
-                    except:
-                        GGT_local_dict[local_id,local_id] = G.dot(G.T)
-
-                self.course_problem.update_G_dict(G_local_dict)
-                self.course_problem.update_GGT_dict(GGT_local_dict)
+                self.assemble_local_e(R,local_problem.f_local.data,problem_id)
+                self.number_of_righthand_sides = local_problem.f_local.data.ndim
+                
         
-        self.is_local_G_GGT_and_e_computed = True
+        self.course_problem.number_of_righthand_sides = self.number_of_righthand_sides
 
     def assemble_cross_GGT(self):
         GGT_local_dict = {}
@@ -268,7 +330,10 @@ class SolverManager():
         return  self.G.T.dot(self.GGT_inv.dot(self.e))
         
     def get_vdot(self):
-        return lambda v,w : np.dot(v,w)
+        if self.number_of_righthand_sides<2:
+            return lambda v,w : np.dot(v,w)
+        else:
+            return lambda v,w : np.diag(v.T@w)
 
     def get_projection(self):
         G = self.G
@@ -349,7 +414,7 @@ class SolverManager():
         logging.info('Computing global residual')
         t1 = time.time()
         residual = -self.apply_F(lambda_im, external_force=True,global_exchange=False)
-        norm_d = np.sqrt(vdot(residual,residual))
+        norm_d = np.sqrt(vdot(residual.conj(),residual))
         t1 = time.time()
         logging.info('{"elaspsed_global_residual" : %2.2e} # Elapsed time [s]' %(time.time() - t1))
 
@@ -357,9 +422,9 @@ class SolverManager():
         method_to_call = getattr(solvers, algorithm)
 
         try:
-            self.tolerance = max(norm_d*self.tolerance, self.tolerance )
+            tolerance = max(norm_d.max()*self.tolerance, self.tolerance )
         except:
-            self.tolerance = None # using default tolerance of the choosen interface algorithm
+            tolerance = None # using default tolerance of the choosen interface algorithm
            
         try:
             max_int = self.max_int
@@ -370,7 +435,7 @@ class SolverManager():
                                                                              Projection_action=Projection_action,
                                                                              lambda_init=None,
                                                                              Precondicioner_action=Precondicioner_action,
-                                                                             tolerance=self.tolerance,
+                                                                             tolerance=tolerance,
                                                                              max_int=max_int,
                                                                              vdot=vdot)
 
@@ -391,7 +456,7 @@ class SolverManager():
         v_dict = self.vector2localdict(v, self.global2local_lambda_dofs)
         gap_dict = self.solve_interface_gap(v_dict,external_force)
         
-        d = np.zeros(self.lambda_size, dtype=self.dtype)
+        d = np.zeros(shape=v.shape, dtype=self.dtype)
         for interface_id,global_index in self.local2global_lambda_dofs.items():
             d[global_index] += gap_dict[interface_id]
 
@@ -403,7 +468,7 @@ class SolverManager():
         gap_dict = self.solve_interface_force(v_dict,**kwargs)
 
         # assemble vector based on dict
-        d = np.zeros(self.lambda_size,dtype=self.dtype)
+        d = np.zeros(shape=v.shape, dtype=self.dtype)
         for interface_id,global_index in self.local2global_lambda_dofs.items():
             d[global_index] += gap_dict[interface_id]
 
@@ -607,10 +672,10 @@ class SolverManager():
         fext_list = []
         for local_id in self.local_problem_id_list:
             K_list.append(self.local_problem_dict[local_id].K_local.data)
-            fext_list.append(self.local_problem_dict[local_id].f_local.data)
+            fext_list.append(self.local_problem_dict[local_id].f_local.data.T)
 
         Kd = scipy.sparse.block_diag(K_list)
-        fd = np.hstack(fext_list)
+        fd = np.hstack(fext_list).T
         
         self.block_stiffness = Kd
         self.block_force = fd
@@ -684,6 +749,7 @@ class SolverManager():
             scaling_list.append(self.local_problem_dict[local_id].scalling)
             
         return np.concatenate(scaling_list)
+
 
 class ParallelSolverManager(SolverManager):
     def __init__(self,local_problem_dict,temp_folder='temp',delete_folder=True, **kwargs):
@@ -830,11 +896,7 @@ class LocalProblem():
             self.K_local = Matrix(K_local,pseudoinverse_kargs=pseudoinverse_kargs)
 
         self.length = self.K_local.shape[0]
-        if isinstance(f_local,Vector):
-            self.f_local = f_local
-        else:
-            self.f_local = Vector(f_local)
-
+        self.f_local = f_local
         self.B_local = B_local
         self.solution = None
         
@@ -850,6 +912,17 @@ class LocalProblem():
         self.compute_interior_dof_set()
         self.compute_neighbor_scaling_array()
         self.dtype = dtype
+
+    @property
+    def f_local(self):
+        return self._f_local
+
+    @f_local.setter
+    def f_local(self,f_local):
+        if isinstance(f_local,Vector):
+            self._f_local = f_local
+        else:
+            self._f_local = Vector(f_local)
 
     def get_neighbors_id(self):
         for nei_id, obj in self.B_local.items():
@@ -1109,6 +1182,7 @@ class CoarseProblem():
         self.global2local_alpha_dofs = {}
         self.local2global_lambda_dofs = {}
         self.global2local_lambda_dofs = {}
+        self.number_of_righthand_sides = 1
         self.GGT = None
         self.GGT_inv = None
         self.coarse_method = 'splu'
@@ -1187,12 +1261,20 @@ class CoarseProblem():
 
         return M.tocsc()
             
-    def assemble_block_vector(self,v_dict,map_dict,length):
+    def assemble_block_vector(self,v_dict,map_dict,length,columns=1):
 
         data_type = self.dtype
-        v = np.zeros(length,dtype=data_type)
+        if columns is None:
+            columns=1 
+
+        if columns<2:
+            v = np.zeros(length,dtype=data_type)
+        else:
+            v = np.zeros(shape=(length,columns),dtype=data_type)
+
         for row_keys, row_dofs in map_dict.items():
             v[np.ix_(row_dofs)] += v_dict[row_keys]
+            
         return v
 
     def assemble_GGT(self,map_dict,shape):
@@ -1203,7 +1285,7 @@ class CoarseProblem():
         return self.assemble_block_matrix(self.G_dict,row_map_dict,column_map_dict,shape)
 
     def assemble_e(self,map_dict,length):
-        return self.assemble_block_vector(self.e_dict,map_dict,length)
+        return self.assemble_block_vector(self.e_dict,map_dict,length,columns=self.number_of_righthand_sides)
 
 
 class Solution():
@@ -1223,6 +1305,10 @@ class Solution():
         self._rebuild_lambda_map()
         self.domain_list = None
         self.u_dict = u_dict
+        try:
+            self.dtype = u_dict[1].dtype
+        except:
+            self.dtype = np.float
         self.__dict__.update(kwargs)
 
     @property
@@ -1259,10 +1345,11 @@ class Solution():
 
     @property
     def displacement(self):
-        u = np.array([])
         for key in self.domain_list:
-            u = np.append(u,self.u_dict[key])
-        
+            try:
+                u = np.concatenate((u,self.u_dict[key]))
+            except:
+                u = self.u_dict[key][:]
         return u
     
     @property
@@ -1278,9 +1365,13 @@ class Solution():
         return self.assemble_vector(self.alpha_dict,self.alpha_size,self.alpha_map)
 
     def assemble_vector(self,v_dict,vector_length,map_dict):
-        v = np.zeros(vector_length)
+        v = np.zeros(vector_length,dtype=self.dtype)
         for map_index,row_dofs in map_dict.items():
-            v[np.ix_(row_dofs)] += v_dict[map_index]
+            try:
+                v[np.ix_(row_dofs)] += v_dict[map_index]
+            except:
+                v = np.zeros(shape=(vector_length,v_dict[map_index].ndim),dtype=self.dtype)
+                v[np.ix_(row_dofs)] += v_dict[map_index]
         return v
 
 

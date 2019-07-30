@@ -66,6 +66,8 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
         size = comm.Get_size()
 
         interface_size = len(residual)
+        num_righthand_sides = residual.ndim
+
         apply_precond = True
         Identity = LinearOperator(dtype=residual.dtype,shape=(interface_size,interface_size), matvec = lambda x : x)
          
@@ -76,7 +78,7 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
             max_int = int(1.2*interface_size)
 
         if lambda_init is None:
-            lampda_pcpg = np.zeros(interface_size)
+            lampda_pcpg = np.zeros(shape=residual.shape)
         else:
             lampda_pcpg = lambda_init
                      
@@ -97,7 +99,7 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
             vdot = lambda v,w : np.dot(v,w)
 
         # defining a norm based on vdot function
-        norm_func =  lambda v : np.sqrt(vdot(v,v))
+        norm_func =  lambda v : np.sqrt(vdot(v.conj(),v)).real
 
         F = F_action
 
@@ -107,9 +109,9 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
         # initialize variables
         info_dict = {}
         global_start_time = time.time()
-        beta = 0.0
-        yk1 = np.zeros(interface_size)
-        wk1 = np.zeros(interface_size)
+        beta = np.zeros(shape=(num_righthand_sides,))
+        yk1 = np.zeros(shape=residual.shape)
+        wk1 = np.zeros(shape=residual.shape)
         proj_r_hist = []
         lambda_hist = []
         rk = residual
@@ -137,11 +139,11 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
             
             beta_start = time.time()
             if k>1:
-                vn = vdot(yk,wk)
+                vn = vdot(yk.conj(),wk)
                 beta = vn/vn1
                 vn1 = vn
             else:
-                vn1 = vdot(yk,wk)
+                vn1 = vdot(yk.conj(),wk)
                 vn = vn1 
                 pk1 = yk
             beta_elapsed_time = time.time() - beta_start
@@ -149,13 +151,13 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
             info_dict[k]["elaspsed_time_beta"] = beta_elapsed_time
 
             if exact_norm:
-                norm_wk = norm_func(wk)
+                norm_wk = norm_func(wk).max()
                 logging.info('Iteration = %i, Norm of project residual wk = %2.5e.' %(k,norm_wk))
                 if norm_wk<=tolerance:
                     logging.info('PCG has converged after %i' %(k+1))
                     break
             else:
-                norm_wk = np.sqrt(vn1)
+                norm_wk = np.sqrt(vn1).max()
                 logging.info('Iteration = %i, Norm of project preconditioned residual  sqrt(<yk,wk>) = %2.5e!' %(k,norm_wk))
                 if norm_wk<=tolerance:
                     #evaluate the exact norm
@@ -167,7 +169,7 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
 
             proj_r_hist.append(norm_wk)
             
-            pk = yk + beta*pk1
+            pk = yk + np.multiply(beta,pk1)
 
             F_start = time.time()
             Fpk = F(pk)
@@ -181,12 +183,12 @@ def PCPG(F_action,residual,Projection_action=None,lambda_init=None,
             logging.info('{"elaspsed_time_alpha" : %2.4f} # Elapsed time'  %(alpha_elapsed_time))
             info_dict[k]["elaspsed_time_alpha"] = alpha_elapsed_time
 
-            lampda_pcpg = lampda_pcpg + alpha_k*pk
+            lampda_pcpg = lampda_pcpg + np.multiply(alpha_k,pk)
             
             if save_lambda:
                 lambda_hist.append(lampda_pcpg)
 
-            rk = rk - alpha_k*Fpk
+            rk = rk - np.multiply(alpha_k,Fpk)
             
             # set n - 1 data
             yk1 = yk[:]
@@ -223,7 +225,7 @@ def alpha_calc(vn1,pk,Fpk,vdot=None):
     if vdot is None:
         vdot = lambda v,w : np.dot(v,w)
 
-    aux2 = vdot(pk,Fpk)
+    aux2 = vdot(pk.conj(),Fpk)
     alpha = vn1/aux2
     return alpha
 

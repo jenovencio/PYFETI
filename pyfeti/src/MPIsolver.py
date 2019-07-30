@@ -71,6 +71,7 @@ class LocalSolverManager(SolverManager):
         self.partitions_list = list(range(1,self.num_partitions+1))
         self.neighbors_id = self.local_problem.neighbors_id
         self.dual_interface_algorithm = 'PCPG'
+        self.tolerance = None
         # transform key args in object variables
         self.__dict__.update(kwargs)
 

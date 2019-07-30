@@ -456,7 +456,6 @@ class  Test_FETIsolver(TestCase):
                               domin_list_y = [1,2],
                               case_id_list = [1,2] ):
 
-        
         for case_id in case_id_list:
             for ny in domin_list_y:
                 for nx in domin_list_x:
@@ -726,7 +725,6 @@ class  Test_FETIsolver(TestCase):
             np.testing.assert_array_equal(l2.K_local.data.A,local_dict[2].K_local.data.A)        
             np.testing.assert_array_equal(l2.f_local.data,local_dict[2].f_local.data)        
 
-        
     def test_total_FETI_approach(self):
         ''' This test incorporate Dirichlet constraint in the Boolean matrix
         The constraint are considered the 0-th Neighbor
@@ -823,13 +821,89 @@ class  Test_FETIsolver(TestCase):
         for key, G in G_dict.items():
             np.testing.assert_array_equal(G,G_calc_dict[key].A)
 
+    def test_dtype_complex(self): 
+
+        print('Test dtype for FETI solver ..........')
+        K1 = np.array([[2,-1],[-1,1]])
+        K2 = np.array([[1,-1],[-1,1]])
+        B1 = np.array([[0,1]]) 
+        B2 = np.array([[-1,0]]) 
+        M1 = np.eye(2)
+        M2 = np.eye(2)
+
+        alpha = 0.0001
+        beta = 0.00001
+        w = 0.001
+        Z1 = K1 - w**2*M1 + 1J*w*(alpha*K1 + beta*M1)
+        Z2 = K2 - w**2*M2 + 1J*w*(alpha*K2 + beta*M2)
+        f1 = np.array([0.,0.]) + 1J*np.zeros(2)             
+        f2 = np.array([0.,1.]) + 1J*np.zeros(2)                            
+               
+        # Using PyFETI to solve the probrem described above
+        Z_dict = {1:Z1,2:Z2}
+        B_dict = {1 : {(1,2) : B1}, 2 : {(2,1) : B2}}
+        f_dict = {1:f1,2:f2}
+
+        solver_obj = SerialFETIsolver(Z_dict,B_dict,f_dict,dtype=np.complex,tolence=1.0E-16)
+
+        solution_obj = solver_obj.solve()
+
+        u_dual = solution_obj.displacement
+        lambda_ = solution_obj.interface_lambda
+        alpha =  solution_obj.alpha
+
+        manager = solver_obj.manager 
+        L = manager.assemble_global_L()
+        Lexp = manager.assemble_global_L_exp()
+        Z, f = manager.assemble_global_K_and_f()
+        Zp = L@Z@Lexp
+        fp = L.dot(f)
+        up = sparse.linalg.spsolve(Zp,fp)
+        usol = L.dot(u_dual)
+        np.testing.assert_almost_equal(np.abs(up), np.abs(usol) ,decimal=4)
+        np.testing.assert_almost_equal(np.angle(up), np.angle(usol),decimal=2)
+
+    def test_multiple_righthand_sides(self): 
+
+        print('Test dtype for FETI solver ..........')
+        K1 = np.array([[2,-1],[-1,1]])
+        K2 = np.array([[1,-1],[-1,1]])
+        B1 = np.array([[0,1]]) 
+        B2 = np.array([[-1,0]]) 
         
+        f1 = np.array([[0.,0.],[0.,0.]]).T
+        f2 = np.array([[0.,1.],[0.,2.]]).T
+
+        # Using PyFETI to solve the probrem described above
+        K_dict = {1:K1,2:K2}
+        B_dict = {1 : {(1,2) : B1}, 2 : {(2,1) : B2}}
+        f_dict = {1:f1,2:f2}
+
+        solver_obj = SerialFETIsolver(K_dict,B_dict,f_dict,dtype=np.float,tolence=1.0E-12)
+        solution_obj = solver_obj.solve()
+        u_dual = solution_obj.displacement
+        lambda_ = solution_obj.interface_lambda
+        alpha =  solution_obj.alpha
+
+        manager = solver_obj.manager 
+        L = manager.assemble_global_L()
+        Lexp = manager.assemble_global_L_exp()
+        K, f = manager.assemble_global_K_and_f()
+        Kp = L@K@Lexp
+        fp = L.dot(f)
+        up = sparse.linalg.spsolve(Kp,fp)
+        usol = L.dot(u_dual)
+        
+        np.testing.assert_almost_equal(usol, up ,decimal=10)
+        np.testing.assert_almost_equal(2*usol[:,0],  usol[:,1],decimal=10)
 
 
 if __name__=='__main__':
 
     main()
     #test_obj = Test_FETIsolver()
+    #test_obj.test_dtype_complex()
+    #test_obj.test_multiple_righthand_sides()
     #test_obj.setUp()
     #test_obj.test_ParallelRetangularLinearOperator()
     #test_obj.test_serial_solver()

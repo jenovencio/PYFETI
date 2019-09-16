@@ -229,6 +229,171 @@ def alpha_calc(vn1,pk,Fpk,vdot=None):
     alpha = vn1/aux2
     return alpha
 
+
+def PGMRES(F_action,residual,Projection_action=None,lambda_init=None,
+        Precondicioner_action=None,tolerance=None,max_int=None,
+        callback=None,vdot= None,save_lambda=False,exact_norm=True,restart=None,
+        atol=1.e-12):
+        ''' This function is a general interface for PGMRES algorithms
+
+        argument:
+        F_action: callable function
+        callable function that acts in lambda
+
+        residual: np.array
+        array with initial interface gap
+
+        lambda_init : np.array
+        intial lambda array
+
+        Projection_action: callable function
+        callable function to project the residual
+
+        Precondicioner_action : callable function
+        callable function to atcs as a preconditioner operator
+        in the array w
+
+        tolerance: float, Default= None
+            convergence tolerance, if None tolerance=1.e-10
+
+        max_int : int, Default= None
+            maximum number of iterations, if None max_int = int(1.2*len(residual))
+
+        callback : callable, Default None
+            function to be callabe at the and of each iteration
+
+        vdot : callable, Default None
+            function with the dot product of vdot(v,w) if none 
+            then, np.dot(v,w)
+
+        save_lambda : Booelan, Default = False
+            store lambda interations in the a list
+
+        exact_norm : Booelan, Default = False
+            if True compute the L2 norm of the projected residual sqrt(vdot(wk,wk)), if false compute 
+            the sqrt(vdot(wk,yk)) where yk is the projected preconditioned array
+
+        restart : int, default = None
+            number of iteratios before restart
+
+        atol : float
+            tolerance for the entries of the Hesenberg matrix
+
+        return 
+            lampda_pcgp : np.array
+                last lambda
+            rk : np.array
+                last projected residual
+            proj_r_hist : list
+                list of the history of the norm of the projected residuals
+            lambda_hist : list
+            list of the 
+
+        '''
+         
+        comm = MPI.COMM_WORLD
+        rank = comm.Get_rank()
+        size = comm.Get_size()
+
+        interface_size = len(residual)
+        num_righthand_sides = residual.ndim
+
+        apply_precond = True
+        Identity = LinearOperator(dtype=residual.dtype,shape=(interface_size,interface_size), matvec = lambda x : x)
+         
+        if tolerance is None:
+            tolerance=1.e-10
+
+        if max_int is None:
+            max_int = int(1.2*interface_size)
+
+        if lambda_init is None:
+            lampda_pcpg = np.zeros(shape=residual.shape)
+            lambda_init = np.zeros(shape=residual.shape)
+        else:
+            lampda_pcpg = lambda_init
+                     
+        if Precondicioner_action is None:
+            Precond = Identity.dot
+            apply_precond = False
+        else:
+            Precond = Precondicioner_action
+
+        if Projection_action is None:
+            P = Identity.dot
+        else:
+            P = Projection_action
+            
+        if vdot is None:
+            vdot = lambda v,w : np.dot(v,w)
+
+        # defining a norm based on vdot function
+        norm_func =  lambda v : np.sqrt(vdot(v.conj(),v)).real
+
+        F = F_action
+
+        logging.info('Setting PGMRES tolerance = %4.2e' %tolerance)
+        logging.info('Setting PGMRES max number of iterations = %i' %max_int)
+
+
+        M = LinearOperator(dtype=residual.dtype,shape=(interface_size,interface_size), matvec = lambda x : P(Precond(P(x))))
+        A = LinearOperator(dtype=residual.dtype,shape=(interface_size,interface_size), matvec = lambda x : F(x))
+
+        if restart is None:
+            restart = int(min(0.1*max_int,20,2*A.shape[0])) 
+
+        # initialize variables
+        info_dict = {}
+        proj_r_hist = []
+        lambda_hist = []
+        rk = M.dot(residual)
+        r_norm_0, q, h = PGMRES_initialization(A,rk,restart,vdot=vdot)
+        k=0
+        for ki in range(max_int):
+            y = (M.dot(A.dot(q[:,k]))).reshape(-1)
+            for j in range(k+1):
+                h[j, k] = vdot(q[:,j], y.conj())
+                y = y - h[j, k] * q[:,j]
+            h[k + 1, k] = norm_func(y)
+            if (np.abs(h[k + 1, k]) <= atol) or k==restart-1:
+                k = restart
+            else:
+                q[:,k + 1] = (y / h[k + 1, k])
+                k+=1
+                continue
+                
+                
+            if k==restart:
+                e1 = np.zeros(k+1,dtype=residual.dtype)  
+                e1[0] = 1.0
+                result = np.linalg.lstsq(h[:k+1,:k+1], r_norm_0*e1,rcond=-1)[0]
+                lampda_pcpg =  lambda_init + q[:,:k+1].dot(result)
+                if save_lambda:
+                    lambda_hist.append(lampda_pcpg)
+
+                rk =  residual - A.dot(lampda_pcpg) 
+                r_norm_0, q, h = PGMRES_initialization(A,rk,restart,vdot=vdot)
+
+                proj_r_hist.append(r_norm_0)
+
+                if r_norm_0 <= max(tolerance,tolerance*r_norm_0):
+                    break
+                lambda_init=lampda_pcpg
+                k=0
+
+        return lampda_pcpg, rk, proj_r_hist, lambda_hist, info_dict
+
+def PGMRES_initialization(A,r,nmax_iter,vdot=None):
+    
+    if vdot is None:
+        vdot = lambda v,w : np.dot(v,w)
+
+    q = np.zeros((A.shape[0],nmax_iter),dtype=A.dtype)
+    r_norm = np.sqrt(vdot(r.conj(),r))
+    q[:,0] = r / r_norm
+    h = np.zeros((nmax_iter + 1, nmax_iter),dtype=A.dtype)
+    return r_norm, q, h
+
 def pminres(F_action,residual,Projection_action=None,lambda_init=None,
         Precondicioner_action=None,tolerance=1.e-10,max_int=500):
         ''' This function is a general interface for Scipy MinRes algorithm
@@ -304,6 +469,53 @@ def pminres(F_action,residual,Projection_action=None,lambda_init=None,
         return lampda_pcpg, rk , proj_r_hist, lambda_hist
 
 
+def GMRes(A, b, x0=None, tol=1.0E-6, atol=1.0E-12, nmax_iter=6, restart=None):
+    
+    if x0 is None:
+        x0 = np.zeros(shape=b.shape, dtype=b.dtype)
+
+    if restart is None:
+        restart = int(min(0.1*nmax_iter,20,2*A.shape[0])) 
+
+    r, r_norm_0, q, h = init_GMres(A,b,x0,restart)
+    k=0
+    for ki in range(nmax_iter):
+        y = (A.dot(q[:,k])).reshape(-1)
+        for j in range(k+1):
+            h[j, k] = np.dot(q[:,j], y.conj())
+            y = y - h[j, k] * q[:,j]
+        h[k + 1, k] = np.linalg.norm(y)
+        if (np.abs(h[k + 1, k]) <= atol) or k==restart-1:
+            k = restart
+        else:
+            q[:,k + 1] = y / h[k + 1, k]
+            k+=1
+            continue
+            
+            
+        if k==restart:
+            e1 = np.zeros(k+1,dtype=b.dtype)  
+            e1[0] = 1.0
+            result = np.linalg.lstsq(h[:k+1,:k+1], r_norm_0*e1,rcond=-1)[0]
+            xk =  x0 + q[:,:k+1].dot(result)
+
+            r, r_norm_0, q, h = init_GMres(A,b,xk,restart)
+            if r_norm_0 <= max(tol,tol*r_norm_0):
+                break
+            x0=xk
+            k=0
+
+    return xk
+
+def init_GMres(A,b,x0,nmax_iter):
+    r = b - A.dot(x0)
+    q = np.zeros((A.shape[0],nmax_iter),dtype=b.dtype)
+    r_norm = np.linalg.norm(r)
+    q[:,0] = r / r_norm
+    h = np.zeros((nmax_iter + 1, nmax_iter),dtype=b.dtype)
+    return r, r_norm, q, h
+
+
 class  Test_solvers(TestCase):
 
     def test_ProjectorOperator_with_minres(self):
@@ -326,8 +538,58 @@ class  Test_solvers(TestCase):
 
         x_target = np.linalg.solve(A,b)
         r = b
-        x_pcpg, rk , proj_r_hist, X_hist = PCPG(A.dot,r,max_int=6)
+        x_pcpg, rk , proj_r_hist, X_hist, info_dict = PCPG(A.dot,r,max_int=6)
         np.testing.assert_array_almost_equal(x_target,x_pcpg,decimal=10)
+
+    def test_gmres_complex(self):
+        K1 = sparse.csc_matrix(np.array([[2,-1,0],[-1,2,-1],[0,-1,1]]), dtype=np.float) 
+        M1 = sparse.eye(K1.shape[0])
+        f = np.array([0,0,1], dtype=np.complex)
+
+        alpha = 0.01
+        beta = 0.001
+        Z_func = lambda w : K1 - w**2*M1 + 1J*w*(alpha*K1 + beta*M1)   
+
+        Z = Z_func(0.5)
+        lu = sparse.linalg.splu(Z)
+        u_target = lu.solve(f)
+        
+        u_cg, info = sparse.linalg.cg(Z,f)
+        u_gmres_scipy, info = sparse.linalg.gmres(Z,f)
+
+        u_pcpg, rk , proj_r_hist, X_hist, info_dict = PCPG(Z.dot,f,max_int=100)
+        u_gmres = GMRes(Z,f,nmax_iter=100,tol=1.0e-9)
+
+        u_pgmres, rk , proj_r_hist, X_hist, info_dict = PGMRES(lambda x: Z.dot(x),f,max_int=100)
+        u_pgmres_, rk , proj_r_hist, X_hist, info_dict = PGMRES(lambda x: Z.dot(x),f,
+                                                                Precondicioner_action=lambda x: lu.solve(x), 
+                                                                max_int=100)
+
+        np.testing.assert_array_almost_equal(u_target,u_gmres,decimal=8)
+        np.testing.assert_array_almost_equal(u_gmres_scipy,u_gmres,decimal=8)
+        np.testing.assert_array_almost_equal(u_target,u_pgmres,decimal=8)
+        np.testing.assert_array_almost_equal(u_target,u_pgmres_,decimal=8)
+
+
+    def test_gmres(self):
+        
+        K = sparse.csc_matrix(np.array([[0,1],[-1,0]]), dtype=np.float) 
+        f = np.array([1,1], dtype=np.float)
+
+        u_target = sparse.linalg.spsolve(K,f)
+        
+        u_cg, info = sparse.linalg.cg(K,f)
+        u_gmres_scipy, info = sparse.linalg.gmres(K,f)
+
+        u_pcpg, rk , proj_r_hist, X_hist, info_dict = PCPG(K.dot,f,max_int=100)
+        u_gmres = GMRes(K,f,nmax_iter=100,tol=1.0e-9)
+
+        u_pgmres, rk , proj_r_hist, X_hist, info_dict = PGMRES(lambda x: K.dot(x),f,max_int=100)
+
+        np.testing.assert_array_almost_equal(u_target,u_gmres,decimal=8)
+        np.testing.assert_array_almost_equal(u_gmres_scipy,u_gmres,decimal=8)
+        np.testing.assert_array_almost_equal(u_target,u_pgmres,decimal=8)
+
 
 
 if __name__ == '__main__':

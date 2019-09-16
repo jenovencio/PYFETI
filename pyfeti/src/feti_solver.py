@@ -904,7 +904,7 @@ class LocalProblem():
         self.interface_size =  0
         self.neighbors_id = []
         self.crosspoints = {}
-        self.interface_set = set()
+        self.interface_set = []
         self.interior_set = set()
         self.scalling = None
         self.get_neighbors_id()
@@ -935,7 +935,7 @@ class LocalProblem():
         interface based on local B matrices
         '''
         for key, B in self.B_local.items():
-            self.interface_set.update(B.nonzero()[1])
+            self.interface_set.extend(list(B.nonzero()[1]))
             
         return self.interface_set
 
@@ -946,8 +946,8 @@ class LocalProblem():
         if not self.interface_set:
             self.compute_interface_dof_set()
         
-        self.interior_set.update(set(list(range(self.length)))-self.interface_set)
-        return self.interior_set
+        self.interior_set.update(set(list(range(self.length)))-set(self.interface_set))
+        return list(self.interior_set)
 
     def compute_neighbor_scaling_array(self):
         ''' This method compute an array with dimension
@@ -986,6 +986,28 @@ class LocalProblem():
         u = sparse.diags(1.0/self.scalling).dot(u)
         
         return u
+
+    def contract_primal(self,u):
+        ''' This method contracts a u given  
+        scalling B expation.
+        
+        u = scalling sum [B i u ij]
+
+        ub_dict = self.get_interface(u)
+
+        returns:
+            u : np.array
+                array with primal variables 
+        '''
+        ub = np.zeros(len(self.interface_set), dtype=self.dtype)
+        for interface_id, B in self.B_local.items():
+                (local_id,nei_id) = interface_id
+                if local_id>nei_id:
+                    interface_id = (nei_id,local_id) 
+                ub += B.dot(u)
+
+        return ub
+
 
     def apply_schur_complement(self,gap_dict,precond_type='Lumped'):
         ''' This method computes the force at the interface, 

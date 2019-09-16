@@ -762,7 +762,7 @@ class Pseudoinverse():
         self.pinv = None
         self.null_space = np.array([])
         self.free_index = []
-        self.tolerance = 1.0E-8
+        self.tolerance = tolerance
         self.matrix = None
     
     def set_tolerance(self,tol):
